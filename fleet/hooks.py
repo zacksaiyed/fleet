@@ -4,6 +4,7 @@ app_publisher = "XBarq Technologies"
 app_description = "Fleet Management"
 app_email = "info@xbarq.in"
 app_license = "mit"
+app_home = "/fleet-track"
 
 # Apps
 # ------------------
@@ -242,3 +243,13 @@ app_license = "mit"
 # 	"Logging DocType Name": 30  # days to retain logs
 # }
 
+fixtures = [
+    {
+        "dt": "Workspace", 
+        "filters": [
+            [
+                "name", "=", "Fleet Track"
+            ]
+        ]
+    }
+]
