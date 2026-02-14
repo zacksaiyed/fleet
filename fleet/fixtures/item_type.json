@@ -1,0 +1,23 @@
+[
+ {
+  "description": null,
+  "docstatus": 0,
+  "doctype": "Item Type",
+  "modified": "2026-02-14 16:39:32.365273",
+  "name": "Fuel Sensor"
+ },
+ {
+  "description": null,
+  "docstatus": 0,
+  "doctype": "Item Type",
+  "modified": "2026-02-14 16:39:06.936838",
+  "name": "SIM"
+ },
+ {
+  "description": null,
+  "docstatus": 0,
+  "doctype": "Item Type",
+  "modified": "2026-02-14 16:39:22.127443",
+  "name": "GPS Device"
+ }
+]

@@ -1,0 +1,79 @@
+[
+ {
+  "brand": "Airtel",
+  "brand_defaults": [],
+  "description": null,
+  "docstatus": 0,
+  "doctype": "Brand",
+  "image": null,
+  "item_type": "SIM",
+  "modified": "2026-02-14 16:40:24.932480",
+  "name": "Airtel"
+ },
+ {
+  "brand": "MTN",
+  "brand_defaults": [],
+  "description": null,
+  "docstatus": 0,
+  "doctype": "Brand",
+  "image": null,
+  "item_type": "SIM",
+  "modified": "2026-02-14 16:40:31.233255",
+  "name": "MTN"
+ },
+ {
+  "brand": "Wazambi",
+  "brand_defaults": [],
+  "description": null,
+  "docstatus": 0,
+  "doctype": "Brand",
+  "image": null,
+  "item_type": "GPS Device",
+  "modified": "2026-02-14 16:41:19.312984",
+  "name": "Wazambi"
+ },
+ {
+  "brand": "GTMS",
+  "brand_defaults": [],
+  "description": null,
+  "docstatus": 0,
+  "doctype": "Brand",
+  "image": null,
+  "item_type": "GPS Device",
+  "modified": "2026-02-14 16:41:39.603929",
+  "name": "GTMS"
+ },
+ {
+  "brand": "Tramigo",
+  "brand_defaults": [],
+  "description": null,
+  "docstatus": 0,
+  "doctype": "Brand",
+  "image": null,
+  "item_type": "SIM",
+  "modified": "2026-02-14 16:41:58.239546",
+  "name": "Tramigo"
+ },
+ {
+  "brand": "Zamtel",
+  "brand_defaults": [],
+  "description": null,
+  "docstatus": 0,
+  "doctype": "Brand",
+  "image": null,
+  "item_type": "SIM",
+  "modified": "2026-02-14 16:42:52.253068",
+  "name": "Zamtel"
+ },
+ {
+  "brand": "Stradatrack",
+  "brand_defaults": [],
+  "description": null,
+  "docstatus": 0,
+  "doctype": "Brand",
+  "image": null,
+  "item_type": "Fuel Sensor",
+  "modified": "2026-02-14 16:43:47.667624",
+  "name": "Stradatrack"
+ }
+]
