@@ -44,7 +44,8 @@ app_home = "/fleet-track"
 # page_js = {"page" : "public/js/file.js"}
 
 # include js in doctype views
-doctype_js = {"Task" : "public/js/task.js"}
+doctype_js = {"Task" : "public/js/task.js",
+              "User": "public/js/user.js"}
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
@@ -145,6 +146,15 @@ doctype_js = {"Task" : "public/js/task.js"}
 # 		"on_trash": "method"
 # 	}
 # }
+doc_events = {
+    "User": {
+        "validate": "fleet.erpnext_events.user_warehouse_hooks.validate_user_roles",
+        "on_update": "fleet.erpnext_events.user_warehouse_hooks.on_update_user_roles"
+    },
+    "Task": {
+        "on_update": "fleet.erpnext_events.task_assign.sync_assignment"
+    }
+}
 
 # Scheduled Tasks
 # ---------------
