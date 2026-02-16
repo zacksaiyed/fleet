@@ -44,6 +44,7 @@
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "SIM",
+   "link_filters": "[[\"Item\",\"custom_item_type\",\"=\",\"SIM\"]]",
    "options": "Item"
   },
   {
@@ -52,6 +53,7 @@
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Device",
+   "link_filters": "[[\"Item\",\"custom_item_type\",\"=\",\"GPS Device\"]]",
    "options": "Item"
   },
   {
@@ -60,6 +62,7 @@
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Fuel Sensor",
+   "link_filters": "[[\"Item\",\"custom_item_type\",\"=\",\"Fuel Sensor\"]]",
    "options": "Item"
   },
   {
@@ -85,7 +88,6 @@
  "owner": "Administrator",
  "permissions": [],
  "row_format": "Dynamic",
- "rows_threshold_for_grid_search": 20,
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": []
