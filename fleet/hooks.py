@@ -44,8 +44,10 @@ app_home = "/fleet-track"
 # page_js = {"page" : "public/js/file.js"}
 
 # include js in doctype views
-doctype_js = {"Task" : "public/js/task.js",
-              "User": "public/js/user.js"}
+doctype_js = {
+    "Task" : "public/js/task.js",
+    "User": "public/js/user.js"
+}
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
@@ -153,6 +155,10 @@ doc_events = {
     },
     "Task": {
         "on_update": "fleet.erpnext_events.task_assign.sync_assignment"
+    },
+    "Employee": {
+        "after_insert": "fleet.erpnext_events.employee.sync_user_with_employee",
+        "on_update": "fleet.erpnext_events.employee.sync_user_with_employee"
     }
 }
 
@@ -254,7 +260,22 @@ doc_events = {
 # }
 
 fixtures = [
-    {
-        "dt": "Item Type"
-    }
+    # {
+    #     "dt": "Item Type"
+    # }
+    {"dt": "Designation","filters": [
+        [
+            "name", "in", [
+                "Support",
+                "Technician"
+            ]
+        ]
+    ]},
+    {"dt": "Module Profile","filters": [
+        [
+            "name", "in", [
+                "Fleet"
+            ]
+        ]
+    ]},
 ]
