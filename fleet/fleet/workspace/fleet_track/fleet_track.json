@@ -1,8 +1,13 @@
 {
  "charts": [],
- "content": "[{\"id\":\"L4ODMY-nYK\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\">Fleet Track Solutions</span>\",\"col\":12}},{\"id\":\"VRfj5DktdT\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Task\",\"col\":3}},{\"id\":\"paP6TsGb8O\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Customer\",\"col\":3}},{\"id\":\"PprjKmp38R\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Item\",\"col\":3}},{\"id\":\"vZ0AFAdcgB\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Vehicle\",\"col\":3}}]",
+ "content": "[{\"id\":\"YjLE3Kc4D4\",\"type\":\"custom_block\",\"data\":{\"custom_block_name\":\"Support Dashboard\",\"col\":12}}]",
  "creation": "2026-02-04 21:12:06.638702",
- "custom_blocks": [],
+ "custom_blocks": [
+  {
+   "custom_block_name": "Support Dashboard",
+   "label": "Support Dashboard"
+  }
+ ],
  "docstatus": 0,
  "doctype": "Workspace",
  "for_user": "",
@@ -13,7 +18,7 @@
  "is_hidden": 0,
  "label": "Fleet Track",
  "links": [],
- "modified": "2026-02-14 17:48:19.973359",
+ "modified": "2026-02-20 01:42:04.465132",
  "modified_by": "Administrator",
  "module": "Fleet",
  "name": "Fleet Track",
@@ -24,43 +29,6 @@
  "quick_lists": [],
  "roles": [],
  "sequence_id": 1.0,
- "shortcuts": [
-  {
-   "color": "Pink",
-   "doc_view": "List",
-   "format": "{}",
-   "label": "Task",
-   "link_to": "Task",
-   "stats_filter": "[]",
-   "type": "DocType"
-  },
-  {
-   "color": "Green",
-   "doc_view": "List",
-   "format": "{}",
-   "label": "Customer",
-   "link_to": "Customer",
-   "stats_filter": "[]",
-   "type": "DocType"
-  },
-  {
-   "color": "Yellow",
-   "doc_view": "List",
-   "format": "{}",
-   "label": "Item",
-   "link_to": "Item",
-   "stats_filter": "[]",
-   "type": "DocType"
-  },
-  {
-   "color": "Cyan",
-   "doc_view": "List",
-   "format": "{}",
-   "label": "Vehicle",
-   "link_to": "Vehicle",
-   "stats_filter": "[]",
-   "type": "DocType"
-  }
- ],
+ "shortcuts": [],
  "title": "Fleet Track"
 }
