@@ -121,14 +121,13 @@ doctype_js = {
 # -----------
 # Permissions evaluated in scripted ways
 
-# permission_query_conditions = {
-# 	"Event": "frappe.desk.doctype.event.event.get_permission_query_conditions",
-# }
-#
-# has_permission = {
-# 	"Event": "frappe.desk.doctype.event.event.has_permission",
-# }
+permission_query_conditions = {
+	"Task": "fleet.custom_py.permissions.task_permission_query"
+}
 
+has_permission = {
+	"Task": "fleet.custom_py.permissions.task_has_permission",
+}
 # DocType Class
 # ---------------
 # Override standard doctype classes
@@ -154,7 +153,8 @@ doc_events = {
         "on_update": "fleet.erpnext_events.user_warehouse_hooks.on_update_user_roles"
     },
     "Task": {
-        "on_update": "fleet.erpnext_events.task_assign.sync_assignment"
+        "on_update": "fleet.erpnext_events.task_assign.sync_assignment",
+        "before_save": "fleet.custom_py.task_assignment.handle_assignment"
     },
     "Employee": {
         "after_insert": "fleet.erpnext_events.employee.sync_user_with_employee",
@@ -260,9 +260,6 @@ doc_events = {
 # }
 
 fixtures = [
-    # {
-    #     "dt": "Item Type"
-    # }
     {"dt": "Designation","filters": [
         [
             "name", "in", [
