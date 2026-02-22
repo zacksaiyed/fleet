@@ -153,7 +153,6 @@ doc_events = {
         "on_update": "fleet.erpnext_events.user_warehouse_hooks.on_update_user_roles"
     },
     "Task": {
-        "on_update": "fleet.erpnext_events.task_assign.sync_assignment",
         "before_save": "fleet.custom_py.task_assignment.handle_assignment"
     },
     "Employee": {
