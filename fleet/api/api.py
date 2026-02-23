@@ -3,6 +3,7 @@ import frappe
 @frappe.whitelist()
 def get_technician_employees():
     """
+    for Custom HTML Block
     Returns all employees whose linked User has the 'Technician' role.
     Includes task count (open ToDos) and unread message count via raw SQL.
     """
