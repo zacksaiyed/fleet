@@ -140,25 +140,24 @@ has_permission = {
 # ---------------
 # Hook on document methods and events
 
-# doc_events = {
-# 	"*": {
-# 		"on_update": "method",
-# 		"on_cancel": "method",
-# 		"on_trash": "method"
-# 	}
-# }
 doc_events = {
     "User": {
         "validate": "fleet.erpnext_events.user_warehouse_hooks.validate_user_roles",
         "on_update": "fleet.erpnext_events.user_warehouse_hooks.on_update_user_roles"
     },
     "Task": {
+        "on_update": [
+          "fleet.erpnext_events.task_assign.sync_assignment",
+          "fleet.override.task.sync_vehicle_data"
+        ],
         "before_save": "fleet.custom_py.task_assignment.handle_assignment"
     },
     "Employee": {
         "after_insert": "fleet.erpnext_events.employee.sync_user_with_employee",
         "on_update": "fleet.erpnext_events.employee.sync_user_with_employee"
     }
+# 		"on_trash": "method",
+#       "on_submit": "method"
 }
 
 # Scheduled Tasks

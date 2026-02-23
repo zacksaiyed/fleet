@@ -13,7 +13,10 @@
   "fuel_sensor",
   "column_break_lcrn",
   "comment",
-  "vehicle_image"
+  "vehicle_image",
+  "make",
+  "model",
+  "color"
  ],
  "fields": [
   {
@@ -75,13 +78,28 @@
   {
    "fieldname": "column_break_lcrn",
    "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "make",
+   "fieldtype": "Data",
+   "label": "Make"
+  },
+  {
+   "fieldname": "model",
+   "fieldtype": "Data",
+   "label": "Model"
+  },
+  {
+   "fieldname": "color",
+   "fieldtype": "Data",
+   "label": "Color"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2026-02-14 13:53:23.775172",
+ "modified": "2026-02-19 16:09:50.787292",
  "modified_by": "Administrator",
  "module": "Fleet",
  "name": "Task Job",
