@@ -247,7 +247,7 @@
    "read": 1,
    "report": 0,
    "role": "Technician",
-   "select": 0,
+   "select": 1,
    "share": 0,
    "submit": 0,
    "write": 0

@@ -1,6 +1,6 @@
 {
  "charts": [],
- "content": "[{\"id\":\"YjLE3Kc4D4\",\"type\":\"custom_block\",\"data\":{\"custom_block_name\":\"Support Dashboard\",\"col\":12}}]",
+ "content": "[{\"id\":\"YjLE3Kc4D4\",\"type\":\"custom_block\",\"data\":{\"custom_block_name\":\"Support Dashboard\",\"col\":12}},{\"id\":\"X8AwMHDBDH\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Task\",\"col\":3}}]",
  "creation": "2026-02-04 21:12:06.638702",
  "custom_blocks": [
   {
@@ -13,7 +13,7 @@
  "for_user": "",
  "hide_custom": 0,
  "icon": "heart-active",
- "idx": 0,
+ "idx": 1,
  "indicator_color": "green",
  "is_hidden": 0,
  "label": "Fleet Track",
@@ -29,6 +29,16 @@
  "quick_lists": [],
  "roles": [],
  "sequence_id": 1.0,
- "shortcuts": [],
+ "shortcuts": [
+  {
+   "color": "Green",
+   "doc_view": "List",
+   "format": "{}",
+   "label": "Task",
+   "link_to": "Task",
+   "stats_filter": "[]",
+   "type": "DocType"
+  }
+ ],
  "title": "Fleet Track"
 }
