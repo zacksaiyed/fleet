@@ -159,6 +159,17 @@ doc_events = {
     "Employee": {
         "after_insert": "fleet.erpnext_events.employee.sync_user_with_employee",
         "on_update": "fleet.erpnext_events.employee.sync_user_with_employee"
+    },
+    "Customer": {
+        "after_insert": [
+            "fleet.override.customer_warehouse.set_customer_warehouse"
+        ],
+        "on_update": [
+            "fleet.override.customer_warehouse.set_customer_warehouse"
+        ],
+        "on_trash": [
+            "fleet.override.customer_warehouse.set_customer_warehouse"
+        ]    
     }
 # 		"on_trash": "method",
 #       "on_submit": "method"
