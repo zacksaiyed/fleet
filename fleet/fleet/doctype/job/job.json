@@ -1,0 +1,199 @@
+{
+ "actions": [],
+ "autoname": "JOB-.YYYY.-.MM.-.######",
+ "creation": "2026-03-01 12:23:31.432340",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "title",
+  "task",
+  "assigned_technician",
+  "col_break_1",
+  "status",
+  "vehicle_number",
+  "task_type",
+  "section_break_wthp",
+  "item_installed_removed",
+  "section_break_zlps",
+  "job_images",
+  "section_customer",
+  "customer_warehouse",
+  "technician_warehouse",
+  "section_completion",
+  "customer",
+  "column_break_tqby",
+  "completion_comment",
+  "section_unread",
+  "unread_count_support",
+  "unread_count_tech"
+ ],
+ "fields": [
+  {
+   "fieldname": "title",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Title",
+   "reqd": 1
+  },
+  {
+   "fieldname": "task",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Task",
+   "options": "Task",
+   "reqd": 1
+  },
+  {
+   "fieldname": "assigned_technician",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Assigned Technician",
+   "options": "User",
+   "reqd": 1
+  },
+  {
+   "default": "Pending",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_filter": 1,
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Pending\nIn Progress\nHold\nCompleted",
+   "reqd": 1
+  },
+  {
+   "fieldname": "col_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "vehicle_number",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Vehicle Number"
+  },
+  {
+   "fieldname": "section_customer",
+   "fieldtype": "Section Break",
+   "hidden": 1
+  },
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "label": "Customer",
+   "options": "Customer"
+  },
+  {
+   "fieldname": "customer_warehouse",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "label": "Customer Warehouse",
+   "options": "Warehouse"
+  },
+  {
+   "description": "Auto-fetched from technician's assigned warehouse",
+   "fieldname": "technician_warehouse",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "label": "Technician Warehouse",
+   "options": "Warehouse",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_completion",
+   "fieldtype": "Section Break"
+  },
+  {
+   "depends_on": "eval:doc.status == 'Completed'",
+   "description": "Mandatory when marking status as Completed",
+   "fieldname": "completion_comment",
+   "fieldtype": "Small Text",
+   "label": "Completion Comment"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_unread",
+   "fieldtype": "Section Break",
+   "hidden": 1,
+   "label": "Chat Counters"
+  },
+  {
+   "default": "0",
+   "fieldname": "unread_count_support",
+   "fieldtype": "Int",
+   "label": "Unread (Support)",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "unread_count_tech",
+   "fieldtype": "Int",
+   "label": "Unread (Technician)",
+   "read_only": 1
+  },
+  {
+   "default": "None",
+   "fieldname": "task_type",
+   "fieldtype": "Link",
+   "label": "Task Type",
+   "options": "Task Type",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_break_wthp",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "item_installed_removed",
+   "fieldtype": "Table",
+   "label": "Item Installed/Removed",
+   "options": "Job Item"
+  },
+  {
+   "fieldname": "column_break_tqby",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "section_break_zlps",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "job_images",
+   "fieldtype": "Table",
+   "label": "Job Images",
+   "options": "Job Image"
+  }
+ ],
+ "links": [],
+ "modified": "2026-03-02 02:40:21.489340",
+ "modified_by": "Administrator",
+ "module": "Fleet",
+ "name": "Job",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "read": 1,
+   "role": "Technician",
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
+   "role": "Support Team",
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
+   "role": "System Manager",
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

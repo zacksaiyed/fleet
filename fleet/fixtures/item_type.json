@@ -3,21 +3,32 @@
   "description": null,
   "docstatus": 0,
   "doctype": "Item Type",
-  "modified": "2026-02-14 16:39:32.365273",
+  "icon": "tool",
+  "modified": "2026-02-28 13:32:49.180866",
+  "name": "Temperature"
+ },
+ {
+  "description": null,
+  "docstatus": 0,
+  "doctype": "Item Type",
+  "icon": "kanban",
+  "modified": "2026-02-28 16:58:23.851475",
   "name": "Fuel Sensor"
  },
  {
   "description": null,
   "docstatus": 0,
   "doctype": "Item Type",
-  "modified": "2026-02-14 16:39:06.936838",
+  "icon": "month-view",
+  "modified": "2026-02-28 16:59:48.938759",
   "name": "SIM"
  },
  {
   "description": null,
   "docstatus": 0,
   "doctype": "Item Type",
-  "modified": "2026-02-14 16:39:22.127443",
+  "icon": "map",
+  "modified": "2026-02-28 16:59:31.447186",
   "name": "GPS Device"
  }
 ]

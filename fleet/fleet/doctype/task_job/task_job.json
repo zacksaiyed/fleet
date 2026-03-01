@@ -8,17 +8,28 @@
  "field_order": [
   "task_type",
   "vehicle",
-  "sim",
-  "device",
-  "fuel_sensor",
+  "status",
   "column_break_lcrn",
-  "comment",
-  "vehicle_image",
-  "make",
-  "model",
-  "color"
+  "job"
  ],
  "fields": [
+  {
+   "bold": 1,
+   "fieldname": "job",
+   "fieldtype": "Link",
+   "label": "Job",
+   "options": "Job",
+   "read_only": 1
+  },
+  {
+   "columns": 1,
+   "default": "Pending",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Pending\nHold\nIn Progress\nCompleted"
+  },
   {
    "columns": 1,
    "fieldname": "task_type",
@@ -28,13 +39,6 @@
    "options": "Task Type"
   },
   {
-   "columns": 2,
-   "fieldname": "comment",
-   "fieldtype": "Small Text",
-   "in_list_view": 1,
-   "label": "Comment"
-  },
-  {
    "columns": 1,
    "fieldname": "vehicle",
    "fieldtype": "Data",
@@ -42,57 +46,8 @@
    "label": "Vehicle"
   },
   {
-   "columns": 2,
-   "fieldname": "sim",
-   "fieldtype": "Link",
-   "in_list_view": 1,
-   "label": "SIM",
-   "link_filters": "[[\"Item\",\"custom_item_type\",\"=\",\"SIM\"]]",
-   "options": "Item"
-  },
-  {
-   "columns": 2,
-   "fieldname": "device",
-   "fieldtype": "Link",
-   "in_list_view": 1,
-   "label": "Device",
-   "link_filters": "[[\"Item\",\"custom_item_type\",\"=\",\"GPS Device\"]]",
-   "options": "Item"
-  },
-  {
-   "columns": 1,
-   "fieldname": "fuel_sensor",
-   "fieldtype": "Link",
-   "in_list_view": 1,
-   "label": "Fuel Sensor",
-   "link_filters": "[[\"Item\",\"custom_item_type\",\"=\",\"Fuel Sensor\"]]",
-   "options": "Item"
-  },
-  {
-   "columns": 1,
-   "fieldname": "vehicle_image",
-   "fieldtype": "Attach",
-   "in_list_view": 1,
-   "label": "Vehicle Image"
-  },
-  {
    "fieldname": "column_break_lcrn",
    "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "make",
-   "fieldtype": "Data",
-   "label": "Make"
-  },
-  {
-   "fieldname": "model",
-   "fieldtype": "Data",
-   "label": "Model"
-  },
-  {
-   "fieldname": "color",
-   "fieldtype": "Data",
-   "label": "Color"
   }
  ],
  "grid_page_length": 50,

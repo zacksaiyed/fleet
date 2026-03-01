@@ -1,0 +1,107 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "autoincrement",
+ "creation": "2026-03-01 15:45:33.147111",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "job",
+  "task_job_row",
+  "sender",
+  "sender_name",
+  "sender_role",
+  "message",
+  "message_type",
+  "file_url",
+  "is_read"
+ ],
+ "fields": [
+  {
+   "fieldname": "job",
+   "fieldtype": "Link",
+   "label": "Job",
+   "options": "Job",
+   "reqd": 1,
+   "in_list_view": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "task_job_row",
+   "fieldtype": "Data",
+   "label": "Task Job Row",
+   "read_only": 1,
+   "hidden": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "sender",
+   "fieldtype": "Link",
+   "label": "Sender",
+   "options": "User",
+   "reqd": 1
+  },
+  {
+   "fieldname": "sender_name",
+   "fieldtype": "Data",
+   "label": "Sender Name"
+  },
+  {
+   "fieldname": "sender_role",
+   "fieldtype": "Select",
+   "label": "Sender Role",
+   "options": "Technician\nSupport",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "message",
+   "fieldtype": "Text",
+   "label": "Message",
+   "reqd": 1
+  },
+  {
+   "fieldname": "message_type",
+   "fieldtype": "Select",
+   "label": "Message Type",
+   "options": "Text\nImage\nFile",
+   "default": "Text"
+  },
+  {
+   "fieldname": "file_url",
+   "fieldtype": "Data",
+   "label": "File URL"
+  },
+  {
+   "fieldname": "is_read",
+   "fieldtype": "Check",
+   "label": "Is Read",
+   "default": 0
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "istable": 0,
+ "links": [],
+ "modified": "2026-03-01 15:45:51.842740",
+ "modified_by": "Administrator",
+ "module": "Fleet",
+ "name": "Job Message",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "create": 1, "delete": 1, "read": 1, "write": 1
+  },
+  {
+   "role": "Support Team",
+   "create": 1, "read": 1, "write": 1
+  },
+  {
+   "role": "Technician",
+   "create": 1, "read": 1, "write": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "ASC",
+ "track_changes": 0
+}
