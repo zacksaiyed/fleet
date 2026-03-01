@@ -1,19 +1,14 @@
 {
  "charts": [],
- "content": "[{\"id\":\"YjLE3Kc4D4\",\"type\":\"custom_block\",\"data\":{\"custom_block_name\":\"Support Dashboard\",\"col\":12}},{\"id\":\"X8AwMHDBDH\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Task\",\"col\":3}}]",
+ "content": "[{\"id\":\"X8AwMHDBDH\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Task\",\"col\":3}},{\"id\":\"woV7OuaXc2\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Support Dashboard\",\"col\":3}},{\"id\":\"0i3GTaSJH5\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Support Dashboard Chat\",\"col\":3}}]",
  "creation": "2026-02-04 21:12:06.638702",
- "custom_blocks": [
-  {
-   "custom_block_name": "Support Dashboard",
-   "label": "Support Dashboard"
-  }
- ],
+ "custom_blocks": [],
  "docstatus": 0,
  "doctype": "Workspace",
  "for_user": "",
  "hide_custom": 0,
  "icon": "heart-active",
- "idx": 1,
+ "idx": 2,
  "indicator_color": "green",
  "is_hidden": 0,
  "label": "Fleet Track",
@@ -38,6 +33,20 @@
    "link_to": "Task",
    "stats_filter": "[]",
    "type": "DocType"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "Support Dashboard",
+   "link_to": "support-dashboard",
+   "type": "Page"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "Support Dashboard Chat",
+   "link_to": "support-dashboard-chat",
+   "type": "Page"
   }
  ],
  "title": "Fleet Track"

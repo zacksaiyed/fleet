@@ -1,8 +1,4 @@
 frappe.ui.form.on('Task', {
-    // custom_assign_to(frm) {
-    //     if (!frm.is_dirty()) return;
-    //     frm.save();
-    // },
     setup: function (frm) {
         frm.set_query("custom_address", function (doc) {
             return {
@@ -29,24 +25,9 @@ frappe.ui.form.on('Task', {
 			frm.set_value("custom_complete_address", "");
 		}
 	},
-    refresh: function(frm) {
-        // Render chat for each job row on form load
-        frm.doc.custom_task_jobs?.forEach(row => {
-            render_job_chat(frm, row.name);
-        });
-    }
 });
 
-frappe.ui.form.on('Task Job', {
-    // Trigger chat render whenever a row is added/modified
-    form_render: function(frm, cdt, cdn) {
-        setTimeout(() => render_job_chat(frm, cdn), 100);
-    }
-});
-
-// ══════════════════════════════════════════════════════════
 //  MAIN: Render chat panel for each job row
-// ══════════════════════════════════════════════════════════
 function render_job_chat(frm, cdn) {
     // Find the grid row wrapper
     let grid_row = frm.fields_dict['custom_task_jobs']?.grid?.grid_rows_by_docname?.[cdn];
@@ -201,9 +182,7 @@ function render_job_chat(frm, cdn) {
     // Load existing messages
     load_messages($chat_section, cdn);
 
-    // ══════════════════════════════════════════════════════
     //  EVENT HANDLERS
-    // ══════════════════════════════════════════════════════
 
     // Toggle chat on header click
     $chat_section.find('.chat-header').on('click', function() {
@@ -264,9 +243,7 @@ function render_job_chat(frm, cdn) {
         this.style.height = Math.min(this.scrollHeight, 80) + 'px';
     });
 
-    // ══════════════════════════════════════════════════════
     //  REALTIME LISTENER
-    // ══════════════════════════════════════════════════════
     frappe.realtime.on(`job_chat_${cdn}`, function(data) {
         // Only process if from someone else
         if (data.sent_by === frappe.session.user) return;
@@ -291,9 +268,7 @@ function render_job_chat(frm, cdn) {
     });
 }
 
-// ══════════════════════════════════════════════════════════
 //  LOAD MESSAGES FROM DATABASE
-// ══════════════════════════════════════════════════════════
 function load_messages($chat_section, cdn) {
     frappe.call({
         method: 'frappe.client.get_list',
@@ -336,9 +311,7 @@ function load_messages($chat_section, cdn) {
     });
 }
 
-// ══════════════════════════════════════════════════════════
 //  SEND MESSAGE
-// ══════════════════════════════════════════════════════════
 function send_message(frm, $chat_section, cdn) {
     let $input = $chat_section.find('.chat-input');
     let message = $input.val().trim();
@@ -410,9 +383,7 @@ function send_message(frm, $chat_section, cdn) {
     });
 }
 
-// ══════════════════════════════════════════════════════════
 //  APPEND MESSAGE BUBBLE
-// ══════════════════════════════════════════════════════════
 function append_message_bubble($chat_section, data) {
     let $list = $chat_section.find('.messages-list');
     
@@ -495,9 +466,7 @@ function append_message_bubble($chat_section, data) {
     $list.append($bubble);
 }
 
-// ══════════════════════════════════════════════════════════
 //  MESSAGE COUNT MANAGEMENT
-// ══════════════════════════════════════════════════════════
 function update_message_count($chat_section, count) {
     $chat_section.find('.chat-count-badge').text(count);
     if (count > 0) {
@@ -513,9 +482,7 @@ function increment_message_count($chat_section) {
     $badge.text(current + 1).show();
 }
 
-// ══════════════════════════════════════════════════════════
 //  UNREAD INDICATORS
-// ══════════════════════════════════════════════════════════
 function show_unread_indicator($chat_section) {
     $chat_section.find('.unread-indicator').show();
     $chat_section.find('.chat-header').css('background', 'var(--subtle-fg)');
