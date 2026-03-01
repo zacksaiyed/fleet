@@ -44,19 +44,18 @@ app_home = "/fleet-track"
 # page_js = {"page" : "public/js/file.js"}
 
 # include js in doctype views
-<<<<<<< Updated upstream
+
 doctype_js = {
-    "Task" : "public/js/task.js",
-    "User": "public/js/user.js"
+  "Task" : "public/js/task.js",
+  "User": "public/js/user.js",
+  "Item": "public/js/item.js",
 }
-=======
-doctype_js = {"Task" : "public/js/task.js",
-              "User": "public/js/user.js",
-              "Item": "public/js/item.js",
-              }
->>>>>>> Stashed changes
+
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
-doctype_list_js = {"Item": "public/js/item_list.js",}
+doctype_list_js = {
+  "Item": "public/js/item_list.js",
+  "Task": "public/js/task_list.js"
+}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
 

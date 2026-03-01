@@ -92,7 +92,7 @@ function render_job_chat(frm, cdn) {
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
                         <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
                     </svg>
-                    <span style="letter-spacing: 0.02em;">JOB CHAT</span>
+                    <span style="letter-spacing: 0.02em;">Job Chat</span>
                     <span class="chat-count-badge" style="
                         background: var(--blue-100);
                         color: var(--blue-600);
@@ -164,7 +164,7 @@ function render_job_chat(frm, cdn) {
                             padding: var(--input-padding);
                             border: 1px solid var(--border-color);
                             min-height: 36px;
-                            max-height: 80px;
+                            max-height: 36px;
                             font-family: var(--font-stack);
                             background: var(--control-bg);
                         "></textarea>
