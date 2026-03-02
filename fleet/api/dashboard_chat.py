@@ -186,7 +186,7 @@ def get_technician_jobs(technician):
         "Job",
         filters={"assigned_technician": technician},
         fields=["name", "title", "task", "status", "vehicle_number",
-                "task_type", "device_type", "unread_count_support",
+                "task_type", "unread_count_support",
                 "unread_count_tech", "creation", "modified"],
         order_by="modified desc"
     )
