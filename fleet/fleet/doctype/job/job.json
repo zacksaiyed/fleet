@@ -8,10 +8,11 @@
   "title",
   "task",
   "assigned_technician",
+  "task_type",
   "col_break_1",
+  "date",
   "status",
   "vehicle_number",
-  "task_type",
   "section_break_wthp",
   "item_installed_removed",
   "section_break_zlps",
@@ -161,6 +162,11 @@
    "fieldtype": "Table",
    "label": "Job Images",
    "options": "Job Image"
+  },
+  {
+   "fieldname": "date",
+   "fieldtype": "Date",
+   "label": "Date"
   }
  ],
  "links": [],

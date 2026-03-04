@@ -186,7 +186,7 @@ def get_technician_jobs(technician):
         "Job",
         filters={"assigned_technician": technician},
         fields=["name", "title", "task", "status", "vehicle_number",
-                "task_type", "unread_count_support",
+                "task_type", "unread_count_support", "date",
                 "unread_count_tech", "creation", "modified"],
         order_by="modified desc"
     )
@@ -196,3 +196,69 @@ def get_technician_jobs(technician):
         j["task_subject"] = frappe.db.get_value("Task", j.task, "subject") or j.task
 
     return jobs
+
+
+@frappe.whitelist()
+def get_technician_jobs(technician):
+	"""All jobs for a technician, grouped by task, with position info."""
+	jobs = frappe.get_all(
+		"Job",
+		filters={"assigned_technician": technician},
+		fields=["name", "title", "task", "status", "vehicle_number",
+				"task_type", "unread_count_support",
+				"unread_count_tech", "creation", "modified"],
+		order_by="task asc, modified desc"
+	)
+
+	if not jobs:
+		return []
+
+	# Collect unique tasks
+	task_names = list({j.task for j in jobs if j.task})
+
+	# Fetch task subject + custom_date in one query
+	task_info = {}
+	if task_names:
+		rows = frappe.get_all(
+			"Task",
+			filters={"name": ["in", task_names]},
+			fields=["name", "subject", "custom_date"]
+		)
+		task_info = {r.name: r for r in rows}
+
+	# Fetch job positions from Task Job child table
+	task_job_map = {}
+	if task_names:
+		from collections import defaultdict
+		rows = frappe.get_all(
+			"Task Job",
+			filters={"parent": ["in", task_names]},
+			fields=["parent", "job", "idx"],
+			order_by="parent, idx asc"
+		)
+		task_rows = defaultdict(list)
+		for r in rows:
+			task_rows[r.parent].append(r)
+
+		for task_name, task_rows_list in task_rows.items():
+			total = len(task_rows_list)
+			task_job_map[task_name] = {
+				r.job: {"position": r.idx, "total": total}
+				for r in task_rows_list
+			}
+
+	# Enrich each job
+	for j in jobs:
+		info = task_info.get(j.task, {})
+		j["task_subject"] = info.get("subject") or j.task
+		j["task_date"]    = str(info.get("custom_date") or "")
+
+		pos_data = task_job_map.get(j.task, {}).get(j.name)
+		if pos_data:
+			j["job_position"]   = pos_data["position"]
+			j["task_job_count"] = pos_data["total"]
+		else:
+			j["job_position"]   = 1
+			j["task_job_count"] = 1
+
+	return jobs

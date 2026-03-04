@@ -198,6 +198,18 @@
     "parent": "Fleet",
     "parentfield": "block_modules",
     "parenttype": "Module Profile"
+   },
+   {
+    "module": "Helpdesk",
+    "parent": "Fleet",
+    "parentfield": "block_modules",
+    "parenttype": "Module Profile"
+   },
+   {
+    "module": "FTelephony",
+    "parent": "Fleet",
+    "parentfield": "block_modules",
+    "parenttype": "Module Profile"
    }
   ],
   "docstatus": 0,
