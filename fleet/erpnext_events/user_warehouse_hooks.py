@@ -113,7 +113,8 @@ def on_update_user_roles(doc, method=None):
                 "parent_warehouse": root.name,
                 "company": company,
                 "is_group": 0,
-                "custom_user": doc.name
+                "custom_user": doc.name,
+                "warehouse_type": "Technician"
             })
             new_wh.insert(ignore_permissions=True)
             frappe.msgprint(f"Warehouse <b>{new_wh.name}</b> has been created.", alert=True)

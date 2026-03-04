@@ -163,7 +163,7 @@ doc_events = {
         ],
     },
     "Employee": {
-        "after_insert": "fleet.erpnext_events.employee.sync_user_with_employee",
+        # "after_insert": "fleet.erpnext_events.employee.sync_user_with_employee",
         "on_update": "fleet.erpnext_events.employee.sync_user_with_employee"
     },
     "Customer": {
@@ -279,14 +279,6 @@ doc_events = {
 # }
 
 fixtures = [
-    {"dt": "Designation","filters": [
-        [
-            "name", "in", [
-                "Support",
-                "Technician"
-            ]
-        ]
-    ]},
     {"dt": "Module Profile","filters": [
         [
             "name", "in", [
