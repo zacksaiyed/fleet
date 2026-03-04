@@ -3,8 +3,6 @@ import frappe
 
 def set_customer_warehouse(customer, method):
 
-    settings = frappe.get_single('Fleet Settings')
-
     # Get Company dynamically
     company = frappe.db.get_single_value("Global Defaults", "default_company")
     if not company:
@@ -33,9 +31,10 @@ def set_customer_warehouse(customer, method):
             cust_warehouse = frappe.get_doc({
                 "doctype": "Warehouse",
                 "warehouse_name": customer.customer_name,
-                "parent_warehouse": settings.get("base_customer_warehouse"),
+                "parent_warehouse":f"All Warehouses - {company_abbr}",
                 "company": company,
-                "custom_customer_name": customer.name
+                "custom_customer_name": customer.name,
+                "warehouse_type": "Customer"
             }).insert()
 
             frappe.msgprint(f"Warehouse '{cust_warehouse.warehouse_name}' created for customer.")

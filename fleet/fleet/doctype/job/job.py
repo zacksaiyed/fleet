@@ -41,7 +41,7 @@ class Job(Document):
             pass  # Don't block job save if task sync fails
 
     def _handle_warehouse_movement(self):
-        if self.task_type == "None" or not self.device:
+        if self.task_type not in ["Install", "Removal"]:
             return
 
         # Idempotent guard
