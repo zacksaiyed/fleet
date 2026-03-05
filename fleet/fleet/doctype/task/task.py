@@ -1,0 +1,229 @@
+import json
+import frappe
+
+
+# ── Task Actions ──────────────────────────────────────────
+
+@frappe.whitelist()
+def task_action(task, action, technician=None):
+	"""Handle Task status transitions. Called from task.js and mobile API."""
+	doc        = frappe.get_doc("Task", task)
+	roles      = frappe.get_roles()
+	is_support = "Support Team" in roles
+	is_tech    = "Technician"   in roles
+
+	if action == "accept":
+		_assert_status(doc, "Open", "Task must be Open to Accept.")
+		if not (is_support or is_tech):
+			frappe.throw("Permission denied.")
+		doc.status = "Accepted"
+		msg = "Task accepted."
+
+	elif action == "reject":
+		_assert_status(doc, "Open", "Task must be Open to Reject.")
+		if not (is_support or is_tech):
+			frappe.throw("Permission denied.")
+		doc.status = "Rejected"
+		msg = "Task rejected."
+
+	elif action == "start":
+		_assert_status(doc, "Accepted", "Task must be Accepted to Start.")
+		if not (is_support or is_tech):
+			frappe.throw("Permission denied.")
+		doc.status = "In Progress"
+		msg = "Task started."
+
+	elif action == "reassign":
+		_assert_status(doc, "Rejected", "Task must be Rejected to Reassign.")
+		if not is_support:
+			frappe.throw("Only Support Team can reassign a task.")
+		if not technician:
+			frappe.throw("New technician is required for reassignment.")
+		doc.custom_assign_to      = technician
+		emp_name = frappe.db.get_value("Employee", technician, "employee_name")
+		doc.custom_employee_name  = emp_name or technician
+		# Also update all pending jobs to new technician
+		_reassign_jobs(doc.name, technician)
+		doc.status = "Open"
+		msg = f"Task reassigned to {emp_name or technician} and reopened."
+
+	elif action == "hold":
+		if doc.status not in ("In Progress", "In Review"):
+			frappe.throw("Task must be In Progress or In Review to put On Hold.")
+		if not is_support:
+			frappe.throw("Only Support Team can put a task on hold.")
+		doc.status = "On Hold"
+		msg = "Task put on hold."
+
+	elif action == "reopen":
+		_assert_status(doc, "On Hold", "Task must be On Hold to Reopen.")
+		if not is_support:
+			frappe.throw("Only Support Team can reopen a task.")
+		doc.status = "In Progress"
+		msg = "Task reopened."
+
+	elif action == "complete":
+		if doc.status not in ("In Progress", "In Review", "On Hold"):
+			frappe.throw("Task cannot be completed from its current status.")
+		if not is_support:
+			frappe.throw("Only Support Team can complete a task.")
+		jobs = frappe.get_all("Job", filters={"task": task}, fields=["status"])
+		non_final = [j for j in jobs if j.status not in ("Completed", "Cancelled")]
+		if non_final:
+			frappe.throw(
+				f"Cannot complete — {len(non_final)} job(s) are not yet Completed or Cancelled."
+			)
+		doc.status = "Completed"
+		msg = "Task completed."
+
+	elif action == "cancel":
+		if doc.status in ("Completed", "Cancelled"):
+			frappe.throw("Task is already finalised.")
+		if not is_support:
+			frappe.throw("Only Support Team can cancel a task.")
+		doc.status = "Cancelled"
+		msg = "Task cancelled."
+
+	else:
+		frappe.throw(f"Unknown action: {action}")
+
+	doc.save(ignore_permissions=True)
+	return {"msg": msg, "status": doc.status}
+
+
+def _reassign_jobs(task_name, new_technician):
+	"""Update assigned_technician on all non-final jobs of a task."""
+	jobs = frappe.get_all(
+		"Job",
+		filters={"task": task_name, "status": ["not in", ("Completed", "Cancelled")]},
+		fields=["name"]
+	)
+	user_id = frappe.db.get_value("Employee", new_technician, "user_id")
+	tech_warehouse = None
+	if user_id:
+		tech_warehouse = frappe.db.get_value(
+			"Warehouse", {"custom_user": user_id, "disabled": 0}, "name"
+		)
+	for j in jobs:
+		frappe.db.set_value("Job", j.name, {
+			"assigned_technician":  new_technician,
+			"technician_warehouse": tech_warehouse or None,
+		})
+
+
+def _assert_status(doc, expected, msg):
+	if doc.status != expected:
+		frappe.throw(msg)
+
+
+# ── Auto-derive Task status from Jobs ─────────────────────
+
+def recompute_task_status(task_name):
+	"""
+	Called from job.py on_update.
+	Only runs when task is in an active derived state.
+
+	Priority:
+	  Any Pending present                    → In Progress
+	  No Pending, any In Review present      → In Review
+	  No Pending/In Review, any On Hold      → On Hold
+	  All Completed or Cancelled             → Completed
+	"""
+	task_status = frappe.db.get_value("Task", task_name, "status")
+	if task_status in ("Open", "Accepted", "Rejected", "Completed", "Cancelled", "On Hold"):
+		return
+
+	jobs = frappe.get_all("Job", filters={"task": task_name}, fields=["status"])
+	if not jobs:
+		return
+
+	active = [j.status for j in jobs if j.status != "Cancelled"]
+
+	if not active:
+		new_status = "Completed"
+	elif "Pending" in active:
+		new_status = "In Progress"
+	elif "In Review" in active:
+		new_status = "In Review"
+	elif "On Hold" in active:
+		new_status = "On Hold"
+	elif all(s == "Completed" for s in active):
+		new_status = "Completed"
+	else:
+		new_status = "In Progress"
+
+	if new_status != task_status:
+		frappe.db.set_value("Task", task_name, "status", new_status, update_modified=False)
+
+
+# ── Create Jobs from Dialog ───────────────────────────────
+
+@frappe.whitelist()
+def create_jobs_from_dialog(task, job_rows):
+	if isinstance(job_rows, str):
+		job_rows = json.loads(job_rows)
+
+	task_doc       = frappe.get_doc("Task", task)
+	technician     = task_doc.custom_assign_to
+	customer       = task_doc.custom_customer
+	date           = task_doc.custom_date
+	tech_warehouse = None
+
+	if not technician:
+		frappe.throw("Task has no assigned technician (custom_assign_to).")
+
+	user_id = frappe.db.get_value("Employee", technician, "user_id")
+	if user_id:
+		tech_warehouse = frappe.db.get_value(
+			"Warehouse", {"custom_user": user_id, "disabled": 0}, "name"
+		)
+
+	created_count    = 0
+	entries_to_append = []
+
+	for entry in job_rows:
+		task_type = entry.get("task_type")
+		count     = int(entry.get("count", 1))
+		vehicles  = entry.get("vehicles") or []
+
+		if task_type == "Installation":
+			vehicles = [""] * count
+		elif not vehicles:
+			vehicles = [""] * count
+		elif len(vehicles) < count:
+			vehicles = vehicles + [""] * (count - len(vehicles))
+
+		for vehicle in vehicles[:count]:
+			parts = [task_type]
+			if customer:
+				parts.append(customer)
+
+			job = frappe.get_doc({
+				"doctype":              "Job",
+				"title":                " - ".join(parts),
+				"task":                 task_doc.name,
+				"assigned_technician":  technician,
+				"status":               "Pending",
+				"vehicle_number":       vehicle or None,
+				"task_type":            task_type,
+				"customer":             customer or None,
+				"technician_warehouse": tech_warehouse or None,
+				"date":                 date,
+			})
+			job.insert(ignore_permissions=True)
+			created_count += 1
+
+			entries_to_append.append({
+				"task_type": task_type,
+				"vehicle":   vehicle or None,
+				"status":    "Pending",
+				"job":       job.name,
+			})
+
+	# Reload to get the latest modified timestamp (job inserts may have triggered hooks
+	# that updated the task), then append child rows and save once.
+	task_doc.reload()
+	for row in entries_to_append:
+		task_doc.append("custom_task_jobs", row)
+	task_doc.save(ignore_permissions=True)
+	return {"created": created_count}

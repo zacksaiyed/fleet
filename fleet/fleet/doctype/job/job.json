@@ -34,14 +34,15 @@
   {
    "fieldname": "title",
    "fieldtype": "Data",
-   "in_list_view": 1,
    "label": "Title",
    "reqd": 1
   },
   {
+   "columns": 2,
    "fieldname": "task",
    "fieldtype": "Link",
    "in_list_view": 1,
+   "in_standard_filter": 1,
    "label": "Task",
    "options": "Task",
    "reqd": 1
@@ -49,12 +50,13 @@
   {
    "fieldname": "assigned_technician",
    "fieldtype": "Link",
-   "in_list_view": 1,
+   "in_filter": 1,
    "label": "Assigned Technician",
    "options": "Employee",
    "reqd": 1
   },
   {
+   "columns": 1,
    "default": "Pending",
    "fieldname": "status",
    "fieldtype": "Select",
@@ -69,9 +71,11 @@
    "fieldtype": "Column Break"
   },
   {
+   "columns": 2,
    "fieldname": "vehicle_number",
    "fieldtype": "Data",
    "in_list_view": 1,
+   "in_standard_filter": 1,
    "label": "Vehicle Number"
   },
   {
@@ -134,9 +138,12 @@
    "read_only": 1
   },
   {
+   "columns": 1,
    "default": "None",
    "fieldname": "task_type",
    "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
    "label": "Task Type",
    "options": "Task Type",
    "reqd": 1
@@ -166,14 +173,18 @@
    "options": "Job Image"
   },
   {
+   "columns": 2,
    "fieldname": "date",
    "fieldtype": "Date",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
    "label": "Date"
   },
   {
    "fetch_from": "assigned_technician.employee_name",
    "fieldname": "technician_name",
    "fieldtype": "Data",
+   "in_standard_filter": 1,
    "label": "Technician Name",
    "read_only": 1
   },
@@ -187,7 +198,7 @@
   }
  ],
  "links": [],
- "modified": "2026-03-02 02:40:21.489340",
+ "modified": "2026-03-06 00:19:20.702360",
  "modified_by": "Administrator",
  "module": "Fleet",
  "name": "Job",

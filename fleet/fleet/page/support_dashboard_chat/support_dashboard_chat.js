@@ -199,7 +199,7 @@ class SupportDashboardChat {
 			const key = job.task || '__none__';
 			if (!task_groups[key]) {
 				task_order.push(key);
-				task_groups[key] = { jobs: [], subject: job.task_subject || job.task || '', date: job.task_date || '' };
+				task_groups[key] = { jobs: [], subject: job.task_subject || job.task || '', date: job.task_date || '', workflow_state: job.task_workflow_state || '' };
 			}
 			task_groups[key].jobs.push(job);
 		});
@@ -215,13 +215,29 @@ class SupportDashboardChat {
 				: '';
 
 			// Task header row — click to collapse/expand
+			const WS_COLORS = {
+				'Open':           '#2490ef',
+				'Working':        '#7b5ea7',
+				'Pending Review': '#e67e22',
+				'Overdue':        '#e01f1f',
+				'Completed':      '#037a2f',
+				'Cancelled':      '#94a3b8',
+				'Template':       '#64748b',
+			};
+			const ws      = group.workflow_state;
+			const ws_clr  = WS_COLORS[ws] || '#64748b';
+			const ws_badge = ws
+				? `<span class="sd-task-ws-badge" style="background:${ws_clr}22;color:${ws_clr}">${frappe.utils.escape_html(ws)}</span>`
+				: '';
+
 			const $header = $(`
-				<div class="sd-task-header" data-group="${group_id}">
+				<div class="sd-task-header" data-group="${group_id}" data-task="${frappe.utils.escape_html(task_key)}">
 					<div class="sd-task-header-left">
 						<svg class="sd-task-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
 						<span class="sd-task-subject">${frappe.utils.escape_html(group.subject)}</span>
 					</div>
 					<div class="sd-task-header-right">
+						${ws_badge}
 						${date_str ? `<span class="sd-task-date">${date_str}</span>` : ''}
 						<span class="sd-task-count">${job_count} job${job_count !== 1 ? 's' : ''}</span>
 					</div>
@@ -311,9 +327,8 @@ class SupportDashboardChat {
 						</div>
 					</div>
 					<div class="sd-chat-header-right">
-						<button class="sd-open-job-btn" onclick="frappe.set_route('Form','Job','${frappe.utils.escape_html(job.name)}')">
-							Open Job ↗
-						</button>
+						${job.task ? `<button class="sd-open-job-btn" onclick="frappe.set_route('Form','Task','${frappe.utils.escape_html(job.task)}')">Open Task ↗</button>` : ''}
+						<button class="sd-open-job-btn" onclick="frappe.set_route('Form','Job','${frappe.utils.escape_html(job.name)}')">Open Job ↗</button>
 					</div>
 				</div>
 				<div class="sd-messages-wrap" id="sd-messages-wrap">
@@ -561,41 +576,46 @@ class SupportDashboardChat {
 			align-items: center;
 			justify-content: space-between;
 			padding: 7px 14px 6px;
-			background: var(--bg-color);
-			border-bottom: 1px solid var(--border-color);
+			background: #1e293b;
+			border-bottom: 1px solid #334155;
 			cursor: pointer;
 			user-select: none;
 			position: sticky;
 			top: 0;
 			z-index: 2;
 		}
-		.sd-task-header:hover { background: var(--subtle-fg); }
+		.sd-task-header:hover { background: #273548; }
 		.sd-task-header-left {
 			display: flex; align-items: center; gap: 5px;
 			min-width: 0;
 		}
 		.sd-task-chevron {
-			flex-shrink: 0; color: var(--text-muted);
+			flex-shrink: 0; color: #94a3b8;
 			transition: transform 0.15s;
 		}
 		.sd-task-subject {
 			font-size: 11px; font-weight: 700;
-			color: var(--text-muted);
+			color: #cbd5e1;
 			text-transform: uppercase;
 			letter-spacing: 0.05em;
 			white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 		}
 		.sd-task-header-right { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 		.sd-task-date {
-			font-size: 10px; color: var(--text-muted);
+			font-size: 10px; color: #94a3b8;
 			white-space: nowrap;
 		}
 		.sd-task-count {
 			font-size: 10px; font-weight: 600;
 			padding: 1px 6px; border-radius: 8px;
-			background: var(--control-bg);
-			color: var(--text-muted);
+			background: #334155;
+			color: #94a3b8;
 			white-space: nowrap;
+		}
+		.sd-task-ws-badge {
+			font-size: 9.5px; font-weight: 700;
+			padding: 1px 7px; border-radius: 8px;
+			white-space: nowrap; letter-spacing: 0.02em;
 		}
 		.sd-task-group-body { }
 
