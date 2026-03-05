@@ -2,14 +2,14 @@
 import frappe
 
 
-# ── Task Hooks ────────────────────────────────────────────────────────────────
+# Task Hooks
 
 def on_task_update(doc, method=None):
     _create_jobs_for_new_rows(doc)
     _sync_task_job_changes_to_jobs(doc)
 
 
-# ── Job Hooks ─────────────────────────────────────────────────────────────────
+# Job Hooks
 
 def sync_job_status_to_row(job_doc, method=None):
     """
@@ -31,7 +31,7 @@ def sync_job_status_to_row(job_doc, method=None):
     )
 
 
-# ── Internal: Job Creation ────────────────────────────────────────────────────
+# Internal: Job Creation
 
 def _create_jobs_for_new_rows(doc):
     """
@@ -75,6 +75,7 @@ def _create_jobs_for_new_rows(doc):
             "customer": customer,
             "technician_warehouse": tech_warehouse,
             "customer_warehouse": "",
+            "date": doc.get("custom_date") or None,
         })
         job.insert(ignore_permissions=True)
 
@@ -86,7 +87,7 @@ def _create_jobs_for_new_rows(doc):
         )
 
 
-# ── Internal: Sync Task Job row changes → Job ─────────────────────────────────
+# Internal: Sync Task Job row changes → Job
 
 def _sync_task_job_changes_to_jobs(doc):
     """
@@ -114,7 +115,7 @@ def _sync_task_job_changes_to_jobs(doc):
 
         job_values = frappe.db.get_value(
             "Job", linked_job,
-            ["vehicle_number", "task_type", "title", "status"],
+            ["vehicle_number", "task_type", "title", "status", "date"],
             as_dict=True
         )
         if not job_values:
@@ -124,6 +125,7 @@ def _sync_task_job_changes_to_jobs(doc):
         title       = f"{row.task_type} - {customer}" if customer else row.task_type
         row_vehicle = row.get("vehicle") or ""
         row_status  = row.get("status") or "Pending"
+        task_date   = doc.get("custom_date") or None
 
         updates = {}
 
@@ -143,11 +145,15 @@ def _sync_task_job_changes_to_jobs(doc):
         if title != (job_values.title or ""):
             updates["title"] = title
 
+        # Date: sync from Task → Job
+        if task_date != job_values.date:
+            updates["date"] = task_date
+
         if updates:
             frappe.db.set_value("Job", linked_job, updates, update_modified=False)
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# Helpers
 
 def _resolve_task_type(task_type_name):
     if not task_type_name:

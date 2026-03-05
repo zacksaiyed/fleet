@@ -22,14 +22,18 @@ frappe.ui.form.on("Job", {
   assigned_technician(frm) {
     // Auto-fetch technician warehouse on technician change
     if (frm.doc.assigned_technician) {
-      frappe.db.get_value(
-        "Warehouse",
-        { custom_user: frm.doc.assigned_technician, disabled: 0 },
-        "name",
-        (r) => {
-          frm.set_value("technician_warehouse", r?.name || null);
+      frappe.db.get_value("Employee", frm.doc.assigned_technician, "user_id", (emp) => {
+        if (emp?.user_id) {
+          frappe.db.get_value(
+            "Warehouse",
+            { custom_user: emp.user_id, disabled: 0 },
+            "name",
+            (r) => { frm.set_value("technician_warehouse", r?.name || null); }
+          );
+        } else {
+          frm.set_value("technician_warehouse", null);
         }
-      );
+      });
     }
   },
 
