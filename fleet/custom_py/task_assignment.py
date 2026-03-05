@@ -6,6 +6,11 @@ def handle_assignment(doc, method=None):
     if not doc.custom_assign_to:
         return
 
+    # Skip if custom_assign_to hasn't changed
+    before = doc.get_doc_before_save()
+    if before and before.get("custom_assign_to") == doc.custom_assign_to:
+        return
+
     user = frappe.db.get_value("Employee", doc.custom_assign_to, "user_id")
     if not user:
         return
@@ -28,7 +33,7 @@ def handle_assignment(doc, method=None):
     others = [t for t in existing_todos if t.allocated_to != user]
 
     if len(others) == 1 and not correct_todo:
-        # One ToDo for a different user update it
+        # One ToDo for a different user — update it
         frappe.db.set_value("ToDo", others[0].name, "allocated_to", user)
 
     elif len(others) >= 1:
@@ -63,6 +68,9 @@ def handle_assignment(doc, method=None):
 
     # Update _assign field for List View avatar
     update_assign_field(doc.name, user)
+
+    # Sync assigned_technician on all Jobs linked to this Task
+    sync_jobs_assigned_technician(doc.name, doc.custom_assign_to)
 
 
 def cleanup_docshares(task_name, keep_user=None):
@@ -104,6 +112,139 @@ def create_docshare(task_name, user):
         "user": user,
         "share_doctype": "Task",
         "share_name": task_name,
+        "read": 1,
+        "write": 1,
+        "share": 1,
+        "notify_by_email": 1
+    }).insert(ignore_permissions=True)
+
+
+def sync_jobs_assigned_technician(task_name, new_employee):
+    if not new_employee:
+        return
+
+    linked_jobs = frappe.get_all(
+        "Job",
+        filters={"task": task_name},
+        fields=["name"]
+    )
+    if not linked_jobs:
+        return
+
+    user_id = frappe.db.get_value("Employee", new_employee, "user_id")
+    tech_warehouse = None
+    if user_id:
+        tech_warehouse = frappe.db.get_value("Warehouse", {"custom_user": user_id}, "name")
+
+    # Fetch employee full name explicitly
+    technician_name = frappe.db.get_value("Employee", new_employee, "employee_name")
+
+    updates = {
+        "assigned_technician": new_employee,
+        "technician_name": technician_name,
+    }
+    if tech_warehouse:
+        updates["technician_warehouse"] = tech_warehouse
+
+    for job in linked_jobs:
+        frappe.db.set_value("Job", job.name, updates, update_modified=False)
+        if user_id:
+            _sync_job_todo_and_share(job.name, user_id)
+
+    frappe.db.commit()
+
+
+def handle_job_assignment(doc, _method=None):
+    """Called on Job after_insert and on_update to manage ToDo and DocShare."""
+    if not doc.assigned_technician:
+        return
+
+    before = doc.get_doc_before_save()
+    if before and before.get("assigned_technician") == doc.assigned_technician:
+        return
+
+    user = frappe.db.get_value("Employee", doc.assigned_technician, "user_id")
+    if not user:
+        return
+
+    _sync_job_todo_and_share(doc.name, user)
+
+
+def _sync_job_todo_and_share(job_name, user):
+    """Create/update ToDo and DocShare for a Job for the given user."""
+    # Clean up old DocShares
+    _cleanup_job_docshares(job_name, keep_user=user)
+
+    # Manage ToDos
+    existing_todos = frappe.get_all(
+        "ToDo",
+        filters={
+            "reference_type": "Job",
+            "reference_name": job_name,
+            "status": ("!=", "Cancelled")
+        },
+        fields=["name", "allocated_to"]
+    )
+
+    correct_todo = next((t for t in existing_todos if t.allocated_to == user), None)
+    others = [t for t in existing_todos if t.allocated_to != user]
+
+    if len(others) == 1 and not correct_todo:
+        frappe.db.set_value("ToDo", others[0].name, "allocated_to", user)
+    elif len(others) >= 1:
+        for todo in others:
+            frappe.db.set_value("ToDo", todo.name, "status", "Cancelled")
+        if not correct_todo:
+            frappe.get_doc({
+                "doctype": "ToDo",
+                "reference_type": "Job",
+                "reference_name": job_name,
+                "allocated_to": user,
+                "description": job_name,
+                "assigned_by": frappe.session.user,
+            }).insert(ignore_permissions=True)
+    else:
+        if not correct_todo:
+            frappe.get_doc({
+                "doctype": "ToDo",
+                "reference_type": "Job",
+                "reference_name": job_name,
+                "allocated_to": user,
+                "description": job_name,
+                "assigned_by": frappe.session.user,
+            }).insert(ignore_permissions=True)
+
+    # Create DocShare
+    _create_job_docshare(job_name, user)
+
+    # Update _assign field
+    frappe.db.set_value("Job", job_name, "_assign", json.dumps([user]), update_modified=False)
+
+
+def _cleanup_job_docshares(job_name, keep_user=None):
+    all_shares = frappe.get_all(
+        "DocShare",
+        filters={"share_doctype": "Job", "share_name": job_name},
+        fields=["name", "user"]
+    )
+    for share in all_shares:
+        if share.user == keep_user:
+            continue
+        frappe.delete_doc("DocShare", share.name, ignore_permissions=True)
+
+
+def _create_job_docshare(job_name, user):
+    if frappe.db.exists("DocShare", {
+        "share_doctype": "Job",
+        "share_name": job_name,
+        "user": user
+    }):
+        return
+    frappe.get_doc({
+        "doctype": "DocShare",
+        "user": user,
+        "share_doctype": "Job",
+        "share_name": job_name,
         "read": 1,
         "write": 1,
         "share": 1,

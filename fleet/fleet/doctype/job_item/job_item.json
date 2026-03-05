@@ -6,7 +6,7 @@
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
-  "installedremoved",
+  "installed_or_removed",
   "item",
   "item_type",
   "item_name",
@@ -14,6 +14,7 @@
  ],
  "fields": [
   {
+   "columns": 2,
    "fieldname": "item",
    "fieldtype": "Link",
    "in_list_view": 1,
@@ -21,6 +22,7 @@
    "options": "Item"
   },
   {
+   "columns": 2,
    "fetch_from": "item.item_name",
    "fieldname": "item_name",
    "fieldtype": "Data",
@@ -29,6 +31,7 @@
    "read_only": 1
   },
   {
+   "columns": 2,
    "fetch_from": "item.custom_item_type",
    "fieldname": "item_type",
    "fieldtype": "Link",
@@ -47,7 +50,8 @@
    "read_only": 1
   },
   {
-   "fieldname": "installedremoved",
+   "columns": 2,
+   "fieldname": "installed_or_removed",
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Installed/Removed",

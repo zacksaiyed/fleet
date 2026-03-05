@@ -222,7 +222,7 @@ def get_technician_jobs(technician):
 		rows = frappe.get_all(
 			"Task",
 			filters={"name": ["in", task_names]},
-			fields=["name", "subject", "custom_date"]
+			fields=["name", "subject", "custom_date", "status"]
 		)
 		task_info = {r.name: r for r in rows}
 
@@ -250,8 +250,9 @@ def get_technician_jobs(technician):
 	# Enrich each job
 	for j in jobs:
 		info = task_info.get(j.task, {})
-		j["task_subject"] = info.get("subject") or j.task
-		j["task_date"]    = str(info.get("custom_date") or "")
+		j["task_subject"]        = j.task
+		j["task_date"]           = str(info.get("custom_date") or "")
+		j["task_workflow_state"] = info.get("status") or ""
 
 		pos_data = task_job_map.get(j.task, {}).get(j.name)
 		if pos_data:

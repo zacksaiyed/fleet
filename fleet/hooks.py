@@ -153,13 +153,18 @@ doc_events = {
         "on_update": "fleet.erpnext_events.user_warehouse_hooks.on_update_user_roles"
     },
     "Job": {
-        "on_update": "fleet.custom_py.task_hooks.sync_job_status_to_row",
+        "after_insert": "fleet.custom_py.task_assignment.handle_job_assignment",
+        "on_update": [
+            "fleet.custom_py.task_hooks.sync_job_status_to_row",
+            "fleet.custom_py.task_assignment.handle_job_assignment",
+        ],
     },
     "Task": {
         "after_insert": "fleet.custom_py.task_assignment.handle_assignment",
         "on_update": [
             "fleet.override.task.sync_vehicle_data",               # Vehicle sync on Complete
             "fleet.custom_py.task_hooks.on_task_update",           # Create Jobs for new rows
+            "fleet.custom_py.task_assignment.handle_assignment",   # Re-assign on update
         ],
     },
     "Employee": {
