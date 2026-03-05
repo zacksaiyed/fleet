@@ -9,20 +9,19 @@
   "task_type",
   "vehicle",
   "status",
-  "column_break_lcrn",
   "job"
  ],
  "fields": [
   {
    "bold": 1,
+   "columns": 2,
    "fieldname": "job",
-   "fieldtype": "Link",
-   "label": "Job",
-   "options": "Job",
-   "read_only": 1
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Job"
   },
   {
-   "columns": 1,
+   "columns": 2,
    "default": "Pending",
    "fieldname": "status",
    "fieldtype": "Select",
@@ -31,7 +30,7 @@
    "options": "Pending\nHold\nIn Progress\nCompleted"
   },
   {
-   "columns": 1,
+   "columns": 2,
    "fieldname": "task_type",
    "fieldtype": "Link",
    "in_list_view": 1,
@@ -39,15 +38,11 @@
    "options": "Task Type"
   },
   {
-   "columns": 1,
+   "columns": 2,
    "fieldname": "vehicle",
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "Vehicle"
-  },
-  {
-   "fieldname": "column_break_lcrn",
-   "fieldtype": "Column Break"
   }
  ],
  "grid_page_length": 50,

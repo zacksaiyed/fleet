@@ -19,11 +19,12 @@ class Job(Document):
 
     def _fetch_technician_warehouse(self):
         if self.assigned_technician:
+            user_id = frappe.db.get_value("Employee", self.assigned_technician, "user_id")
             wh = frappe.db.get_value(
                 "Warehouse",
-                {"custom_user": self.assigned_technician, "disabled": 0},
+                {"custom_user": user_id, "disabled": 0},
                 "name"
-            )
+            ) if user_id else None
             self.technician_warehouse = wh or None
 
     def _sync_task_child_row(self):
@@ -41,7 +42,7 @@ class Job(Document):
             pass  # Don't block job save if task sync fails
 
     def _handle_warehouse_movement(self):
-        if self.task_type not in ["Install", "Removal"]:
+        if self.task_type == "None" or not self.device:
             return
 
         # Idempotent guard
