@@ -19,7 +19,7 @@ frappe.ui.form.on('Task', {
 		const is_tech    = roles.includes("Technician");
 		const status     = frm.doc.status;
 
-		// ── SUPPORT TEAM ──────────────────────────────────────
+		// SUPPORT TEAM
 		if (is_support) {
 			if (status === "Rejected") {
 				frm.add_custom_button(__("Reassign"), () =>
@@ -34,9 +34,8 @@ frappe.ui.form.on('Task', {
 			}
 
 			if (["In Progress", "In Review"].includes(status)) {
-				frm.add_custom_button(__("Put on Hold"), () =>
-					_task_action(frm, "hold")
-				, __("Actions"));
+				frm.add_custom_button(__("Hold"), () =>
+					_task_action(frm, "hold"));
 			}
 
 			if (status === "On Hold") {
@@ -47,24 +46,22 @@ frappe.ui.form.on('Task', {
 
 			if (["In Progress", "In Review", "On Hold"].includes(status)) {
 				frm.add_custom_button(__("Complete"), () =>
-					_task_action(frm, "complete")
-				, __("Actions")).addClass("btn-success");
+					_task_action(frm, "complete")).addClass("btn-success");
 
 				frm.add_custom_button(__("Cancel Task"), () => {
 					frappe.confirm(__("Cancel this task? This cannot be undone."),
 						() => _task_action(frm, "cancel")
 					);
-				}, __("Actions"));
+				});
 			}
 
 			if (!["Completed", "Cancelled"].includes(status)) {
 				frm.add_custom_button(__("Add Jobs"), () =>
-					_show_add_jobs_dialog(frm)
-				, __("Actions"));
+					_show_add_jobs_dialog(frm));
 			}
 		}
 
-		// ── TECHNICIAN ────────────────────────────────────────
+		// TECHNICIAN
 		if (is_tech) {
 			if (status === "Open") {
 				frm.add_custom_button(__("Accept"), () =>
@@ -85,7 +82,7 @@ frappe.ui.form.on('Task', {
 			}
 		}
 
-		// ── STATUS INDICATOR ──────────────────────────────────
+		// STATUS INDICATOR
 		const color_map = {
 			"Open":        "blue",
 			"Accepted":    "yellow",
@@ -117,13 +114,13 @@ frappe.ui.form.on('Task', {
 });
 
 
-// ── Helpers ───────────────────────────────────────────────
+// Helpers
 
 function _task_action(frm, action, extra_args = {}) {
 	frappe.call({
-		method:         "fleet.fleet.doctype.task.task.task_action",
-		args:           { task: frm.doc.name, action, ...extra_args },
-		freeze:         true,
+		method: "fleet.fleet.doctype.task.task.task_action",
+		args: { task: frm.doc.name, action, ...extra_args },
+		freeze: true,
 		freeze_message: __("Updating…"),
 		callback(r) {
 			if (r.exc) return;
@@ -138,11 +135,11 @@ function _show_reassign_dialog(frm) {
 		title: __("Reassign Task"),
 		fields: [
 			{
-				fieldtype:   "Link",
-				fieldname:   "technician",
-				label:       __("New Technician"),
-				options:     "Employee",
-				reqd:        1,
+				fieldtype: "Link",
+				fieldname: "technician",
+				label: __("New Technician"),
+				options: "Employee",
+				reqd: 1,
 				description: __("Task will be set back to Open for the new technician to accept."),
 			},
 		],
@@ -156,14 +153,14 @@ function _show_reassign_dialog(frm) {
 }
 
 
-// ── Add Jobs Dialog ───────────────────────────────────────
+// Add Jobs Dialog
 
 function _show_add_jobs_dialog(frm) {
 	const rows = [{ task_type: "", count: 1, vehicles: "" }];
 
 	const dialog = new frappe.ui.Dialog({
 		title: __("Add Jobs"),
-		size:  "large",
+		size: "large",
 		primary_action_label: __("Create Jobs"),
 		fields: [{ fieldtype: "HTML", fieldname: "jobs_html" }],
 		primary_action() {
@@ -190,13 +187,13 @@ function _show_add_jobs_dialog(frm) {
 			}
 
 			frappe.call({
-				method:         "fleet.fleet.doctype.task.task.create_jobs_from_dialog",
-				args:           { task: frm.doc.name, job_rows: rows.map(r => ({
+				method: "fleet.fleet.doctype.task.task.create_jobs_from_dialog",
+				args: { task: frm.doc.name, job_rows: rows.map(r => ({
 					task_type: r.task_type,
-					count:     r.count,
-					vehicles:  _parse_vehicles(r.vehicles),
+					count: r.count,
+					vehicles: _parse_vehicles(r.vehicles),
 				}))},
-				freeze:         true,
+				freeze: true,
 				freeze_message: __("Creating jobs…"),
 				callback(r) {
 					if (r.exc) return;
