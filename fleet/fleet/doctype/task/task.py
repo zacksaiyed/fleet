@@ -163,10 +163,10 @@ def create_jobs_from_dialog(task, job_rows):
 	if isinstance(job_rows, str):
 		job_rows = json.loads(job_rows)
 
-	task_doc       = frappe.get_doc("Task", task)
-	technician     = task_doc.custom_assign_to
-	customer       = task_doc.custom_customer
-	date           = task_doc.custom_date
+	task_doc = frappe.get_doc("Task", task)
+	technician = task_doc.custom_assign_to
+	customer = task_doc.custom_customer
+	date = task_doc.custom_date
 	tech_warehouse = None
 
 	if not technician:
@@ -186,9 +186,7 @@ def create_jobs_from_dialog(task, job_rows):
 		count     = int(entry.get("count", 1))
 		vehicles  = entry.get("vehicles") or []
 
-		if task_type == "Installation":
-			vehicles = [""] * count
-		elif not vehicles:
+		if not vehicles:
 			vehicles = [""] * count
 		elif len(vehicles) < count:
 			vehicles = vehicles + [""] * (count - len(vehicles))

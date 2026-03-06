@@ -21,11 +21,15 @@
   "section_customer",
   "customer_warehouse",
   "technician_warehouse",
+  "section_break_thhl",
+  "done_comment",
+  "column_break_qblo",
+  "completion_comment",
+  "column_break_edkh",
+  "hold_comment",
   "section_completion",
   "customer",
   "column_break_tqby",
-  "completion_comment",
-  "hold_comment",
   "section_unread",
   "unread_count_support",
   "unread_count_tech"
@@ -63,7 +67,8 @@
    "in_filter": 1,
    "in_list_view": 1,
    "label": "Status",
-   "options": "Pending\nIn Progress\nHold\nCompleted",
+   "options": "Pending\nIn Review\nOn Hold\nCompleted\nCancelled",
+   "read_only": 1,
    "reqd": 1
   },
   {
@@ -110,11 +115,11 @@
    "fieldtype": "Section Break"
   },
   {
-   "depends_on": "eval:doc.status == 'Completed'",
-   "description": "Mandatory when marking status as Completed",
+   "description": "Support Comment when Completing.",
    "fieldname": "completion_comment",
    "fieldtype": "Small Text",
-   "label": "Comment"
+   "label": "Comment",
+   "read_only": 1
   },
   {
    "collapsible": 1,
@@ -189,16 +194,34 @@
    "read_only": 1
   },
   {
-   "depends_on": "eval:doc.status == 'Hold'",
-   "description": "Mandatory when marking status as Hold",
+   "description": "Support Comment when marking status as On Hold.",
    "fieldname": "hold_comment",
    "fieldtype": "Small Text",
    "label": "Comment",
-   "mandatory_depends_on": "eval:doc.status == 'Hold'"
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_thhl",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "column_break_qblo",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_edkh",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Technician Comment when marking job done.",
+   "fieldname": "done_comment",
+   "fieldtype": "Small Text",
+   "label": "Comment",
+   "read_only": 1
   }
  ],
  "links": [],
- "modified": "2026-03-06 00:19:20.702360",
+ "modified": "2026-03-07 01:47:15.981631",
  "modified_by": "Administrator",
  "module": "Fleet",
  "name": "Job",
@@ -213,8 +236,12 @@
   {
    "create": 1,
    "delete": 1,
+   "export": 1,
    "read": 1,
+   "report": 1,
    "role": "Support Team",
+   "select": 1,
+   "share": 1,
    "write": 1
   },
   {

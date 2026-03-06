@@ -1,6 +1,5 @@
 {
  "actions": [],
- "allow_rename": 0,
  "autoname": "autoincrement",
  "creation": "2026-03-01 15:45:33.147111",
  "doctype": "DocType",
@@ -20,19 +19,19 @@
   {
    "fieldname": "job",
    "fieldtype": "Link",
+   "in_list_view": 1,
    "label": "Job",
    "options": "Job",
    "reqd": 1,
-   "in_list_view": 1,
    "search_index": 1
   },
   {
    "fieldname": "task_job_row",
    "fieldtype": "Data",
-   "label": "Task Job Row",
-   "read_only": 1,
    "hidden": 1,
-   "no_copy": 1
+   "label": "Task Job Row",
+   "no_copy": 1,
+   "read_only": 1
   },
   {
    "fieldname": "sender",
@@ -49,10 +48,10 @@
   {
    "fieldname": "sender_role",
    "fieldtype": "Select",
+   "in_list_view": 1,
    "label": "Sender Role",
    "options": "Technician\nSupport",
-   "reqd": 1,
-   "in_list_view": 1
+   "reqd": 1
   },
   {
    "fieldname": "message",
@@ -61,11 +60,11 @@
    "reqd": 1
   },
   {
+   "default": "Text",
    "fieldname": "message_type",
    "fieldtype": "Select",
    "label": "Message Type",
-   "options": "Text\nImage\nFile",
-   "default": "Text"
+   "options": "Text\nImage\nFile"
   },
   {
    "fieldname": "file_url",
@@ -73,35 +72,45 @@
    "label": "File URL"
   },
   {
+   "default": "0",
    "fieldname": "is_read",
    "fieldtype": "Check",
-   "label": "Is Read",
-   "default": 0
+   "label": "Is Read"
   }
  ],
- "index_web_pages_for_search": 0,
- "istable": 0,
  "links": [],
- "modified": "2026-03-01 15:45:51.842740",
+ "modified": "2026-03-07 00:11:51.314433",
  "modified_by": "Administrator",
  "module": "Fleet",
  "name": "Job Message",
  "owner": "Administrator",
  "permissions": [
   {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
    "role": "System Manager",
-   "create": 1, "delete": 1, "read": 1, "write": 1
+   "write": 1
   },
   {
+   "create": 1,
+   "export": 1,
+   "read": 1,
+   "report": 1,
    "role": "Support Team",
-   "create": 1, "read": 1, "write": 1
+   "select": 1,
+   "share": 1,
+   "write": 1
   },
   {
+   "create": 1,
+   "read": 1,
    "role": "Technician",
-   "create": 1, "read": 1, "write": 1
+   "write": 1
   }
  ],
+ "row_format": "Dynamic",
  "sort_field": "creation",
  "sort_order": "ASC",
- "track_changes": 0
+ "states": []
 }

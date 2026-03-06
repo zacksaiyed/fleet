@@ -8,18 +8,12 @@ frappe.ui.form.on("Job", {
 		const is_tech    = roles.includes("Technician");
 		const status     = frm.doc.status;
 
-		// ── SUPPORT TEAM + TECHNICIAN ─────────────────────────
+		// SUPPORT TEAM + TECHNICIAN
 		if (is_support || is_tech) {
 			if (["Pending", "On Hold"].includes(status)) {
 				frm.add_custom_button(__("Mark as Done"), () =>
-					_job_action(frm, "done")
+					_job_action_with_comment(frm, "done", __("Done Comment"), "done_comment")
 				).addClass("btn-primary");
-			}
-
-			if (status === "In Review") {
-				frm.add_custom_button(__("Put on Hold"), () =>
-					_job_action(frm, "hold")
-				, __("Actions"));
 			}
 
 			if (status === "On Hold") {
@@ -29,12 +23,18 @@ frappe.ui.form.on("Job", {
 			}
 		}
 
-		// ── SUPPORT TEAM ONLY ─────────────────────────────────
+		// SUPPORT TEAM ONLY
 		if (is_support) {
 			if (status === "In Review") {
 				frm.add_custom_button(__("Complete"), () =>
-					_job_action(frm, "complete")
+					_job_action_with_comment(frm, "complete", __("Completion Comment"), "completion_comment")
 				).addClass("btn-success");
+			}
+
+			if (status === "Pending") {
+				frm.add_custom_button(__("Hold"), () =>
+					_job_action_with_comment(frm, "hold", __("Hold Comment"), "hold_comment")
+				);
 			}
 
 			if (!["Completed", "Cancelled"].includes(status)) {
@@ -42,11 +42,11 @@ frappe.ui.form.on("Job", {
 					frappe.confirm(__("Cancel this job? This cannot be undone."),
 						() => _job_action(frm, "cancel")
 					);
-				}, __("Actions"));
+				});
 			}
 		}
 
-		// ── STATUS INDICATOR ──────────────────────────────────
+		// STATUS INDICATOR
 		const color_map = {
 			"Pending":   "gray",
 			"In Review": "purple",
@@ -55,9 +55,6 @@ frappe.ui.form.on("Job", {
 			"Cancelled": "red",
 		};
 		frm.page.set_indicator(__(status), color_map[status] || "gray");
-
-		frm.set_df_property("completion_comment", "reqd",
-			status === "Completed" ? 1 : 0);
 	},
 
 	assigned_technician(frm) {
@@ -75,18 +72,24 @@ frappe.ui.form.on("Job", {
 		}
 	},
 
-	status(frm) {
-		frm.set_df_property("completion_comment", "reqd",
-			frm.doc.status === "Completed" ? 1 : 0);
-	},
-
 });
 
-function _job_action(frm, action) {
+function _job_action_with_comment(frm, action, label, field) {
+	frappe.prompt(
+		[{ fieldtype: "Small Text", fieldname: "comment", label: label, reqd: 1 }],
+		(values) => {
+			_job_action(frm, action, values.comment, field);
+		},
+		__(label),
+		__("Submit")
+	);
+}
+
+function _job_action(frm, action, comment, comment_field) {
 	frappe.call({
-		method:         "fleet.fleet.doctype.job.job.job_action",
-		args:           { job: frm.doc.name, action },
-		freeze:         true,
+		method: "fleet.fleet.doctype.job.job.job_action",
+		args: { job: frm.doc.name, action, comment, comment_field },
+		freeze: true,
 		freeze_message: __("Updating…"),
 		callback(r) {
 			if (r.exc) return;
