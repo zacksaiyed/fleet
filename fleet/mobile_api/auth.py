@@ -77,8 +77,10 @@ def login(usr: str, pwd: str) -> dict:
 
     # login manager
     try:
+        frappe.form_dict["usr"] = usr
+        frappe.form_dict["pwd"] = pwd
         login_manager = frappe.auth.LoginManager()
-        login_manager.authenticate(user=usr, pwd=pwd)
+        login_manager.authenticate()
         login_manager.post_login()
     except frappe.AuthenticationError:
         frappe.throw(_("Invalid username or password."), frappe.AuthenticationError)
@@ -197,8 +199,10 @@ def change_password(old_password: str, new_password: str) -> dict:
 
     # verify old password is correct
     try:
+        frappe.form_dict["usr"] = user
+        frappe.form_dict["pwd"] = old_password
         login_manager = LoginManager()
-        login_manager.authenticate(user=user, pwd=old_password)
+        login_manager.authenticate()
     except frappe.AuthenticationError:
         frappe.throw(_("Current password is incorrect."), frappe.AuthenticationError)
 
