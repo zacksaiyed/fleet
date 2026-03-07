@@ -3,6 +3,62 @@ from frappe import _
 from frappe.utils.password import update_password
 from frappe.auth import LoginManager
 
+
+def enforce_simultaneous_sessions(login_manager=None, user_email: str = None):
+    """
+    Enforces strict single-session policy regardless of device type.
+
+    Frappe's built-in "Allow only one session per user" intentionally
+    exempts mobile devices — this function overrides that behaviour.
+
+    Called in two ways:
+      1. Via hooks.py  on_session_creation hook → Frappe passes login_manager=<LoginManager>
+      2. Directly      → enforce_simultaneous_sessions(user_email="someone@company.com")
+    """
+
+    # resolve user
+    if login_manager is not None:
+        user_email = login_manager.user
+
+    if not user_email or user_email == "Guest":
+        return
+
+    # how many sessions is this user allowed?
+    max_sessions = frappe.db.get_value("User", user_email, "simultaneous_sessions") or 1
+
+    # current (newest) sid — always protect it
+    current_sid = frappe.session.sid
+
+    # fetch all sessions for this user, NEWEST first
+    sessions = frappe.db.sql("""
+        SELECT sid
+        FROM `tabSessions`
+        WHERE user = %s
+        ORDER BY lastupdate DESC
+    """, (user_email,), as_dict=True)
+
+    if len(sessions) <= max_sessions:
+        return  # within limit, nothing to do
+
+    # keep the newest max_sessions (always include current sid)
+    sids_to_keep = set()
+    sids_to_keep.add(current_sid)  # always keep current
+    for s in sessions:
+        if len(sids_to_keep) >= max_sessions:
+            break
+        sids_to_keep.add(s.sid)
+
+    # delete everything else (the old/excess sessions)
+    sids_to_delete = [s.sid for s in sessions if s.sid not in sids_to_keep]
+
+    if sids_to_delete:
+        frappe.db.sql("""
+            DELETE FROM `tabSessions`
+            WHERE sid IN ({})
+        """.format(", ".join(["%s"] * len(sids_to_delete))), sids_to_delete)
+        frappe.db.commit()
+
+
 @frappe.whitelist(allow_guest=True)
 def login(usr: str, pwd: str) -> dict:
     """
@@ -11,7 +67,7 @@ def login(usr: str, pwd: str) -> dict:
 
     POST /api/method/fleet.mobile_api.auth.login
     Body (form-data or JSON):
-        usr  = "786876756"          ← username  OR  "chanda@company.com"
+        usr  = "786876756"          <- username  OR  "chanda@company.com"
         pwd  = "their_password"
     """
 
@@ -29,6 +85,10 @@ def login(usr: str, pwd: str) -> dict:
 
     # fetch logged-in user details
     user_email = frappe.session.user
+
+    # Enforce simultaneous sessions limit
+    # (also fires via on_session_creation hook for web logins)
+    enforce_simultaneous_sessions(user_email=user_email)
 
     user_doc = frappe.get_doc("User", user_email)
 
