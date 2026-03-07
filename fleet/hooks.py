@@ -271,6 +271,7 @@ doc_events = {
 
 # Authentication and authorization
 # --------------------------------
+on_session_creation = "fleet.mobile_api.auth.enforce_simultaneous_sessions"
 
 # auth_hooks = [
 # 	"fleet.auth.validate"
