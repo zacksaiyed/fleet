@@ -20,8 +20,11 @@ def set_customer_warehouse(customer, method):
             is_disabled = frappe.db.get_value("Warehouse", warehouse_name, "disabled")
 
             if is_disabled:
-                # Re-enable the existing warehouse
-                frappe.db.set_value("Warehouse", warehouse_name, "disabled", 0)
+                # Re-enable the existing warehouse and ensure warehouse_type is set
+                frappe.db.set_value("Warehouse", warehouse_name, {
+                    "disabled": 0,
+                    "warehouse_type": "Customer"
+                })
                 frappe.msgprint(f"Warehouse '{warehouse_name}' was disabled — it has been re-enabled.")
             else:
                 frappe.msgprint(f"Warehouse '{warehouse_name}' already exists and is active.")

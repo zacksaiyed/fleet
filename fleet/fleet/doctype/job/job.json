@@ -18,18 +18,17 @@
   "item_installed_removed",
   "section_break_zlps",
   "job_images",
-  "section_customer",
-  "customer_warehouse",
-  "technician_warehouse",
   "section_break_thhl",
   "done_comment",
   "column_break_qblo",
   "completion_comment",
   "column_break_edkh",
   "hold_comment",
-  "section_completion",
+  "section_customer",
   "customer",
-  "column_break_tqby",
+  "customer_warehouse",
+  "column_break_xjgy",
+  "technician_warehouse",
   "section_unread",
   "unread_count_support",
   "unread_count_tech"
@@ -85,8 +84,7 @@
   },
   {
    "fieldname": "section_customer",
-   "fieldtype": "Section Break",
-   "hidden": 1
+   "fieldtype": "Section Break"
   },
   {
    "fieldname": "customer",
@@ -97,22 +95,16 @@
   {
    "fieldname": "customer_warehouse",
    "fieldtype": "Link",
-   "hidden": 1,
    "label": "Customer Warehouse",
-   "options": "Warehouse"
-  },
-  {
-   "description": "Auto-fetched from technician's assigned warehouse",
-   "fieldname": "technician_warehouse",
-   "fieldtype": "Link",
-   "hidden": 1,
-   "label": "Technician Warehouse",
    "options": "Warehouse",
    "read_only": 1
   },
   {
-   "fieldname": "section_completion",
-   "fieldtype": "Section Break"
+   "fieldname": "technician_warehouse",
+   "fieldtype": "Link",
+   "label": "Technician Warehouse",
+   "options": "Warehouse",
+   "read_only": 1
   },
   {
    "description": "Support Comment when Completing.",
@@ -162,10 +154,6 @@
    "fieldtype": "Table",
    "label": "Item Installed/Removed",
    "options": "Job Item"
-  },
-  {
-   "fieldname": "column_break_tqby",
-   "fieldtype": "Column Break"
   },
   {
    "fieldname": "section_break_zlps",
@@ -218,6 +206,10 @@
    "fieldtype": "Small Text",
    "label": "Comment",
    "read_only": 1
+  },
+  {
+   "fieldname": "column_break_xjgy",
+   "fieldtype": "Column Break"
   }
  ],
  "links": [],

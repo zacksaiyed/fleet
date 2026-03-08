@@ -55,7 +55,7 @@ def _get_technicians():
         if has_role:
             # Each technician has a warehouse named after them
             # Convention: "<Employee Name> - Technician"
-            emp["warehouse"] = _get_tech_warehouse(emp["name"], emp["employee_name"], emp.get("user_id"))
+            emp["warehouse"] = _get_tech_warehouse(emp["name"], emp["employee_name"])
             emp["inventory"] = []
             emp["task_count"] = 0
             emp["unread_count"] = 0
@@ -64,21 +64,20 @@ def _get_technicians():
     return technicians
 
 
-def _get_tech_warehouse(employee_name, full_name, user_id=None):
+def _get_tech_warehouse(employee_name, full_name):
     """
     Find warehouse linked to this technician.
-    Uses custom_user field (linked to User email) on the Warehouse doctype.
+    Uses custom_employee field (linked to Employee) on the Warehouse doctype.
     Fallback: warehouse name contains employee full name.
     """
-    # Primary: match by custom_user (e.g. "emmanuel@company.com")
-    if user_id:
-        wh = frappe.db.get_value(
-            "Warehouse",
-            {"custom_user": user_id},
-            "name"
-        )
-        if wh:
-            return wh
+    # Primary: match by custom_employee
+    wh = frappe.db.get_value(
+        "Warehouse",
+        {"custom_employee": employee_name},
+        "name"
+    )
+    if wh:
+        return wh
 
     # Fallback: warehouse name contains employee full name
     wh = frappe.db.get_value(
@@ -216,8 +215,8 @@ def transfer_between_technicians(item_code, from_employee, to_employee):
     Move item from Tech A warehouse → Tech B warehouse.
     Called when technicians interchange devices.
     """
-    from_wh = frappe.db.get_value("Warehouse", {"custom_user": from_employee}, "name")
-    to_wh   = frappe.db.get_value("Warehouse", {"custom_user": to_employee}, "name")
+    from_wh = frappe.db.get_value("Warehouse", {"custom_employee": from_employee}, "name")
+    to_wh   = frappe.db.get_value("Warehouse", {"custom_employee": to_employee}, "name")
 
     if not from_wh or not to_wh:
         frappe.throw("Warehouse not found for one or both technicians.")
