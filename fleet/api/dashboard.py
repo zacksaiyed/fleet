@@ -165,35 +165,31 @@ def _enrich_tasks(technicians, user_map):
         tech["task_count"] = counts.get(tech.get("user_id"), 0)
 
 
-def _enrich_unread(technicians, user_map):
+def _enrich_unread(technicians, _user_map):
     """
-    Count unread job chat messages for each technician.
-    Support team sees unread = messages sent BY technician that support hasn't read.
-    We reuse the same Comment-based unread marker system from chat.py.
+    Count unread job chat messages for support team per technician.
+    Uses unread_count_support on Job records (set by publish_job_chat).
     """
-    current_user = frappe.session.user
+    if not technicians:
+        return
 
-    unread_rows = frappe.db.get_all(
-        "Comment",
-        filters={
-            "comment_type": "Info",
-            "reference_doctype": "Task Job",
-            "owner": current_user,
-        },
-        fields=["comment_by"],
-    )
+    # Build employee → user_id map
+    emp_to_user = {t["name"]: t["user_id"] for t in technicians if t.get("user_id")}
+    if not emp_to_user:
+        return
 
-    # comment_by format: unread::Task-0001::TJ-0001::user@example.com
-    # Count per technician user (parts[3] = sender = technician user_id)
-    tech_unread = {}
-    for row in unread_rows:
-        parts = row["comment_by"].split("::")
-        if len(parts) == 4 and parts[0] == "unread":
-            sender = parts[3]
-            tech_unread[sender] = tech_unread.get(sender, 0) + 1
+    rows = frappe.db.sql("""
+        SELECT assigned_technician, COALESCE(SUM(unread_count_support), 0) AS total
+        FROM `tabJob`
+        WHERE assigned_technician IN %(employees)s
+        GROUP BY assigned_technician
+    """, {"employees": list(emp_to_user.keys())}, as_dict=True)
+
+    emp_unread = {r.assigned_technician: int(r.total) for r in rows}
 
     for tech in technicians:
-        tech["unread_count"] = tech_unread.get(tech.get("user_id"), 0)
+        emp = tech["name"]
+        tech["unread_count"] = emp_unread.get(emp, 0)
 
 
 # Inventory Transfer APIs
