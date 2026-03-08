@@ -14,11 +14,12 @@ frappe.pages['support-dashboard-chat'].on_page_show = function (wrapper) {
 	if (!fleet.support_dashboard_chat.instance) return;
 	const instance = fleet.support_dashboard_chat.instance;
 	const opts = frappe.route_options || {};
-	const preselect = opts.technician || null;
+	const preselect   = opts.technician  || null;
+	const auto_unread = opts.auto_unread || false;
 	instance._load_technicians_then(function () {
 		if (preselect) {
 			const tech = instance.technicians.find(t => t.name === preselect);
-			if (tech) instance._select_technician(tech);
+			if (tech) instance._select_technician(tech, auto_unread);
 			frappe.route_options = {};
 		}
 	});
@@ -136,7 +137,7 @@ class SupportDashboardChat {
 		}
 	}
 
-	_select_technician(tech) {
+	_select_technician(tech, auto_unread = false) {
 		this.selected_tech = tech;
 		this.selected_job  = null;
 		$('.sd-tech-card').removeClass('active');
@@ -152,10 +153,10 @@ class SupportDashboardChat {
 		`);
 		$('#sd-jobs-title').text(tech.full_name || tech.name);
 		$('#sd-jobs-list').html(`<div class="sd-loading-dots center"><span></span><span></span><span></span></div>`);
-		this._load_jobs(tech.name);
+		this._load_jobs(tech.name, auto_unread);
 	}
 
-	_load_jobs(technician) {
+	_load_jobs(technician, auto_unread = false) {
 		frappe.call({
 			method: 'fleet.api.dashboard_chat.get_technician_jobs',
 			args: { technician },
@@ -163,6 +164,10 @@ class SupportDashboardChat {
 				this.jobs = r.message || [];
 				$('#sd-jobs-count').text(`${this.jobs.length} job${this.jobs.length !== 1 ? 's' : ''}`);
 				this._render_jobs();
+				if (auto_unread) {
+					const first_unread = this.jobs.find(j => parseInt(j.unread_count_support || 0) > 0);
+					if (first_unread) this._select_job(first_unread);
+				}
 			},
 		});
 	}
@@ -298,6 +303,7 @@ class SupportDashboardChat {
 			method: 'fleet.api.dashboard_chat.mark_messages_read',
 			args: { job: job.name, reader_role: 'Support' },
 		});
+		if (this.selected_tech) this._refresh_tech_badge(this.selected_tech.name);
 		this._render_chat_panel(job);
 		this._load_messages(job.name);
 	}
@@ -418,24 +424,20 @@ class SupportDashboardChat {
 	_append_bubble(msg) {
 		const $list = $('#sd-messages-list');
 		$list.find('.sd-msgs-empty, .sd-msgs-loading').remove();
-		const is_mine      = (msg.sender || msg.sent_by) === frappe.session.user;
-		const role         = msg.sender_role || msg.role || 'Support';
-		const name         = msg.sender_name || msg.sender || '?';
-		const content      = msg.message    || msg.content || '';
-		const initials     = name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
-		const time         = msg.creation ? frappe.datetime.str_to_user(msg.creation, true) : 'Just now';
-		const avatar_color = role === 'Technician' ? '#3b82f6' : '#10b981';
+		const role       = msg.sender_role || msg.role || 'Support';
+		const is_support = role === 'Support';
+		const name       = msg.sender_name || msg.sender || '?';
+		const content    = msg.message    || msg.content || '';
+		const time       = msg.creation ? frappe.datetime.str_to_user(msg.creation, true) : 'Just now';
 		$list.append(`
-			<div class="sd-bubble-row ${is_mine ? 'mine' : 'theirs'}">
-				${!is_mine ? `<div class="sd-bubble-avatar" style="background:${avatar_color}">${initials}</div>` : ''}
+			<div class="sd-bubble-row ${is_support ? 'mine' : 'theirs'}">
 				<div class="sd-bubble-wrap">
-					${!is_mine ? `<div class="sd-bubble-name">${frappe.utils.escape_html(name)}</div>` : ''}
-					<div class="sd-bubble ${is_mine ? 'sd-bubble-mine' : 'sd-bubble-theirs'}">
+					<div class="sd-bubble-name ${is_support ? 'sd-name-right' : ''}">${frappe.utils.escape_html(name)}</div>
+					<div class="sd-bubble ${is_support ? 'sd-bubble-mine' : 'sd-bubble-theirs'}">
 						${frappe.utils.escape_html(content)}
 					</div>
-					<div class="sd-bubble-time ${is_mine ? 'sd-time-right' : ''}">${time}</div>
+					<div class="sd-bubble-time ${is_support ? 'sd-time-right' : ''}">${time}</div>
 				</div>
-				${is_mine ? `<div class="sd-bubble-avatar" style="background:${avatar_color}">${initials}</div>` : ''}
 			</div>
 		`);
 	}
@@ -459,10 +461,19 @@ class SupportDashboardChat {
 					});
 				}
 			} else {
-				const $badge = $(`.sd-job-unread[data-job-unread="${data.job}"]`);
-				if ($badge.length) $badge.text((parseInt($badge.text()) || 0) + 1).removeClass('sd-hidden');
-				const tech_name = data.sent_by || (this.selected_tech && this.selected_tech.name);
-				if (tech_name) this._refresh_tech_badge(tech_name);
+				if ((data.sender_role || data.role) === 'Technician') {
+					// Local +1 on job badge — no DB query, instant feedback
+					const $job_badge = $(`.sd-job-unread[data-job-unread="${data.job}"]`);
+					if ($job_badge.length) {
+						$job_badge.text((parseInt($job_badge.text()) || 0) + 1).removeClass('sd-hidden');
+					}
+					// Local +1 on tech card badge
+					const tech_name = data.tech_user || data.sent_by || (this.selected_tech && this.selected_tech.name);
+					if (tech_name) {
+						const $tech_badge = $(`.sd-tech-unread[data-tech="${tech_name}"]`);
+						$tech_badge.text((parseInt($tech_badge.text()) || 0) + 1).removeClass('sd-hidden');
+					}
+				}
 				frappe.show_alert({
 					message: `\u{1F4AC} ${data.sender_name || data.sent_by}: ${(data.content || data.message || '').slice(0, 60)}`,
 					indicator: 'blue',
@@ -474,15 +485,16 @@ class SupportDashboardChat {
 		});
 	}
 
-	_refresh_tech_badge(tech_name) {
-		frappe.db.get_list('Job', {
-			filters: { assigned_technician: tech_name },
-			fields:  ['unread_count_support'],
-		}).then((rows) => {
-			const total  = (rows || []).reduce((s, r) => s + (parseInt(r.unread_count_support) || 0), 0);
-			const $badge = $(`.sd-tech-unread[data-tech="${tech_name}"]`);
-			$badge.text(total);
-			total > 0 ? $badge.removeClass('sd-hidden') : $badge.addClass('sd-hidden');
+	_refresh_tech_badge(tech_user) {
+		frappe.call({
+			method: 'fleet.api.dashboard_chat.get_tech_unread_total',
+			args: { tech_user },
+			callback: (r) => {
+				const total  = parseInt(r.message) || 0;
+				const $badge = $(`.sd-tech-unread[data-tech="${tech_user}"]`);
+				$badge.text(total);
+				total > 0 ? $badge.removeClass('sd-hidden') : $badge.addClass('sd-hidden');
+			},
 		});
 	}
 
@@ -687,15 +699,12 @@ class SupportDashboardChat {
 		.sd-messages-list { display: flex; flex-direction: column; gap: 12px; }
 		.sd-msgs-empty, .sd-msgs-loading { text-align: center; color: var(--text-muted); font-size: 13px; padding: 40px 0; }
 
-		.sd-bubble-row { display: flex; align-items: flex-end; gap: 8px; }
+		.sd-bubble-row { display: flex; align-items: flex-end; }
 		.sd-bubble-row.mine   { flex-direction: row-reverse; }
 		.sd-bubble-row.theirs { flex-direction: row; }
-		.sd-bubble-avatar {
-			width: 28px; height: 28px; border-radius: 50%; color: white;
-			font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0;
-		}
 		.sd-bubble-wrap { display: flex; flex-direction: column; max-width: 65%; }
 		.sd-bubble-name { font-size: 11px; color: var(--text-muted); margin-bottom: 3px; font-weight: 600; }
+		.sd-name-right  { text-align: right; }
 		.sd-bubble { padding: 9px 13px; font-size: 13px; line-height: 1.5; word-break: break-word; box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
 		.sd-bubble-mine   { background: var(--primary); color: white; border-radius: 14px 14px 2px 14px; }
 		.sd-bubble-theirs { background: var(--fg-color); color: var(--text-color); border: 1px solid var(--border-color); border-radius: 14px 14px 14px 2px; }

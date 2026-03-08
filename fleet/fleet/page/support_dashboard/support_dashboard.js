@@ -105,38 +105,28 @@ frappe.pages['support-dashboard'].on_page_load = function (wrapper) {
 				frappe.set_route('Form', 'Employee', $(this).data('emp'));
 			});
 
-			// Message button → open chat for this tech
+			// Message button → open chat for this tech, auto-select first unread job
 			$('.sd-msg-btn').on('click', function (e) {
 				e.stopPropagation();
 				const uid = $(this).data('uid');
 				if (!uid) return;
-				frappe.route_options = { technician: uid };
+				frappe.route_options = { technician: uid, auto_unread: true };
 				frappe.set_route('support-dashboard-chat');
 			});
 		}
 	};
 
-	// Realtime: legacy task chat
-	frappe.realtime.on('task_unread_chat', function (data) {
-		if (data.sent_by === frappe.session.user) return;
-		let $card  = $(`.sd-card[data-uid="${data.sent_by}"]`);
-		if (!$card.length) return;
-		let $badge = $card.find('.sd-card-badge');
-		$badge.text(parseInt($badge.text() || '0') + 1).show();
-		$card.find('.sd-msg-btn').addClass('sd-msg-unread');
-		$card.addClass('sd-card-flash');
-		setTimeout(() => $card.removeClass('sd-card-flash'), 2000);
-	});
-
 	// Realtime: Job Message unread badge on grid card
 	frappe.realtime.on('support_dashboard_new_message', function (data) {
 		if (data.sent_by === frappe.session.user) return;
-		const uid  = data.sent_by;
-		let $card  = $(`.sd-card[data-uid="${uid}"]`);
+		if ((data.sender_role || data.role) !== 'Technician') return;
+		const uid   = data.tech_user || data.sent_by;
+		let $card   = $(`.sd-card[data-uid="${uid}"]`);
 		if (!$card.length) return;
-		let $badge = $card.find('.sd-card-badge');
-		$badge.text((parseInt($badge.text() || '0')) + 1).show();
-		$card.find('.sd-msg-btn').addClass('sd-msg-unread');
+		let $btn    = $card.find('.sd-msg-btn');
+		let $span   = $btn.find('span');
+		$span.text((parseInt($span.text() || '0')) + 1);
+		$btn.addClass('sd-msg-unread');
 		$card.addClass('sd-card-flash');
 		setTimeout(() => $card.removeClass('sd-card-flash'), 2000);
 	});
@@ -195,14 +185,10 @@ function SD_card(tech, idx) {
 		invInner = '<span class="sd-inv-empty">\u2014</span>';
 	}
 
-	var badgeStyle = unread > 0 ? '' : 'display:none';
-	var badgeText  = unread > 99 ? '99+' : unread;
 	var msgClass   = 'sd-stat-btn sd-msg-btn' + (unread > 0 ? ' sd-msg-unread' : '');
 
 	return (
 		'<div class="sd-card" data-uid="' + uid + '" data-emp="' + emp + '" style="--sd-color:' + color + ';cursor:pointer;" title="Click to open chat">'
-
-		+ '<div class="sd-card-badge" style="' + badgeStyle + '">' + badgeText + '</div>'
 
 		+ '<div class="sd-avatar" style="' + avatarStyle + '">' + avatarInner + '</div>'
 
@@ -283,8 +269,6 @@ var SD_CSS = [
 '.sd-card-flash { animation:sd-flash 0.4s ease 3; }',
 '@keyframes sd-flash { 0%,100%{border-color:#e2e6ea} 50%{border-color:#e74c3c;box-shadow:0 0 0 3px rgba(231,76,60,.15)} }',
 
-'.sd-card-badge { position:absolute; top:-6px; right:-6px; background:#e74c3c; color:#fff; font-size:9px; font-weight:700; min-width:16px; height:16px; border-radius:100px; display:flex; align-items:center; justify-content:center; padding:0 3px; border:2px solid #eef0f3; z-index:10; animation:sd-bounce 0.35s ease; }',
-'@keyframes sd-bounce { 0%{transform:scale(0)} 70%{transform:scale(1.2)} 100%{transform:scale(1)} }',
 
 '.sd-avatar { width:48px; height:48px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:17px; font-weight:700; color:#fff; overflow:hidden; border:2px solid #e2e6ea; flex-shrink:0; letter-spacing:0.5px; }',
 

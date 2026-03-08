@@ -272,3 +272,33 @@ def get_profile():
             "roles":      [r.role for r in user_doc.roles]
         }
     }
+
+@frappe.whitelist(allow_guest=False)
+def get_session_info() -> dict:
+    """
+    Called on app open if sid is already stored.
+    Validates session is still alive and returns sid + user info.
+
+    GET /api/method/fleet.mobile_api.auth.get_session_info
+    Headers:
+        Cookie: sid=<stored_sid>
+    """
+    user = frappe.session.user
+
+    if user == "Guest":
+        frappe.throw(_("Session expired. Please login again."), frappe.AuthenticationError)
+
+    user_doc = frappe.get_doc("User", user)
+
+    return {
+        "status":   "success",
+        "sid":      frappe.session.sid,
+        "user": {
+            "email":      user_doc.email,
+            "full_name":  user_doc.full_name,
+            "first_name": user_doc.first_name,
+            "last_name":  user_doc.last_name,
+            "user_image": user_doc.user_image,
+            "roles":      [r.role for r in user_doc.roles],
+        }
+    }
