@@ -33,7 +33,7 @@ def _err(msg):
 	return {"success": False, "error": msg}
 
 
-# ── Profile ───────────────────────────────────────────────
+# Profile
 
 @frappe.whitelist()
 def get_profile():
@@ -46,7 +46,7 @@ def get_profile():
 	emp = frappe.get_doc("Employee", emp_name)
 
 	warehouse = frappe.db.get_value(
-		"Warehouse", {"custom_user": frappe.session.user, "disabled": 0}, "name"
+		"Warehouse", {"custom_employee": emp_name, "disabled": 0}, "name"
 	)
 
 	return _ok({
@@ -58,7 +58,7 @@ def get_profile():
 	})
 
 
-# ── Tasks ─────────────────────────────────────────────────
+# Tasks
 
 @frappe.whitelist()
 def get_tasks():
@@ -177,7 +177,7 @@ def task_action():
 		return _err(str(e))
 
 
-# ── Jobs ──────────────────────────────────────────────────
+# Jobs
 
 @frappe.whitelist()
 def get_job():
@@ -251,7 +251,7 @@ def job_action():
 		return _err(str(e))
 
 
-# ── Available actions helper ──────────────────────────────
+# Available actions helper
 
 def _task_available_actions(status, role="Technician"):
 	"""Returns list of actions the given role can perform on a task in this status."""

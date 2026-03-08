@@ -132,9 +132,7 @@ def sync_jobs_assigned_technician(task_name, new_employee):
         return
 
     user_id = frappe.db.get_value("Employee", new_employee, "user_id")
-    tech_warehouse = None
-    if user_id:
-        tech_warehouse = frappe.db.get_value("Warehouse", {"custom_user": user_id}, "name")
+    tech_warehouse = frappe.db.get_value("Warehouse", {"custom_employee": new_employee}, "name")
 
     # Fetch employee full name explicitly
     technician_name = frappe.db.get_value("Employee", new_employee, "employee_name")

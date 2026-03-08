@@ -59,7 +59,7 @@ def _create_user(doc):
 
     doc.db_set("user_id", user_doc.name)
 
-    _update_warehouse_user(new_user=user_doc.name, old_user=None)
+    _update_warehouse_user(doc.name)
 
     frappe.msgprint(
         f'User <a href="/app/user/{user_doc.name}" target="_blank">'
@@ -69,7 +69,6 @@ def _create_user(doc):
 
 def _update_user(doc, current_user_name):
     new_email = doc.company_email
-    old_user_name = current_user_name  # Save before rename
 
     # Rename User doc if email changed (User name = email in Frappe)
     if current_user_name != new_email:
@@ -114,7 +113,7 @@ def _update_user(doc, current_user_name):
     if doc.user_id != current_user_name:
         doc.db_set("user_id", current_user_name)
 
-    _update_warehouse_user(new_user=current_user_name, old_user=old_user_name)
+    _update_warehouse_user(doc.name)
 
     frappe.msgprint(
         f'User <a href="/app/user/{current_user_name}" target="_blank">'
@@ -122,23 +121,21 @@ def _update_user(doc, current_user_name):
     )
 
 
-def _update_warehouse_user(new_user, old_user=None):
-    """
-    Finds the Warehouse by old_user (pre-rename) or new_user,
-    then sets custom_user to the new user name.
-    """
-    warehouse = None
+def _update_warehouse_user(employee_name):
+    """Ensure the Warehouse linked to this employee has custom_employee set."""
+    warehouse = frappe.db.get_value("Warehouse", {"custom_employee": employee_name}, "name")
 
-    # Try old user name first — critical when email changed and user was renamed
-    if old_user and old_user != new_user:
-        warehouse = frappe.db.get_value("Warehouse", {"custom_user": old_user}, "name")
-
-    # Fallback — find by new user name (no email change scenario)
     if not warehouse:
-        warehouse = frappe.db.get_value("Warehouse", {"custom_user": new_user}, "name")
+        # Warehouse may have been created before user_id was saved on Employee.
+        # Try to find it by name pattern and backfill custom_employee.
+        employee = frappe.get_doc("Employee", employee_name)
+        full_name = " ".join(filter(None, [employee.first_name, employee.middle_name, employee.last_name])).strip()
+        company = frappe.db.get_single_value("Global Defaults", "default_company")
+        company_abbr = frappe.db.get_value("Company", company, "abbr")
+        warehouse_name = f"{full_name} - {company_abbr}"
+        if frappe.db.exists("Warehouse", warehouse_name):
+            frappe.db.set_value("Warehouse", warehouse_name, "custom_employee", employee_name)
+            warehouse = warehouse_name
 
     if warehouse:
-        frappe.db.set_value("Warehouse", warehouse, "custom_user", new_user)
-        frappe.msgprint(
-            f'Warehouse <b>{warehouse}</b> linked to user <b>{new_user}</b>'
-        )
+        frappe.msgprint(f'Warehouse <b>{warehouse}</b> linked to employee <b>{employee_name}</b>')

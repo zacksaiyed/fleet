@@ -98,12 +98,9 @@ def _reassign_jobs(task_name, new_technician):
 		filters={"task": task_name, "status": ["not in", ("Completed", "Cancelled")]},
 		fields=["name"]
 	)
-	user_id = frappe.db.get_value("Employee", new_technician, "user_id")
-	tech_warehouse = None
-	if user_id:
-		tech_warehouse = frappe.db.get_value(
-			"Warehouse", {"custom_user": user_id, "disabled": 0}, "name"
-		)
+	tech_warehouse = frappe.db.get_value(
+		"Warehouse", {"custom_employee": new_technician, "disabled": 0}, "name"
+	)
 	for j in jobs:
 		frappe.db.set_value("Job", j.name, {
 			"assigned_technician":  new_technician,
@@ -172,11 +169,9 @@ def create_jobs_from_dialog(task, job_rows):
 	if not technician:
 		frappe.throw("Task has no assigned technician (custom_assign_to).")
 
-	user_id = frappe.db.get_value("Employee", technician, "user_id")
-	if user_id:
-		tech_warehouse = frappe.db.get_value(
-			"Warehouse", {"custom_user": user_id, "disabled": 0}, "name"
-		)
+	tech_warehouse = frappe.db.get_value(
+		"Warehouse", {"custom_employee": technician, "disabled": 0}, "name"
+	)
 
 	created_count    = 0
 	entries_to_append = []

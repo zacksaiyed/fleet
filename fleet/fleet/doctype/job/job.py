@@ -28,21 +28,34 @@ class Job(Document):
 				self.date = task_date
 
 	def _fetch_technician_warehouse(self):
-		if self.assigned_technician:
-			user_id = frappe.db.get_value("Employee", self.assigned_technician, "user_id")
-			wh = frappe.db.get_value(
-				"Warehouse", {"custom_user": user_id, "disabled": 0}, "name"
-			) if user_id else None
-			self.technician_warehouse = wh or None
+		if not self.assigned_technician:
+			return
+
+		# Only re-derive if technician changed (or it's a new doc)
+		before = self.get_doc_before_save()
+		if before and before.get("assigned_technician") == self.assigned_technician:
+			return  # technician unchanged, don't touch warehouse
+
+		wh = frappe.db.get_value(
+			"Warehouse", {"custom_employee": self.assigned_technician, "disabled": 0}, "name"
+		)
+		self.technician_warehouse = wh or None
 
 	def _fetch_customer_warehouse(self):
-		if self.customer:
-			wh = frappe.db.get_value(
-				"Warehouse",
-				{"custom_customer_name": self.customer, "disabled": 0},
-				"name"
-			)
-			self.customer_warehouse = wh or None
+		if not self.customer:
+			return
+
+		# Only re-derive if customer changed (or it's a new doc)
+		before = self.get_doc_before_save()
+		if before and before.get("customer") == self.customer:
+			return  # customer unchanged, don't touch warehouse
+
+		wh = frappe.db.get_value(
+			"Warehouse",
+			{"custom_customer_name": self.customer, "disabled": 0},
+			"name"
+		)
+		self.customer_warehouse = wh or None
 
 	def _sync_task_child_row(self):
 		if not self.task:
@@ -129,6 +142,86 @@ class Job(Document):
 					"date":      self.date,
 				})
 		vehicle.save(ignore_permissions=True)
+
+
+# Item search by warehouse
+
+@frappe.whitelist()
+def get_items_in_warehouse(doctype, txt, searchfield, start, page_len, filters):
+	warehouse = filters.get("warehouse") if filters else None
+	if not warehouse:
+		return []
+	txt_filter = f"%{txt}%" if txt else "%"
+	return frappe.db.sql(
+		"""
+		SELECT i.name, i.item_name
+		FROM `tabItem` i
+		INNER JOIN `tabBin` b ON b.item_code = i.name
+		WHERE b.warehouse = %(warehouse)s
+		  AND b.actual_qty > 0
+		  AND i.disabled = 0
+		  AND (i.name LIKE %(txt)s OR i.item_name LIKE %(txt)s)
+		ORDER BY i.item_name
+		LIMIT %(start)s, %(page_len)s
+		""",
+		{"warehouse": warehouse, "txt": txt_filter, "start": start, "page_len": page_len},
+	)
+
+
+@frappe.whitelist()
+def get_removable_items(doctype, txt, searchfield, start, page_len, filters):
+	"""Items eligible for Removal: in customer warehouse AND installed on the vehicle."""
+	warehouse    = filters.get("warehouse")    if filters else None
+	vehicle_number = filters.get("vehicle_number") if filters else None
+	customer     = filters.get("customer")     if filters else None
+
+	if not warehouse:
+		return []
+
+	txt_filter = f"%{txt}%" if txt else "%"
+	base_params = {"warehouse": warehouse, "txt": txt_filter, "start": start, "page_len": page_len}
+
+	if vehicle_number and customer:
+		vehicle_name = frappe.db.get_value(
+			"Vehicle",
+			{"license_plate": vehicle_number, "custom_customer": customer},
+			"name",
+		)
+		if vehicle_name:
+			return frappe.db.sql(
+				"""
+				SELECT i.name, i.item_name
+				FROM `tabItem` i
+				INNER JOIN `tabBin` b ON b.item_code = i.name
+				INNER JOIN `tabVehicle Item` vi
+					ON vi.item = i.name
+					AND vi.parent = %(vehicle)s
+					AND vi.status = 'Installed'
+				WHERE b.warehouse = %(warehouse)s
+				  AND b.actual_qty > 0
+				  AND i.disabled = 0
+				  AND (i.name LIKE %(txt)s OR i.item_name LIKE %(txt)s)
+				ORDER BY i.item_name
+				LIMIT %(start)s, %(page_len)s
+				""",
+				{**base_params, "vehicle": vehicle_name},
+			)
+
+	# Fallback: no vehicle match, just show warehouse items
+	return frappe.db.sql(
+		"""
+		SELECT i.name, i.item_name
+		FROM `tabItem` i
+		INNER JOIN `tabBin` b ON b.item_code = i.name
+		WHERE b.warehouse = %(warehouse)s
+		  AND b.actual_qty > 0
+		  AND i.disabled = 0
+		  AND (i.name LIKE %(txt)s OR i.item_name LIKE %(txt)s)
+		ORDER BY i.item_name
+		LIMIT %(start)s, %(page_len)s
+		""",
+		base_params,
+	)
 
 
 # Job Actions

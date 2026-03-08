@@ -41,13 +41,9 @@ def _create_jobs_for_new_rows(doc):
     if not rows:
         return
 
-    technician_user = None
-    if doc.get("custom_assign_to"):
-        technician_user = frappe.db.get_value("Employee", doc.custom_assign_to, "user_id")
-
     tech_warehouse = None
-    if technician_user:
-        tech_warehouse = frappe.db.get_value("Warehouse", {"custom_user": technician_user}, "name")
+    if doc.get("custom_assign_to"):
+        tech_warehouse = frappe.db.get_value("Warehouse", {"custom_employee": doc.custom_assign_to}, "name")
 
     customer = doc.get("custom_customer") or ""
 
@@ -68,7 +64,7 @@ def _create_jobs_for_new_rows(doc):
             "doctype": "Job",
             "title": title,
             "task": doc.name,
-            "assigned_technician": technician_user,
+            "assigned_technician": doc.custom_assign_to,
             "status": "Pending",
             "task_type": task_type,
             "vehicle_number": row.get("vehicle") or "",

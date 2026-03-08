@@ -19,10 +19,17 @@ def _get_root_warehouse():
     return root
 
 
-def _find_user_warehouse(user_doc, company):
+def _get_employee_for_user(user_name):
+    """Return the Employee name linked to this User via user_id."""
+    return frappe.db.get_value("Employee", {"user_id": user_name}, "name")
+
+
+def _find_user_warehouse(employee_name, company):
+    if not employee_name:
+        return None
     return frappe.db.get_value(
         "Warehouse",
-        {"custom_user": user_doc.name, "company": company},
+        {"custom_employee": employee_name, "company": company},
         ["name", "disabled"],
         as_dict=True
     )
@@ -31,7 +38,7 @@ def _find_user_warehouse(user_doc, company):
 def _find_user_warehouse_by_name(user_doc, company):
     """
     Fallback: find warehouse by the generated name pattern.
-    Handles cases where custom_user was not set on older warehouses.
+    Handles cases where custom_employee was not set on older warehouses.
     """
     wh_name = (user_doc.full_name or user_doc.email or user_doc.name).strip()
     # frappe appends - <company abbreviation> to warehouse_name on insert
@@ -42,16 +49,17 @@ def _find_user_warehouse_by_name(user_doc, company):
     )
     if candidates:
         wh = candidates[0]
-        # backfill custom_user so future lookups work
-        if not frappe.db.get_value("Warehouse", wh.name, "custom_user"):
-            frappe.db.set_value("Warehouse", wh.name, "custom_user", user_doc.name)
+        # backfill custom_employee so future lookups work
+        employee_name = _get_employee_for_user(user_doc.name)
+        if employee_name and not frappe.db.get_value("Warehouse", wh.name, "custom_employee"):
+            frappe.db.set_value("Warehouse", wh.name, "custom_employee", employee_name)
         return wh
     return None
 
 
 def _resolve_warehouse(user_doc, company):
-    # return warehouse dict or None, using both lookup strategies
-    return _find_user_warehouse(user_doc, company) or _find_user_warehouse_by_name(user_doc, company)
+    employee_name = _get_employee_for_user(user_doc.name)
+    return _find_user_warehouse(employee_name, company) or _find_user_warehouse_by_name(user_doc, company)
 
 
 def _is_warehouse_empty(warehouse):
@@ -102,10 +110,14 @@ def on_update_user_roles(doc, method=None):
 
         if wh:
             if wh.disabled:
-                frappe.db.set_value("Warehouse", wh.name, "disabled", 0)
+                frappe.db.set_value("Warehouse", wh.name, {
+                    "disabled": 0,
+                    "warehouse_type": "Technician"
+                })
                 frappe.msgprint(f"Warehouse <b>{wh.name}</b> has been re-enabled.", alert=True)
             # else already active, nothing to do
         else:
+            employee_name = _get_employee_for_user(doc.name)
             wh_name = (doc.full_name or doc.email or doc.name).strip()
             new_wh = frappe.get_doc({
                 "doctype": "Warehouse",
@@ -113,7 +125,7 @@ def on_update_user_roles(doc, method=None):
                 "parent_warehouse": root.name,
                 "company": company,
                 "is_group": 0,
-                "custom_user": doc.name,
+                "custom_employee": employee_name,
                 "warehouse_type": "Technician"
             })
             new_wh.insert(ignore_permissions=True)

@@ -1,6 +1,88 @@
+frappe.ui.form.on("Job Item", {
+	installed_or_removed(frm, cdt, cdn) {
+		const row = locals[cdt][cdn];
+		const val = row.installed_or_removed;
+		const task_type = frm.doc.task_type;
+
+		const install_only_types = ["Installation", "Accessory"];
+		const remove_only_types = ["Removal"];
+
+		if (install_only_types.includes(task_type)) {
+			// Only "Installed" allowed
+			if (val === "Removed") {
+				frm.fields_dict["item_installed_removed"].grid.grid_rows_by_docname[cdn].remove();
+				frappe.show_alert({ message: __("Only 'Installed' is allowed for this task type."), indicator: "red" }, 4);
+				return;
+			}
+		} else if (remove_only_types.includes(task_type)) {
+			// Only "Removed" allowed
+			if (val === "Installed") {
+				frm.fields_dict["item_installed_removed"].grid.grid_rows_by_docname[cdn].remove();
+				frappe.show_alert({ message: __("Only 'Removed' is allowed for this task type."), indicator: "red" }, 4);
+				return;
+			}
+		}
+		// Checkup, Swapping, etc. → both values allowed
+
+		frappe.model.set_value(cdt, cdn, "item", null);
+
+		// When "Removed" is selected, auto-populate items from the linked vehicle
+		if (val === "Removed" && frm.doc.vehicle_number && frm.doc.customer) {
+			frappe.db.get_value(
+				"Vehicle",
+				{ license_plate: frm.doc.vehicle_number },
+				["name", "custom_customer"],
+				(r) => {
+					if (!r || !r.name) return;
+					if (r.custom_customer !== frm.doc.customer) return;
+
+					frappe.call({
+						method: "frappe.client.get",
+						args: { doctype: "Vehicle", name: r.name },
+						callback(res) {
+							const items = res.message && res.message.custom_vehicle_item;
+							if (!items || !items.length) return;
+
+							frm.clear_table("item_installed_removed");
+							items.forEach((vi) => {
+								const new_row = frm.add_child("item_installed_removed");
+								new_row.installed_or_removed = "Removed";
+								new_row.item = vi.item;
+							});
+							frm.refresh_field("item_installed_removed");
+						},
+					});
+				}
+			);
+		}
+	},
+});
+
 frappe.ui.form.on("Job", {
 
 	refresh(frm) {
+		frm.set_query("item", "item_installed_removed", function(doc, cdt, cdn) {
+			const row = locals[cdt][cdn];
+			if (row.installed_or_removed === "Installed") {
+				if (!doc.technician_warehouse) return {};
+				return {
+					query: "fleet.fleet.doctype.job.job.get_items_in_warehouse",
+					filters: { warehouse: doc.technician_warehouse },
+				};
+			} else if (row.installed_or_removed === "Removed") {
+				if (!doc.customer_warehouse) return {};
+				return {
+					query: "fleet.fleet.doctype.job.job.get_removable_items",
+					filters: {
+						warehouse: doc.customer_warehouse,
+						vehicle_number: doc.vehicle_number || "",
+						customer: doc.customer || "",
+					},
+				};
+			}
+			return {};
+		});
+
 		if (frm.is_new()) return;
 
 		const roles      = frappe.user_roles;
@@ -59,16 +141,10 @@ frappe.ui.form.on("Job", {
 
 	assigned_technician(frm) {
 		if (frm.doc.assigned_technician) {
-			frappe.db.get_value("Employee", frm.doc.assigned_technician, "user_id", (emp) => {
-				if (emp?.user_id) {
-					frappe.db.get_value("Warehouse",
-						{ custom_user: emp.user_id, disabled: 0 }, "name",
-						(r) => { frm.set_value("technician_warehouse", r?.name || null); }
-					);
-				} else {
-					frm.set_value("technician_warehouse", null);
-				}
-			});
+			frappe.db.get_value("Warehouse",
+				{ custom_employee: frm.doc.assigned_technician, disabled: 0 }, "name",
+				(r) => { frm.set_value("technician_warehouse", r?.name || null); }
+			);
 		}
 	},
 
