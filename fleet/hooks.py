@@ -130,11 +130,13 @@ doctype_list_js = {
 # Permissions evaluated in scripted ways
 
 permission_query_conditions = {
-	"Task": "fleet.custom_py.permissions.task_permission_query"
+	"Task":               "fleet.custom_py.permissions.task_permission_query",
+	"Material Transfer":  "fleet.fleet.doctype.material_transfer.material_transfer.mt_permission_query",
 }
 
 has_permission = {
-	"Task": "fleet.custom_py.permissions.task_has_permission",
+	"Task":               "fleet.custom_py.permissions.task_has_permission",
+	"Material Transfer":  "fleet.fleet.doctype.material_transfer.material_transfer.mt_has_permission",
 }
 # DocType Class
 # ---------------
@@ -286,10 +288,10 @@ on_session_creation = "fleet.mobile_api.auth.enforce_simultaneous_sessions"
 # }
 
 fixtures = [
-    {"dt": "Module Profile","filters": [
+    {"dt": "Workflow","filters": [
         [
             "name", "in", [
-                "Fleet"
+                "Material Transfer Workflow"
             ]
         ]
     ]},
