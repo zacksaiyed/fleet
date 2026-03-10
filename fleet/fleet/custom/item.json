@@ -505,7 +505,7 @@
    "read": 1,
    "report": 0,
    "role": "Technician",
-   "select": 0,
+   "select": 1,
    "share": 0,
    "submit": 0,
    "write": 0
@@ -729,7 +729,28 @@
   }
  ],
  "doctype": "Item",
- "links": [],
+ "links": [
+  {
+   "creation": "2026-03-07 03:00:17.249134",
+   "custom": 1,
+   "docstatus": 0,
+   "group": null,
+   "hidden": 0,
+   "idx": 0,
+   "is_child_table": 0,
+   "link_doctype": "Job",
+   "link_fieldname": "task",
+   "modified": "2026-03-07 03:00:17.249134",
+   "modified_by": "Administrator",
+   "name": "igssmn5i3f",
+   "owner": "Administrator",
+   "parent": "Item",
+   "parent_doctype": null,
+   "parentfield": "links",
+   "parenttype": "Customize Form",
+   "table_fieldname": null
+  }
+ ],
  "property_setters": [
   {
    "_assign": null,

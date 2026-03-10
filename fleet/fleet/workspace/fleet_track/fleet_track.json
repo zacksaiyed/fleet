@@ -1,6 +1,6 @@
 {
  "charts": [],
- "content": "[{\"id\":\"X8AwMHDBDH\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Task\",\"col\":3}},{\"id\":\"woV7OuaXc2\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Support Dashboard\",\"col\":3}},{\"id\":\"0i3GTaSJH5\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Support Dashboard Chat\",\"col\":3}}]",
+ "content": "[{\"id\":\"X8AwMHDBDH\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Task\",\"col\":3}},{\"id\":\"woV7OuaXc2\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Support Dashboard\",\"col\":3}},{\"id\":\"0i3GTaSJH5\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Support Dashboard Chat\",\"col\":3}},{\"id\":\"Cvvvs8YqUe\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Material Transfer\",\"col\":3}}]",
  "creation": "2026-02-04 21:12:06.638702",
  "custom_blocks": [],
  "docstatus": 0,
@@ -8,7 +8,7 @@
  "for_user": "",
  "hide_custom": 0,
  "icon": "heart-active",
- "idx": 2,
+ "idx": 6,
  "indicator_color": "green",
  "is_hidden": 0,
  "label": "Fleet Track",
@@ -25,6 +25,15 @@
  "roles": [],
  "sequence_id": 1.0,
  "shortcuts": [
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "format": "{}",
+   "label": "Material Transfer",
+   "link_to": "Material Transfer",
+   "stats_filter": "[]",
+   "type": "DocType"
+  },
   {
    "color": "Green",
    "doc_view": "List",
