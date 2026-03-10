@@ -12,6 +12,7 @@ frappe.ui.form.on('Item', {
     custom_mobile_number: frm => generate_item_details(frm),
     custom_imei_no: frm => generate_item_details(frm),
     custom_sensor_unique_number: frm => generate_item_details(frm),
+    custom_temperature_serial_number: frm => generate_item_details(frm),
     brand: frm => generate_item_details(frm)
 
 });
@@ -39,6 +40,11 @@ function generate_item_details(frm) {
             field: "custom_sensor_unique_number",
             extra: val => val.slice(-6),
             prefix: "F"
+        },
+        "Temperature" : {
+            field: "custom_temperature_serial_number",
+            extra: val => val.slice(-6),
+            prefix: "T"
         }
     };
 

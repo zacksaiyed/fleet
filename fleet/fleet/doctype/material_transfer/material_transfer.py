@@ -4,7 +4,7 @@
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import nowdate, nowtime
+from frappe.utils import add_to_date, get_datetime, nowdate, nowtime
 
 
 # role constants — must match role master names exactly
@@ -27,6 +27,8 @@ class MaterialTransfer(Document):
 		# frappe sets docstatus=1 which triggers on_submit — reliable every time
 		# if stock entry creation fails here, frappe rolls back the entire submit
 		# doc stays at docstatus=0, never reaches Approved
+		if self.workflow_state == "Rejected":
+			return
 		_create_stock_entry(self.name)
 
 	def on_cancel(self):
@@ -227,7 +229,7 @@ def _create_stock_entry(doc_name):
 			"actual_qty",
 		) or 0
 
-		if frappe.utils.flt(actual_qty) <= 0:
+		if frappe.utils.flt(actual_qty) < 1:
 			errors.append(
 				_("Item {0} ({1}) is no longer available in {2}").format(
 					mt_item.item, mt_item.item_name, doc.source
@@ -243,12 +245,39 @@ def _create_stock_entry(doc_name):
 	if not company:
 		frappe.throw(_("Could not determine Company from Source Warehouse {0}.").format(doc.source))
 
+	# Determine posting time — must be strictly after any existing SLE for
+	# the source warehouse to avoid stock ledger ordering conflicts that can
+	# produce a false NegativeStockError even when the bin shows stock.
+	posting_date = nowdate()
+	posting_time = nowtime()
+
+	item_codes = [mt_item.item for mt_item in doc.items]
+	placeholders = ", ".join(["%s"] * len(item_codes))
+	latest_sle_time = frappe.db.sql(
+		"""
+		SELECT MAX(ADDTIME(CONCAT(posting_date, ' '), posting_time))
+		FROM `tabStock Ledger Entry`
+		WHERE item_code IN ({placeholders})
+		  AND warehouse = %s
+		  AND is_cancelled = 0
+		""".format(placeholders=placeholders),
+		item_codes + [doc.source],
+	)[0][0]
+
+	if latest_sle_time:
+		latest_dt = get_datetime(str(latest_sle_time))
+		now_dt    = get_datetime("{} {}".format(posting_date, posting_time))
+		if now_dt <= latest_dt:
+			bumped  = add_to_date(latest_dt, seconds=1)
+			posting_date = bumped.strftime("%Y-%m-%d")
+			posting_time = bumped.strftime("%H:%M:%S")
+
 	se = frappe.new_doc("Stock Entry")
 	se.stock_entry_type = "Material Transfer"
 	se.purpose          = "Material Transfer"
 	se.company          = company
-	se.posting_date     = nowdate()
-	se.posting_time     = nowtime()
+	se.posting_date     = posting_date
+	se.posting_time     = posting_time
 	se.from_warehouse   = doc.source
 	se.to_warehouse     = doc.target
 	se.remarks          = "auto-created from material transfer {0}".format(doc_name)

@@ -10,9 +10,9 @@ frappe.pages['support-dashboard'].on_page_load = function (wrapper) {
 
 	wrapper.page_obj = page;
 
-	page.set_primary_action('Refresh', () => dashboard.load());
-	page.add_menu_item('New Task', () => frappe.new_doc('Task'));
-	page.add_menu_item('Material Transfer', () => frappe.new_doc('Material Request'));
+	page.set_primary_action('Refresh', () => dashboard.load(), 'refresh');
+	page.add_inner_button('Material Transfer', () => frappe.new_doc('Material Transfer'), 'Create');
+	page.add_inner_button('Task', () => frappe.new_doc('Task'), 'Create');
 
 	let search_field = page.add_field({
 		label: 'Search Technician',
