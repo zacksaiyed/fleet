@@ -9,11 +9,13 @@
   "task",
   "assigned_technician",
   "technician_name",
+  "task_type",
   "col_break_1",
   "date",
   "status",
   "vehicle_number",
-  "task_type",
+  "make",
+  "model",
   "section_break_wthp",
   "item_installed_removed",
   "section_break_zlps",
@@ -29,9 +31,16 @@
   "customer_warehouse",
   "column_break_xjgy",
   "technician_warehouse",
+  "section_break_gjsf",
+  "completed_by_technician",
+  "completed_on_technician",
+  "column_break_enxn",
+  "completed_by_support",
+  "completed_on_support",
   "section_unread",
-  "unread_count_support",
-  "unread_count_tech"
+  "unread_count_tech",
+  "column_break_eohm",
+  "unread_count_support"
  ],
  "fields": [
   {
@@ -48,15 +57,15 @@
    "in_standard_filter": 1,
    "label": "Task",
    "options": "Task",
-   "reqd": 1
+   "reqd": 1,
+   "search_index": 1
   },
   {
    "fieldname": "assigned_technician",
    "fieldtype": "Link",
    "in_filter": 1,
    "label": "Assigned Technician",
-   "options": "Employee",
-   "reqd": 1
+   "options": "Employee"
   },
   {
    "columns": 1,
@@ -210,10 +219,58 @@
   {
    "fieldname": "column_break_xjgy",
    "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_eohm",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "section_break_gjsf",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fetch_from": "assigned_technician.user_id",
+   "fieldname": "completed_by_technician",
+   "fieldtype": "Link",
+   "label": "Completed By",
+   "options": "User"
+  },
+  {
+   "fieldname": "completed_on_technician",
+   "fieldtype": "Datetime",
+   "label": "Completed On"
+  },
+  {
+   "fieldname": "column_break_enxn",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "completed_by_support",
+   "fieldtype": "Link",
+   "label": "Comleted By",
+   "options": "User"
+  },
+  {
+   "fieldname": "completed_on_support",
+   "fieldtype": "Datetime",
+   "label": "Completed On"
+  },
+  {
+   "depends_on": "eval: doc.vehicle_number",
+   "fieldname": "make",
+   "fieldtype": "Data",
+   "label": "Make"
+  },
+  {
+   "depends_on": "eval: doc.vehicle_number",
+   "fieldname": "model",
+   "fieldtype": "Data",
+   "label": "Model"
   }
  ],
+ "in_create": 1,
  "links": [],
- "modified": "2026-03-07 01:47:15.981631",
+ "modified": "2026-03-14 00:50:04.539627",
  "modified_by": "Administrator",
  "module": "Fleet",
  "name": "Job",

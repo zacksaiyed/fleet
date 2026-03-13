@@ -1,3 +1,4 @@
+# /home/umar/f/apps/fleet/fleet/fleet/doctype/job/job.py
 import frappe
 from frappe.model.document import Document
 
@@ -62,7 +63,7 @@ class Job(Document):
 			return
 		try:
 			frappe.db.set_value(
-				"Task Job",           # child doctype name
+				"Task Job",
 				{"job": self.name, "parent": self.task},
 				"status",
 				self.status
@@ -98,6 +99,26 @@ class Job(Document):
 		installed = [r for r in self.item_installed_removed if r.installed_or_removed == "Installed"]
 		removed   = [r for r in self.item_installed_removed if r.installed_or_removed == "Removed"]
 
+		# For Removed items — verify each exists in customer warehouse before moving
+		if removed:
+			missing_items = []
+			for r in removed:
+				qty = frappe.db.get_value(
+					"Bin",
+					{"item_code": r.item, "warehouse": self.customer_warehouse},
+					"actual_qty"
+				) or 0
+				if qty <= 0:
+					missing_items.append(r.item)
+			if missing_items:
+				frappe.throw(
+					f"Cannot complete — the following item(s) are not in customer warehouse "
+					f"<b>{self.customer_warehouse}</b>:<br>"
+					+ "<br>".join(missing_items)
+				)
+
+		# Installed: technician warehouse → customer warehouse
+		# Removed:   customer warehouse  → technician warehouse
 		for items, src, tgt in [
 			(installed, self.technician_warehouse, self.customer_warehouse),
 			(removed,   self.customer_warehouse,   self.technician_warehouse),
@@ -122,23 +143,170 @@ class Job(Document):
 	def _update_vehicle_items(self):
 		if not self.vehicle_number:
 			return
+
+		task_type = self.task_type or ""
+
+		if task_type == "Installation":
+			self._handle_installation_vehicle()
+		elif task_type == "Removal":
+			self._handle_removal_vehicle()
+		elif task_type == "Checkup":
+			self._handle_checkup_vehicle()
+		elif task_type == "Accessory":
+			self._handle_accessory_vehicle()
+
+	# Installation
+
+	def _handle_installation_vehicle(self):
+		"""
+		New vehicle for customer — must NOT already exist.
+		If it exists, technician entered wrong vehicle number.
+		Create vehicle, map customer, add all items as Installed.
+		"""
+		if frappe.db.exists("Vehicle", self.vehicle_number):
+			frappe.throw(
+				f"Vehicle <b>{self.vehicle_number}</b> already exists in the system. "
+				f"For Task Type <b>Installation</b> the vehicle should be new. "
+				f"Please check the vehicle number."
+			)
+
+		vehicle = frappe.get_doc({
+			"doctype": "Vehicle",
+			"license_plate": self.vehicle_number,
+			"custom_customer": self.customer or None,
+		})
+		for row in self.item_installed_removed:
+			vehicle.append("custom_vehicle_item", {
+				"item":      row.item,
+				"item_type": row.item_type,
+				"status":    "Installed",
+				"date":      self.date,
+			})
+		vehicle.insert(ignore_permissions=True)
+		frappe.msgprint(
+			f"Vehicle <b>{self.vehicle_number}</b> created and items recorded.", alert=True
+		)
+
+	# Removal
+
+	def _handle_removal_vehicle(self):
+		"""
+		Removing items from an existing vehicle.
+		Vehicle must exist.
+		Every item in the job table must exist in custom_vehicle_item — hard error if not.
+		"""
 		if not frappe.db.exists("Vehicle", self.vehicle_number):
-			return
+			frappe.throw(
+				f"Vehicle <b>{self.vehicle_number}</b> not found. "
+				f"Cannot process Removal for a vehicle that does not exist."
+			)
 
 		vehicle = frappe.get_doc("Vehicle", self.vehicle_number)
-		for row in self.item_installed_removed:
-			existing = next(
-				(r for r in vehicle.get("custom_vehicle_item", []) if r.item == row.item),
-				None
+		vehicle_items = {r.item: r for r in vehicle.get("custom_vehicle_item", [])}
+
+		# Validate all items exist on vehicle before making any changes
+		missing = [row.item for row in self.item_installed_removed if row.item not in vehicle_items]
+		if missing:
+			frappe.throw(
+				f"Cannot complete — the following item(s) are not installed on vehicle "
+				f"<b>{self.vehicle_number}</b>:<br>"
+				+ "<br>".join(missing)
 			)
-			if existing:
-				existing.status = row.installed_or_removed
-				existing.date   = self.date
+
+		for row in self.item_installed_removed:
+			vi        = vehicle_items[row.item]
+			vi.status = "Removed"
+			vi.date   = self.date
+
+		vehicle.save(ignore_permissions=True)
+
+	# Checkup
+
+	def _handle_checkup_vehicle(self):
+		"""
+		Servicing an existing vehicle — vehicle must exist.
+
+		Removed rows:
+		  - Item not on vehicle → hard error
+		  - Item on vehicle     → set status Removed + date
+
+		Installed rows:
+		  - Item on vehicle (any status) → set status Installed + date
+		  - Item not on vehicle          → add new row as Installed
+		"""
+		if not frappe.db.exists("Vehicle", self.vehicle_number):
+			frappe.throw(
+				f"Vehicle <b>{self.vehicle_number}</b> not found. "
+				f"Checkup requires an existing vehicle."
+			)
+
+		vehicle = frappe.get_doc("Vehicle", self.vehicle_number)
+		vehicle_items = {r.item: r for r in vehicle.get("custom_vehicle_item", [])}
+
+		# Validate removals first — fail before making any changes
+		removal_errors = [
+			row.item for row in self.item_installed_removed
+			if row.installed_or_removed == "Removed" and row.item not in vehicle_items
+		]
+		if removal_errors:
+			frappe.throw(
+				f"Cannot complete — the following item(s) are not installed on vehicle "
+				f"<b>{self.vehicle_number}</b> hence cannot be removed:<br>"
+				+ "<br>".join(removal_errors)
+			)
+
+		for row in self.item_installed_removed:
+			if row.installed_or_removed == "Removed":
+				vi        = vehicle_items[row.item]
+				vi.status = "Removed"
+				vi.date   = self.date
+
+			elif row.installed_or_removed == "Installed":
+				if row.item in vehicle_items:
+					# Update status to Installed + date regardless of previous status
+					vi        = vehicle_items[row.item]
+					vi.status = "Installed"
+					vi.date   = self.date
+				else:
+					# Not on vehicle yet — add fresh
+					vehicle.append("custom_vehicle_item", {
+						"item":      row.item,
+						"item_type": row.item_type,
+						"status":    "Installed",
+						"date":      self.date,
+					})
+
+		vehicle.save(ignore_permissions=True)
+
+	# Accessory
+
+	def _handle_accessory_vehicle(self):
+		"""
+		Adding accessories to an existing vehicle — vehicle must exist.
+
+		  - Same item + status Installed → update date only
+		  - Same item + status Removed   → update status to Installed + date
+		  - Item not on vehicle          → add new row as Installed
+		"""
+		if not frappe.db.exists("Vehicle", self.vehicle_number):
+			frappe.throw(
+				f"Vehicle <b>{self.vehicle_number}</b> not found. "
+				f"Accessory installation requires an existing vehicle."
+			)
+
+		vehicle = frappe.get_doc("Vehicle", self.vehicle_number)
+		vehicle_items = {r.item: r for r in vehicle.get("custom_vehicle_item", [])}
+
+		for row in self.item_installed_removed:
+			if row.item in vehicle_items:
+				vi        = vehicle_items[row.item]
+				vi.status = "Installed"
+				vi.date   = self.date
 			else:
 				vehicle.append("custom_vehicle_item", {
 					"item":      row.item,
 					"item_type": row.item_type,
-					"status":    row.installed_or_removed,
+					"status":    "Installed",
 					"date":      self.date,
 				})
 		vehicle.save(ignore_permissions=True)
@@ -147,6 +315,7 @@ class Job(Document):
 # Item search by warehouse
 
 @frappe.whitelist()
+@frappe.validate_and_sanitize_search_inputs
 def get_items_in_warehouse(doctype, txt, searchfield, start, page_len, filters):
 	warehouse = filters.get("warehouse") if filters else None
 	if not warehouse:
@@ -169,11 +338,12 @@ def get_items_in_warehouse(doctype, txt, searchfield, start, page_len, filters):
 
 
 @frappe.whitelist()
+@frappe.validate_and_sanitize_search_inputs
 def get_removable_items(doctype, txt, searchfield, start, page_len, filters):
 	"""Items eligible for Removal: in customer warehouse AND installed on the vehicle."""
-	warehouse    = filters.get("warehouse")    if filters else None
+	warehouse = filters.get("warehouse") if filters else None
 	vehicle_number = filters.get("vehicle_number") if filters else None
-	customer     = filters.get("customer")     if filters else None
+	customer = filters.get("customer") if filters else None
 
 	if not warehouse:
 		return []

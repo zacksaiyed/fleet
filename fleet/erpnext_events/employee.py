@@ -1,8 +1,8 @@
 import frappe
 
 ROLE_MAP = {
-    "Technician": ["Technician", "Workspace Manager"],
-    "Support": ["Support Team", "Workspace Manager"]
+    "Technician": ["Technician", "Workspace Manager", "Material Transfer User"],
+    "Support": ["Support Team", "Workspace Manager", "Material Transfer User"]
 }
 
 
