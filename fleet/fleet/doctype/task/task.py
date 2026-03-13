@@ -2,11 +2,11 @@ import json
 import frappe
 
 
-# ── Task Actions ──────────────────────────────────────────
+# task actions
 
 @frappe.whitelist()
 def task_action(task, action, technician=None):
-	"""Handle Task status transitions. Called from task.js and mobile API."""
+	# handle task status transitions, called from task.js and mobile api
 	doc        = frappe.get_doc("Task", task)
 	roles      = frappe.get_roles()
 	is_support = "Support Team" in roles
@@ -42,7 +42,7 @@ def task_action(task, action, technician=None):
 		doc.custom_assign_to      = technician
 		emp_name = frappe.db.get_value("Employee", technician, "employee_name")
 		doc.custom_employee_name  = emp_name or technician
-		# Also update all pending jobs to new technician
+		# update all pending jobs to new technician
 		_reassign_jobs(doc.name, technician)
 		doc.status = "Open"
 		msg = f"Task reassigned to {emp_name or technician} and reopened."
@@ -92,7 +92,7 @@ def task_action(task, action, technician=None):
 
 
 def _reassign_jobs(task_name, new_technician):
-	"""Update assigned_technician on all non-final jobs of a task."""
+	# update assigned technician on all non-final jobs of a task
 	jobs = frappe.get_all(
 		"Job",
 		filters={"task": task_name, "status": ["not in", ("Completed", "Cancelled")]},
@@ -113,19 +113,11 @@ def _assert_status(doc, expected, msg):
 		frappe.throw(msg)
 
 
-# ── Auto-derive Task status from Jobs ─────────────────────
+# auto-derive task status from jobs
 
 def recompute_task_status(task_name):
-	"""
-	Called from job.py on_update.
-	Only runs when task is in an active derived state.
-
-	Priority:
-	  Any Pending present                    → In Progress
-	  No Pending, any In Review present      → In Review
-	  No Pending/In Review, any On Hold      → On Hold
-	  All Completed or Cancelled             → Completed
-	"""
+	# called from job.py on_update
+	# priority: pending > in review > on hold > completed
 	task_status = frappe.db.get_value("Task", task_name, "status")
 	if task_status in ("Open", "Accepted", "Rejected", "Completed", "Cancelled", "On Hold"):
 		return
@@ -153,7 +145,35 @@ def recompute_task_status(task_name):
 		frappe.db.set_value("Task", task_name, "status", new_status, update_modified=False)
 
 
-# ── Create Jobs from Dialog ───────────────────────────────
+# propagate technician to jobs on task save
+
+def on_update(doc, method=None):
+	# when a technician is assigned to a task, update all non-final jobs
+	# overrides any existing job assignment
+	if not doc.custom_assign_to:
+		return
+
+	tech_warehouse = frappe.db.get_value(
+		"Warehouse", {"custom_employee": doc.custom_assign_to, "disabled": 0}, "name"
+	)
+
+	jobs = frappe.get_all(
+		"Job",
+		filters={
+			"task": doc.name,
+			"status": ["not in", ("Completed", "Cancelled")],
+		},
+		fields=["name"],
+	)
+
+	for j in jobs:
+		frappe.db.set_value("Job", j.name, {
+			"assigned_technician":  doc.custom_assign_to,
+			"technician_warehouse": tech_warehouse or None,
+		})
+
+
+# create jobs from dialog
 
 @frappe.whitelist()
 def create_jobs_from_dialog(task, job_rows):
@@ -161,19 +181,18 @@ def create_jobs_from_dialog(task, job_rows):
 		job_rows = json.loads(job_rows)
 
 	task_doc = frappe.get_doc("Task", task)
-	technician = task_doc.custom_assign_to
+	technician = task_doc.custom_assign_to or None   # may be blank, jobs created without technician
 	customer = task_doc.custom_customer
 	date = task_doc.custom_date
 	tech_warehouse = None
 
-	if not technician:
-		frappe.throw("Task has no assigned technician (custom_assign_to).")
+	# only look up warehouse if technician is assigned
+	if technician:
+		tech_warehouse = frappe.db.get_value(
+			"Warehouse", {"custom_employee": technician, "disabled": 0}, "name"
+		)
 
-	tech_warehouse = frappe.db.get_value(
-		"Warehouse", {"custom_employee": technician, "disabled": 0}, "name"
-	)
-
-	created_count    = 0
+	created_count     = 0
 	entries_to_append = []
 
 	for entry in job_rows:
@@ -213,8 +232,7 @@ def create_jobs_from_dialog(task, job_rows):
 				"job":       job.name,
 			})
 
-	# Reload to get the latest modified timestamp (job inserts may have triggered hooks
-	# that updated the task), then append child rows and save once.
+	# reload before appending child rows to avoid overwriting hook changes
 	task_doc.reload()
 	for row in entries_to_append:
 		task_doc.append("custom_task_jobs", row)
