@@ -1,5 +1,47 @@
 import frappe
 
+
+def job_permission_query(user=None):
+    if not user:
+        user = frappe.session.user
+
+    if user == "Administrator" or "System Manager" in frappe.get_roles(user):
+        return ""
+
+    roles = frappe.get_roles(user)
+
+    if "Technician" not in roles:
+        return ""
+
+    employee = frappe.db.get_value("Employee", {"user_id": user}, "name")
+
+    if not employee:
+        return "(`tabJob`.`name` = '__no_access__')"
+
+    # only jobs explicitly assigned to this technician
+    return f"`tabJob`.`assigned_technician` = '{employee}'"
+
+
+def job_has_permission(doc, user=None, ptype="read"):
+    if not user:
+        user = frappe.session.user
+
+    if user == "Administrator" or "System Manager" in frappe.get_roles(user):
+        return True
+
+    roles = frappe.get_roles(user)
+
+    if "Technician" not in roles:
+        return True
+
+    employee = frappe.db.get_value("Employee", {"user_id": user}, "name")
+
+    if not employee:
+        return False
+
+    return doc.assigned_technician == employee
+
+
 def task_permission_query(user=None):
     if not user:
         user = frappe.session.user

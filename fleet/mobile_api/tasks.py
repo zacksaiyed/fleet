@@ -3,17 +3,30 @@ from frappe import _
 from frappe.utils import nowdate
 
 
-# ─────────────────────────────────────────────
-#  FILE: fleet/mobile_api/tasks.py
+# file: fleet/mobile_api/tasks.py
 #
-#  GET  /api/method/fleet.mobile_api.tasks.get_my_tasks
-#  GET  /api/method/fleet.mobile_api.tasks.get_task_jobs
-#  POST /api/method/fleet.mobile_api.tasks.respond_to_task
-#  POST /api/method/fleet.mobile_api.tasks.start_task
-# ─────────────────────────────────────────────
+# GET  /api/method/fleet.mobile_api.tasks.get_my_tasks
+# GET  /api/method/fleet.mobile_api.tasks.get_task_jobs
+# GET  /api/method/fleet.mobile_api.tasks.get_job
+# GET  /api/method/fleet.mobile_api.tasks.get_profile
+# POST /api/method/fleet.mobile_api.tasks.respond_to_task
+# POST /api/method/fleet.mobile_api.tasks.start_task
+# POST /api/method/fleet.mobile_api.tasks.job_action
 
-# Statuses that are considered "active" (not done/cancelled)
+# statuses considered active (not done/cancelled)
 _ACTIVE = ("Open", "Accepted", "In Progress", "On Hold", "In Review")
+
+
+# auth helper
+
+def _get_employee(user_email):
+    # resolve logged-in user to employee, throw if not found
+    if user_email == "Guest":
+        frappe.throw(_("You must be logged in."), frappe.AuthenticationError)
+    employee = frappe.db.get_value("Employee", {"user_id": user_email}, "name")
+    if not employee:
+        frappe.throw(_("No Employee record found for this user."))
+    return employee
 
 
 @frappe.whitelist()
@@ -56,32 +69,17 @@ def get_my_tasks() -> dict:
       - Tasks with status Completed or Cancelled are never returned.
       - job_count and job_type_counts are aggregated per task from the Job doctype.
     """
-
-    user_email = frappe.session.user
-    if user_email == "Guest":
-        frappe.throw(_("You must be logged in."), frappe.AuthenticationError)
-
-    employee = frappe.db.get_value(
-        "Employee",
-        {"user_id": user_email},
-        ["name", "employee_name"],
-        as_dict=True
-    )
-    if not employee:
-        frappe.throw(_("No Employee record found for this user."))
-
-    employee_id = employee.name
+    employee = _get_employee(frappe.session.user)
 
     tab           = frappe.form_dict.get("tab")
     from_date     = frappe.form_dict.get("from_date")
     to_date       = frappe.form_dict.get("to_date")
     status_filter = frappe.form_dict.get("status")
+    today         = nowdate()
 
-    today = nowdate()
-
-    # Base: never return Completed or Cancelled tasks
+    # base filter: never return completed or cancelled tasks
     filters = {
-        "custom_assign_to": employee_id,
+        "custom_assign_to": employee,
         "status": ["not in", ["Completed", "Cancelled", "Rejected"]],
     }
 
@@ -134,10 +132,10 @@ def get_my_tasks() -> dict:
         order_by="custom_date asc, modified desc"
     )
 
-    # Aggregate job counts in one SQL query (avoids N+1)
+    # aggregate job counts in one sql query to avoid n+1
     task_names      = [t["name"] for t in tasks]
-    job_counts      = {}   # { task_name: total_count }
-    job_type_counts = {}   # { task_name: { task_type: count } }
+    job_counts      = {}
+    job_type_counts = {}
 
     if task_names:
         rows = frappe.db.sql(
@@ -162,20 +160,20 @@ def get_my_tasks() -> dict:
         task["jobs_count"]      = job_counts.get(n, 0)
         task["job_type_counts"] = job_type_counts.get(n, {})
 
-    # Tab badge counts for mobile nav
+    # tab badge counts for mobile nav
     tab_counts = {
         "today": frappe.db.count("Task", {
-            "custom_assign_to": employee_id,
+            "custom_assign_to": employee,
             "custom_date":      today,
             "status":           "Accepted",
         }),
         "overdue": frappe.db.count("Task", {
-            "custom_assign_to": employee_id,
+            "custom_assign_to": employee,
             "custom_date":      ["<", today],
             "status":           ["in", list(_ACTIVE)],
         }),
         "requests": frappe.db.count("Task", {
-            "custom_assign_to": employee_id,
+            "custom_assign_to": employee,
             "status":           "Open",
         }),
     }
@@ -191,26 +189,28 @@ def get_my_tasks() -> dict:
 @frappe.whitelist()
 def get_task_jobs(task: str) -> dict:
     """
-    Get all Jobs for a given Task.
-
     GET /api/method/fleet.mobile_api.tasks.get_task_jobs?task=TASK-0001
     Headers:
         Cookie: sid=<logged_in_user_sid>
 
-    Params:
-        task  — Task name (required)
+    params:
+        task — task name (required)
     """
     if not task:
         frappe.throw(_("task is required."))
 
+    employee = _get_employee(frappe.session.user)
+
+    # single query — returns nothing if task is not assigned to this employee
     task_doc = frappe.db.get_value(
         "Task",
-        task,
-        ["name", "subject", "status", "custom_date", "custom_customer", "custom_assign_to", "description", "priority"],
+        {"name": task, "custom_assign_to": employee},
+        ["name", "subject", "status", "custom_date", "custom_customer",
+         "custom_assign_to", "description", "priority"],
         as_dict=True
     )
     if not task_doc:
-        frappe.throw(_("Task not found."))
+        frappe.throw(_("Task not found or you are not assigned to it."))
 
     jobs = frappe.get_all(
         "Job",
@@ -239,12 +239,12 @@ def get_task_jobs(task: str) -> dict:
     return {
         "status": "success",
         "task": {
-            "id":       task_doc.name,
-            "subject":  task_doc.subject,
-            "status":   task_doc.status,
-            "date":     task_doc.custom_date,
-            "customer": task_doc.custom_customer,
-            "priority": task_doc.priority,
+            "id":          task_doc.name,
+            "subject":     task_doc.subject,
+            "status":      task_doc.status,
+            "date":        task_doc.custom_date,
+            "customer":    task_doc.custom_customer,
+            "priority":    task_doc.priority,
             "description": task_doc.description,
         },
         "total": len(jobs),
@@ -255,17 +255,25 @@ def get_task_jobs(task: str) -> dict:
 @frappe.whitelist()
 def respond_to_task(task: str, action: str) -> dict:
     """
-    Accept or Reject an Open task from mobile.
-
     POST /api/method/fleet.mobile_api.tasks.respond_to_task
     Headers:
         Cookie: sid=<logged_in_user_sid>
-    Body (form-data or JSON):
-        task    — Task name  (e.g. TASK-0001)
-        action  — "accept" | "reject"
+    Body:
+        task   — task name (e.g. TASK-0001)
+        action — "accept" | "reject"
     """
     if action not in ("accept", "reject"):
         frappe.throw(_("action must be 'accept' or 'reject'."))
+
+    employee = _get_employee(frappe.session.user)
+
+    task_doc = frappe.db.get_value(
+        "Task",
+        {"name": task, "custom_assign_to": employee},
+        "name"
+    )
+    if not task_doc:
+        frappe.throw(_("Task not found or you are not assigned to it."))
 
     from fleet.fleet.doctype.task.task import task_action
     result = task_action(task=task, action=action)
@@ -275,79 +283,48 @@ def respond_to_task(task: str, action: str) -> dict:
 @frappe.whitelist()
 def start_task(task: str) -> dict:
     """
-    Start an accepted task (change status to In Progress).
-    Only the assigned technician can start their own task.
-
     POST /api/method/fleet.mobile_api.tasks.start_task
     Headers:
         Cookie: sid=<logged_in_user_sid>
-    Body (form-data or JSON):
-        task — Task name (e.g. TASK-0001)
+    Body:
+        task — task name (e.g. TASK-0001)
 
-    Validation:
-      - Task must be assigned to the logged-in user
-      - Task status must be "Accepted"
-      - User must have "Technician" role
+    validation:
+        task must be assigned to the logged-in user
+        task status must be Accepted
     """
     if not task:
         frappe.throw(_("task is required."))
 
-    user_email = frappe.session.user
-    if user_email == "Guest":
-        frappe.throw(_("You must be logged in."), frappe.AuthenticationError)
+    employee = _get_employee(frappe.session.user)
 
-    # Get the task and verify it's assigned to this user
+    # single query — returns nothing if task is not assigned to this employee
     task_doc = frappe.db.get_value(
         "Task",
-        task,
-        ["name", "custom_assign_to", "status"],
+        {"name": task, "custom_assign_to": employee},
+        ["name", "status"],
         as_dict=True
     )
     if not task_doc:
-        frappe.throw(_("Task not found."))
+        frappe.throw(_("Task not found or you are not assigned to it."))
 
-    # Get employee record for the logged-in user
-    employee = frappe.db.get_value(
-        "Employee",
-        {"user_id": user_email},
-        "name"
-    )
-    if not employee:
-        frappe.throw(_("No Employee record found for this user."))
-
-    # Verify task is assigned to this employee
-    if task_doc.custom_assign_to != employee:
-        frappe.throw(_("You can only start tasks assigned to you."))
-
-    # Call the task action with "start"
     from fleet.fleet.doctype.task.task import task_action
     result = task_action(task=task, action="start")
     return {"status": "success", **result}
 
 
-# ─────────────────────────────────────────────
-#  Profile
-#  GET /api/method/fleet.mobile_api.tasks.get_profile
-# ─────────────────────────────────────────────
-
 @frappe.whitelist()
 def get_profile() -> dict:
     """
-    Returns the logged-in technician's profile including their linked warehouse.
-
     GET /api/method/fleet.mobile_api.tasks.get_profile
+    Headers:
+        Cookie: sid=<logged_in_user_sid>
     """
-    user = frappe.session.user
-    if user == "Guest":
-        frappe.throw(_("You must be logged in."), frappe.AuthenticationError)
+    employee = _get_employee(frappe.session.user)
 
-    emp_name = frappe.db.get_value("Employee", {"user_id": user}, "name")
-    if not emp_name:
-        frappe.throw(_("No Employee record linked to this user."), frappe.AuthenticationError)
-
-    emp = frappe.get_doc("Employee", emp_name)
+    emp = frappe.get_doc("Employee", employee)
     warehouse = frappe.db.get_value(
-        "Warehouse", {"custom_employee": emp_name, "disabled": 0}, "name"
+        "Warehouse", {"custom_employee": employee, "disabled": 0}, "name"
     )
 
     return {
@@ -355,38 +332,36 @@ def get_profile() -> dict:
         "employee":      emp.name,
         "employee_name": emp.employee_name,
         "mobile_no":     emp.cell_number,
-        "user":          user,
+        "user":          frappe.session.user,
         "warehouse":     warehouse,
     }
 
 
-# ─────────────────────────────────────────────
-#  Job detail
-#  GET /api/method/fleet.mobile_api.tasks.get_job?job=JOB-2026-03-000001
-# ─────────────────────────────────────────────
-
 @frappe.whitelist()
 def get_job(job: str) -> dict:
     """
-    Returns full detail for a single job.
-    Only the assigned technician can fetch it.
-
     GET /api/method/fleet.mobile_api.tasks.get_job?job=JOB-2026-03-000001
+    Headers:
+        Cookie: sid=<logged_in_user_sid>
+
+    only the assigned technician can fetch it.
     """
     if not job:
         frappe.throw(_("job is required."))
 
-    user = frappe.session.user
-    if user == "Guest":
-        frappe.throw(_("You must be logged in."), frappe.AuthenticationError)
+    employee = _get_employee(frappe.session.user)
 
-    employee = frappe.db.get_value("Employee", {"user_id": user}, "name")
-    if not employee:
-        frappe.throw(_("No Employee record found for this user."))
-
-    job_doc = frappe.get_doc("Job", job)
-    if job_doc.assigned_technician != employee:
-        frappe.throw(_("You are not assigned to this job."))
+    # single query — returns nothing if job is not assigned to this employee
+    job_doc = frappe.db.get_value(
+        "Job",
+        {"name": job, "assigned_technician": employee},
+        ["name", "title", "status", "task_type", "vehicle_number",
+         "customer", "make", "model", "date", "done_comment",
+         "hold_comment", "completion_comment"],
+        as_dict=True
+    )
+    if not job_doc:
+        frappe.throw(_("Job not found or you are not assigned to it."))
 
     return {
         "status": "success",
@@ -408,36 +383,31 @@ def get_job(job: str) -> dict:
     }
 
 
-# ─────────────────────────────────────────────
-#  Job action
-#  POST /api/method/fleet.mobile_api.tasks.job_action
-# ─────────────────────────────────────────────
-
 @frappe.whitelist()
 def job_action(job: str, action: str, completion_comment: str = None) -> dict:
     """
-    Perform an action on a job (technician only).
-
     POST /api/method/fleet.mobile_api.tasks.job_action
+    Headers:
+        Cookie: sid=<logged_in_user_sid>
     Body:
-        job                 — Job name  (e.g. JOB-2026-03-000001)
-        action              — "done" | "hold" | "reopen"
-        completion_comment  — optional, used with "done"
+        job                — job name (e.g. JOB-2026-03-000001)
+        action             — "done" | "hold" | "reopen"
+        completion_comment — optional, used with "done"
     """
+    if not job:
+        frappe.throw(_("job is required."))
+
     if action not in ("done", "hold", "reopen"):
-        frappe.throw(_(f"action must be 'done', 'hold', or 'reopen'."))
+        frappe.throw(_("action must be 'done', 'hold', or 'reopen'."))
 
-    user = frappe.session.user
-    if user == "Guest":
-        frappe.throw(_("You must be logged in."), frappe.AuthenticationError)
+    employee = _get_employee(frappe.session.user)
 
-    employee = frappe.db.get_value("Employee", {"user_id": user}, "name")
-    if not employee:
-        frappe.throw(_("No Employee record found for this user."))
-
-    assigned = frappe.db.get_value("Job", job, "assigned_technician")
-    if assigned != employee:
-        frappe.throw(_("You are not assigned to this job."))
+    # single query — returns nothing if job is not assigned to this employee
+    assigned = frappe.db.get_value(
+        "Job", {"name": job, "assigned_technician": employee}, "name"
+    )
+    if not assigned:
+        frappe.throw(_("Job not found or you are not assigned to it."))
 
     if action == "done" and completion_comment:
         frappe.db.set_value("Job", job, "completion_comment", completion_comment)
@@ -447,12 +417,10 @@ def job_action(job: str, action: str, completion_comment: str = None) -> dict:
     return {"status": "success", **result}
 
 
-# ─────────────────────────────────────────────
-#  Available-actions helpers
-# ─────────────────────────────────────────────
+# available actions helpers
 
 def _task_available_actions(status: str) -> list:
-    """Returns actions a Technician can perform on a task in the given status."""
+    # actions a technician can perform on a task in the given status
     return {
         "Open":     ["accept", "reject"],
         "Accepted": ["start"],
@@ -460,7 +428,7 @@ def _task_available_actions(status: str) -> list:
 
 
 def _job_available_actions(status: str) -> list:
-    """Returns actions a Technician can perform on a job in the given status."""
+    # actions a technician can perform on a job in the given status
     return {
         "Pending":   ["done"],
         "In Review": ["hold"],
