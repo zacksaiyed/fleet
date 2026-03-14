@@ -250,7 +250,7 @@
   {
    "fieldname": "completed_by_support",
    "fieldtype": "Link",
-   "label": "Comleted By",
+   "label": "Completed By",
    "options": "User"
   },
   {

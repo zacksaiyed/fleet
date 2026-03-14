@@ -128,6 +128,8 @@ def get_my_tasks() -> dict:
             "company",
             "creation",
             "modified",
+            "custom_latitude",
+            "custom_longitude",
         ],
         order_by="custom_date asc, modified desc"
     )
