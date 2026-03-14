@@ -185,7 +185,7 @@ function _show_add_jobs_dialog(frm) {
 					return;
 				}
 				const vehicles = _parse_vehicles(row.vehicles);
-				if (row.task_type !== "Installation" && vehicles.length > row.count) {
+				if (vehicles.length > row.count) {
 					frappe.msgprint({
 						message: __(`"${row.task_type}": ${vehicles.length} vehicle(s) entered but count is only ${row.count}.`),
 						indicator: "orange",

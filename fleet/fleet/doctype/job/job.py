@@ -9,6 +9,7 @@ class Job(Document):
 		self._fetch_technician_warehouse()
 		self._fetch_customer_warehouse()
 		self._set_date_from_task()
+		self._set_vehicle_number()
 
 	def validate(self):
 		if self.status == "Completed" and not self.completion_comment:
@@ -21,7 +22,10 @@ class Job(Document):
 			self._handle_warehouse_movement()
 
 	# Private helpers
-
+	def _set_vehicle_number(self):
+		if self.vehicle_number:
+			self.vehicle_number = self.vehicle_number.replace(" ", "").upper()
+			
 	def _set_date_from_task(self):
 		if not self.date and self.task:
 			task_date = frappe.db.get_value("Task", self.task, "custom_date")
