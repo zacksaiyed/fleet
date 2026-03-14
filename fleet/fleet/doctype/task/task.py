@@ -206,6 +206,9 @@ def create_jobs_from_dialog(task, job_rows):
 			vehicles = vehicles + [""] * (count - len(vehicles))
 
 		for vehicle in vehicles[:count]:
+			# Normalize: strip spaces and uppercase
+			vehicle = vehicle.replace(" ", "").upper() if vehicle else None
+			
 			parts = [task_type]
 			if customer:
 				parts.append(customer)
