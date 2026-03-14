@@ -131,11 +131,13 @@ doctype_list_js = {
 
 permission_query_conditions = {
 	"Task":               "fleet.custom_py.permissions.task_permission_query",
+	"Job":                "fleet.custom_py.permissions.job_permission_query",
 	"Material Transfer":  "fleet.fleet.doctype.material_transfer.material_transfer.mt_permission_query",
 }
 
 has_permission = {
 	"Task":               "fleet.custom_py.permissions.task_has_permission",
+	"Job":                "fleet.custom_py.permissions.job_has_permission",
 	"Material Transfer":  "fleet.fleet.doctype.material_transfer.material_transfer.mt_has_permission",
 }
 # DocType Class

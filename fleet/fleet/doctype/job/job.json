@@ -64,8 +64,10 @@
    "fieldname": "assigned_technician",
    "fieldtype": "Link",
    "in_filter": 1,
+   "in_standard_filter": 1,
    "label": "Assigned Technician",
-   "options": "Employee"
+   "options": "Employee",
+   "read_only": 1
   },
   {
    "columns": 1,
@@ -183,6 +185,7 @@
    "label": "Date"
   },
   {
+   "depends_on": "eval: doc.assigned_technician",
    "fetch_from": "assigned_technician.employee_name",
    "fieldname": "technician_name",
    "fieldtype": "Data",

@@ -1,4 +1,12 @@
 frappe.ui.form.on('Task', {
+	custom_customer: function(frm) {
+        frm.set_value("custom_address", null);
+        frm.set_value("custom_complete_address", null);
+        if (frm.doc.custom_customer) {
+            frm.refresh_field("custom_address");
+            frm.refresh_field("custom_complete_address");
+        }
+    },
 
 	setup(frm) {
 		frm.set_query("custom_address", function (doc) {
