@@ -1,3 +1,4 @@
+import re
 import frappe
 from frappe import _
 from frappe.utils import nowdate
@@ -27,6 +28,15 @@ def _get_employee(user_email):
     if not employee:
         frappe.throw(_("No Employee record found for this user."))
     return employee
+
+
+def _strip_html(value):
+    # remove html tags and collapse whitespace, return plain text
+    if not value:
+        return None
+    text = re.sub(r"<[^>]+>", " ", value)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text or None
 
 
 @frappe.whitelist()
@@ -159,8 +169,10 @@ def get_my_tasks() -> dict:
 
     for task in tasks:
         n = task["name"]
-        task["jobs_count"]      = job_counts.get(n, 0)
-        task["job_type_counts"] = job_type_counts.get(n, {})
+        task["jobs_count"]              = job_counts.get(n, 0)
+        task["job_type_counts"]         = job_type_counts.get(n, {})
+        task["description"]             = _strip_html(task.get("description"))
+        task["custom_complete_address"] = _strip_html(task.get("custom_complete_address"))
 
     # tab badge counts for mobile nav
     tab_counts = {
@@ -247,7 +259,7 @@ def get_task_jobs(task: str) -> dict:
             "date":        task_doc.custom_date,
             "customer":    task_doc.custom_customer,
             "priority":    task_doc.priority,
-            "description": task_doc.description,
+            "description": _strip_html(task_doc.description),
         },
         "total": len(jobs),
         "jobs":  jobs,

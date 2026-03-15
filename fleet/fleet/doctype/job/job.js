@@ -47,7 +47,7 @@ frappe.ui.form.on("Job Item", {
 							items.forEach((vi) => {
 								const new_row = frm.add_child("item_installed_removed");
 								new_row.installed_or_removed = "Removed";
-								new_row.item = vi.item;
+								// new_row.item = vi.item;
 							});
 							frm.refresh_field("item_installed_removed");
 						},
