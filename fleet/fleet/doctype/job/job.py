@@ -10,6 +10,7 @@ class Job(Document):
 		self._fetch_customer_warehouse()
 		self._set_date_from_task()
 		self._set_vehicle_number()
+		self._fetch_vehicle_details()
 
 	def validate(self):
 		if self.status == "Completed" and not self.completion_comment:
@@ -25,6 +26,18 @@ class Job(Document):
 	def _set_vehicle_number(self):
 		if self.vehicle_number:
 			self.vehicle_number = self.vehicle_number.replace(" ", "").upper()
+	
+	def _fetch_vehicle_details(self):
+		if self.task_type == "Removal" and self.vehicle_number:
+			vehicle = frappe.db.get_value(
+				"Vehicle",
+				{"name": self.vehicle_number},
+				["make", "model"],
+				as_dict=True
+			)
+			if vehicle:
+				self.make  = vehicle.make
+				self.model = vehicle.model
 			
 	def _set_date_from_task(self):
 		if not self.date and self.task:
@@ -177,6 +190,8 @@ class Job(Document):
 		vehicle = frappe.get_doc({
 			"doctype": "Vehicle",
 			"license_plate": self.vehicle_number,
+			"make" : self.make,	
+			"model" : self.model,
 			"custom_customer": self.customer or None,
 		})
 		for row in self.item_installed_removed:
