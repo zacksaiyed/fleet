@@ -148,6 +148,14 @@ frappe.ui.form.on("Job", {
 		}
 	},
 
+	task_type(frm) {
+        fetch_vehicle_details(frm);
+    },
+
+    vehicle_number(frm) {
+        fetch_vehicle_details(frm);
+    }
+
 });
 
 function _job_action_with_comment(frm, action, label, field) {
@@ -173,4 +181,37 @@ function _job_action(frm, action, comment, comment_field) {
 			frm.reload_doc();
 		},
 	});
+}
+
+function fetch_vehicle_details(frm) {
+    const { task_type, vehicle_number } = frm.doc;
+
+    // clear if conditions not met
+    if (task_type !== "Removal" || !vehicle_number) {
+        frm.set_value("make", "");
+        frm.set_value("model", "");
+        return;
+    }
+
+    frappe.call({
+        method: "frappe.client.get_value",
+        args: {
+            doctype: "Vehicle",
+            filters: { name: vehicle_number.replace(/\s+/g, "").toUpperCase() },
+            fieldname: ["name","make", "model"],
+        },
+        callback(r) {
+            if (r.message) {
+                frm.set_value("make",  r.message.make);
+                frm.set_value("model", r.message.model);
+            } else {
+                frappe.show_alert({
+                    message: __(`No vehicle found for ${vehicle_number}`),
+                    indicator: "orange"
+                }, 4);
+                frm.set_value("make", "");
+                frm.set_value("model", "");
+            }
+        }
+    });
 }
