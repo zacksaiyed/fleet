@@ -5,7 +5,7 @@ import frappe
 # task actions
 
 @frappe.whitelist()
-def task_action(task, action, technician=None):
+def task_action(task, action, technician=None, reject_comment=None):
 	# handle task status transitions, called from task.js and mobile api
 	doc        = frappe.get_doc("Task", task)
 	roles      = frappe.get_roles()
@@ -23,7 +23,10 @@ def task_action(task, action, technician=None):
 		_assert_status(doc, "Open", "Task must be Open to Reject.")
 		if not (is_support or is_tech):
 			frappe.throw("Permission denied.")
+		if not reject_comment:
+			frappe.throw("Rejection reason is required.")
 		doc.status = "Rejected"
+		doc.custom_reject_comment = reject_comment
 		msg = "Task rejected."
 
 	elif action == "start":

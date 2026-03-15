@@ -6,7 +6,6 @@
  "engine": "InnoDB",
  "field_order": [
   "job",
-  "task_job_row",
   "sender",
   "sender_name",
   "sender_role",
@@ -24,14 +23,6 @@
    "options": "Job",
    "reqd": 1,
    "search_index": 1
-  },
-  {
-   "fieldname": "task_job_row",
-   "fieldtype": "Data",
-   "hidden": 1,
-   "label": "Task Job Row",
-   "no_copy": 1,
-   "read_only": 1
   },
   {
    "fieldname": "sender",
@@ -76,10 +67,10 @@
    "fieldname": "is_read",
    "fieldtype": "Check",
    "label": "Is Read"
-  }
+  },
  ],
  "links": [],
- "modified": "2026-03-07 00:11:51.314433",
+ "modified": "2026-03-15 23:40:04.993549",
  "modified_by": "Administrator",
  "module": "Fleet",
  "name": "Job Message",

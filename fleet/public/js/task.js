@@ -77,9 +77,7 @@ frappe.ui.form.on('Task', {
 				).addClass("btn-primary");
 
 				frm.add_custom_button(__("Reject"), () =>
-					frappe.confirm(__("Reject this task?"),
-						() => _task_action(frm, "reject")
-					)
+					_show_reject_dialog(frm)
 				).addClass("btn-danger");
 			}
 
@@ -136,6 +134,28 @@ function _task_action(frm, action, extra_args = {}) {
 			frm.reload_doc();
 		},
 	});
+}
+
+function _show_reject_dialog(frm) {
+	const d = new frappe.ui.Dialog({
+		title: __("Reject Task"),
+		fields: [
+			{
+				fieldtype: "Small Text",
+				fieldname: "reject_comment",
+				label: __("Reason for Rejection"),
+				reqd: 1,
+				placeholder: __("Explain why you are rejecting this task…"),
+			},
+		],
+		primary_action_label: __("Reject"),
+		primary_action(values) {
+			d.hide();
+			_task_action(frm, "reject", { reject_comment: values.reject_comment });
+		},
+	});
+	d.get_primary_btn().addClass("btn-danger");
+	d.show();
 }
 
 function _show_reassign_dialog(frm) {

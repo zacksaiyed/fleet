@@ -35,7 +35,7 @@ function bind_realtime_listener() {
         if (!data || data.sent_by === frappe.session.user) return;
 
         const task_name = data.task_name;
-        const job_name  = data.cdn;
+        const job_name  = data.job;
 
         const $row = get_row(task_name);
         if (!$row.length) return;
