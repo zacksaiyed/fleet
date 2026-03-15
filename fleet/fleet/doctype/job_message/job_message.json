@@ -67,7 +67,7 @@
    "fieldname": "is_read",
    "fieldtype": "Check",
    "label": "Is Read"
-  },
+  }
  ],
  "links": [],
  "modified": "2026-03-15 23:40:04.993549",
