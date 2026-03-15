@@ -396,11 +396,10 @@ class SupportDashboardChat {
 		frappe.call({
 			method: 'fleet.api.dashboard_chat.publish_job_chat',
 			args: {
-				cdn:         job.task_job_row || job.name,
+				job:         job.name,
 				message:     message,
 				sender_name: frappe.session.user_fullname || frappe.session.user,
 				role:        'Support',
-				job:         job.name,
 			},
 			callback: (r) => {
 				$btn.prop('disabled', false);

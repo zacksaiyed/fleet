@@ -1,4 +1,5 @@
 import frappe
+from frappe import _
 from collections import defaultdict
 
 
@@ -12,39 +13,77 @@ def _user_from_employee(employee):
     """Return the user_id of an Employee record, or None."""
     return frappe.db.get_value("Employee", employee, "user_id")
 
-# send / receive
-@frappe.whitelist()
-def publish_job_chat(cdn=None, message=None, sender_name=None, role=None, job=None):
+
+def _assert_job_access(job, user):
     """
-    cdn  = Task Job child row name (optional if job is passed)
-    job  = Job docname (optional, resolved from cdn if not passed)
+    Technician can only access jobs assigned to them.
+    Support Team and System Manager can access all jobs.
+    """
+    roles = frappe.get_roles(user)
+    if "System Manager" in roles or "Technician" not in roles:
+        return
+
+    employee = _employee_from_user(user)
+    if not employee:
+        frappe.throw(
+            _("No Employee record found for this user."),
+            frappe.PermissionError
+        )
+
+    assigned = frappe.db.get_value(
+        "Job",
+        {"name": job, "assigned_technician": employee},
+        "name"
+    )
+    if not assigned:
+        frappe.throw(
+            _("You are not assigned to this job."),
+            frappe.PermissionError
+        )
+
+
+# send / receive
+
+@frappe.whitelist()
+def publish_job_chat(job=None, message=None, sender_name=None, role=None):
+    """
+    Send a chat message for a job.
+    job     = Job docname (required)
+    message = Message text (required)
     """
     user = frappe.session.user
 
-    # Resolve job from cdn or cdn from job
-    if not job and cdn:
-        job = frappe.db.get_value("Task Job", cdn, "job")
-    
     if not job:
-        frappe.throw("Pass either cdn or job")
+        frappe.throw(
+            _("Job is required."),
+            frappe.MandatoryError,
+            title=_("Missing Parameter")
+        )
 
-    # Resolve cdn from job if not passed
-    if not cdn:
-        cdn = frappe.db.get_value("Task Job", {"job": job}, "name")
+    if not message:
+        frappe.throw(
+            _("Message is required."),
+            frappe.MandatoryError,
+            title=_("Missing Parameter")
+        )
 
-    # Auto-detect role from session if not passed
-    # (mobile doesn't need to pass role explicitly)
+    if not frappe.db.exists("Job", job):
+        frappe.throw(
+            _("Job {0} does not exist.").format(job),
+            frappe.DoesNotExistError
+        )
+
+    _assert_job_access(job, user)
+
     if not role:
         role = "Technician" if "Technician" in frappe.get_roles(user) else "Support"
 
-    # Auto-detect sender_name if not passed
     if not sender_name:
         sender_name = frappe.db.get_value("User", user, "full_name") or user
 
     msg = frappe.get_doc({
         "doctype":      "Job Message",
         "job":          job,
-        "task_job_row": cdn,
         "sender":       user,
         "sender_name":  sender_name,
         "sender_role":  role,
@@ -61,13 +100,12 @@ def publish_job_chat(cdn=None, message=None, sender_name=None, role=None, job=No
     frappe.db.set_value("Job", job, unread_field,
                         (frappe.db.get_value("Job", job, unread_field) or 0) + 1)
 
-    # Resolve technician user
+    # Resolve technician user for realtime delivery
     assigned_employee = frappe.db.get_value("Job", job, "assigned_technician")
     tech_user = _user_from_employee(assigned_employee) if assigned_employee else None
 
     payload = {
         "task_name":   frappe.db.get_value("Job", job, "task"),
-        "cdn":         cdn,
         "job":         job,
         "name":        msg.name,
         "content":     message,
@@ -80,30 +118,40 @@ def publish_job_chat(cdn=None, message=None, sender_name=None, role=None, job=No
         "creation":    str(msg.creation),
     }
 
-    frappe.publish_realtime(event=f"job_chat_{cdn}", message=payload)
     frappe.publish_realtime(event="support_dashboard_new_message", message=payload)
+    frappe.publish_realtime(event="task_job_chat_list_update", message=payload)
     if tech_user:
         frappe.publish_realtime(event="job_message", message=payload, user=tech_user)
-    frappe.publish_realtime(event="task_job_chat_list_update", message=payload)
 
     return {"name": msg.name, "creation": str(msg.creation)}
 
 
 @frappe.whitelist()
-def get_job_chat_messages(cdn=None, job=None, limit=100):
-    """Fetch messages for a job."""
-    filters = {}
-    if cdn:
-        filters["task_job_row"] = cdn
-    elif job:
-        filters["job"] = job
-    else:
-        frappe.throw("Pass either cdn or job")
+def get_job_chat_messages(job=None, limit=100):
+    """
+    Fetch all messages for a job.
+    job   = Job docname (required)
+    limit = Max messages to return (default 100)
+    """
+    if not job:
+        frappe.throw(
+            _("Job is required."),
+            frappe.MandatoryError,
+            title=_("Missing Parameter")
+        )
+
+    if not frappe.db.exists("Job", job):
+        frappe.throw(
+            _("Job {0} does not exist.").format(job),
+            frappe.DoesNotExistError
+        )
+
+    _assert_job_access(job, frappe.session.user)
 
     messages = frappe.get_all(
         "Job Message",
-        filters=filters,
-        fields=["name", "job", "task_job_row", "sender", "sender_name",
+        filters={"job": job},
+        fields=["name", "job", "sender", "sender_name",
                 "sender_role", "message", "message_type", "file_url",
                 "is_read", "creation"],
         order_by="creation asc",
@@ -121,8 +169,41 @@ def get_job_chat_messages(cdn=None, job=None, limit=100):
 
 
 @frappe.whitelist()
-def mark_messages_read(job, reader_role):
-    """Mark all messages from the other party as read."""
+def mark_messages_read(job=None, reader_role=None):
+    """
+    Mark all unread messages from the other party as read.
+    job         = Job docname (required)
+    reader_role = Role of the reader — 'Technician' or 'Support' (required)
+    """
+    if not job:
+        frappe.throw(
+            _("Job is required."),
+            frappe.MandatoryError,
+            title=_("Missing Parameter")
+        )
+
+    if not reader_role:
+        frappe.throw(
+            _("reader_role is required."),
+            frappe.MandatoryError,
+            title=_("Missing Parameter")
+        )
+
+    if reader_role not in ("Technician", "Support"):
+        frappe.throw(
+            _("reader_role must be 'Technician' or 'Support'."),
+            frappe.ValidationError,
+            title=_("Invalid Parameter")
+        )
+
+    if not frappe.db.exists("Job", job):
+        frappe.throw(
+            _("Job {0} does not exist.").format(job),
+            frappe.DoesNotExistError
+        )
+
+    _assert_job_access(job, frappe.session.user)
+
     other_role   = "Support" if reader_role == "Technician" else "Technician"
     unread_field = "unread_count_tech" if reader_role == "Technician" else "unread_count_support"
 
@@ -143,11 +224,13 @@ def get_tech_unread_total(tech_user):
     employee = _employee_from_user(tech_user)
     if not employee:
         return 0
+
     result = frappe.db.sql("""
         SELECT COALESCE(SUM(unread_count_support), 0) AS total
         FROM `tabJob`
         WHERE assigned_technician = %s
     """, employee, as_dict=True)
+
     return int((result[0].total) if result else 0)
 
 
@@ -183,8 +266,10 @@ def get_all_technicians_summary():
             """, employee, as_dict=True)
             tech.update(row[0] if row else {})
         else:
-            tech.update({"total_jobs": 0, "total_unread": 0,
-                         "completed": 0, "in_progress": 0, "pending": 0})
+            tech.update({
+                "total_jobs": 0, "total_unread": 0,
+                "completed":  0, "in_progress":  0, "pending": 0
+            })
 
     return technicians
 
@@ -253,35 +338,40 @@ def get_technician_jobs(technician):
 
 @frappe.whitelist()
 def get_unread_count(task_name, user=None):
-    """Legacy — kept for task_list.js compatibility."""
+    """Return unread message counts per job for a task."""
     if not user:
         user = frappe.session.user
 
     result = frappe.db.sql("""
         SELECT
-            jm.task_job_row AS reference_name,
-            COUNT(*)        AS cnt
+            jm.job   AS reference_name,
+            COUNT(*) AS cnt
         FROM `tabJob Message` jm
-        INNER JOIN `tabTask Job` tj ON tj.name = jm.task_job_row
+        INNER JOIN `tabJob` j ON j.name = jm.job AND j.task = %(task)s
         WHERE
-            tj.parent   = %(task)s
-            AND jm.sender != %(user)s
+            jm.sender != %(user)s
             AND jm.is_read = 0
-        GROUP BY jm.task_job_row
+        GROUP BY jm.job
     """, {"user": user, "task": task_name}, as_dict=True)
 
     return {row.reference_name: row.cnt for row in result}
+
 
 @frappe.whitelist()
 def get_technician_unread_summary():
     """
     Mobile calls this on app open to restore unread badges.
-    Returns only jobs that have unread messages for the technician.
+    Returns only jobs that have unread messages for the logged-in technician.
+    Uses session user — no parameter needed.
     """
     user     = frappe.session.user
     employee = _employee_from_user(user)
+
     if not employee:
-        return []
+        frappe.throw(
+            _("No Employee record found for this user."),
+            frappe.PermissionError
+        )
 
     jobs = frappe.get_all(
         "Job",

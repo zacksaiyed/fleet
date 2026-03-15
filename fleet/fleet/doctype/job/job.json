@@ -14,8 +14,14 @@
   "date",
   "status",
   "vehicle_number",
+  "vehicle_details",
+  "type",
+  "column_break_ixtg",
   "make",
+  "column_break_pqjd",
   "model",
+  "column_break_ameg",
+  "color",
   "section_break_wthp",
   "item_installed_removed",
   "section_break_zlps",
@@ -269,11 +275,38 @@
    "fieldname": "model",
    "fieldtype": "Data",
    "label": "Model"
+  },
+  {
+   "fieldname": "type",
+   "fieldtype": "Data",
+   "label": "Type"
+  },
+  {
+   "fieldname": "column_break_ixtg",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_pqjd",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_ameg",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "color",
+   "fieldtype": "Data",
+   "label": "Color"
+  },
+  {
+   "fieldname": "vehicle_details",
+   "fieldtype": "Section Break",
+   "label": "Vehicle Details"
   }
  ],
  "in_create": 1,
  "links": [],
- "modified": "2026-03-14 00:50:04.539627",
+ "modified": "2026-03-16 01:45:58.577233",
  "modified_by": "Administrator",
  "module": "Fleet",
  "name": "Job",

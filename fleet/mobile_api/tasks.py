@@ -1,7 +1,9 @@
 import re
+import json
+import base64
 import frappe
 from frappe import _
-from frappe.utils import nowdate
+from frappe.utils import nowdate, now, now_datetime
 
 
 # file: fleet/mobile_api/tasks.py
@@ -12,6 +14,9 @@ from frappe.utils import nowdate
 # GET  /api/method/fleet.mobile_api.tasks.get_profile
 # POST /api/method/fleet.mobile_api.tasks.respond_to_task
 # POST /api/method/fleet.mobile_api.tasks.start_task
+# POST /api/method/fleet.mobile_api.tasks.update_job   (append items/images, remove by row name)
+# POST /api/method/fleet.mobile_api.tasks.upload_job_image
+# POST /api/method/fleet.mobile_api.tasks.mark_job_done
 # POST /api/method/fleet.mobile_api.tasks.job_action
 
 # statuses considered active (not done/cancelled)
@@ -267,17 +272,21 @@ def get_task_jobs(task: str) -> dict:
 
 
 @frappe.whitelist()
-def respond_to_task(task: str, action: str) -> dict:
+def respond_to_task(task: str, action: str, reject_comment: str = None) -> dict:
     """
     POST /api/method/fleet.mobile_api.tasks.respond_to_task
     Headers:
         Cookie: sid=<logged_in_user_sid>
     Body:
-        task   — task name (e.g. TASK-0001)
-        action — "accept" | "reject"
+        task           — task name (e.g. TASK-0001)
+        action         — "accept" | "reject"
+        reject_comment — required when action is "reject"
     """
     if action not in ("accept", "reject"):
         frappe.throw(_("action must be 'accept' or 'reject'."))
+
+    if action == "reject" and not reject_comment:
+        frappe.throw(_("reject_comment is required when rejecting a task."))
 
     employee = _get_employee(frappe.session.user)
 
@@ -290,7 +299,7 @@ def respond_to_task(task: str, action: str) -> dict:
         frappe.throw(_("Task not found or you are not assigned to it."))
 
     from fleet.fleet.doctype.task.task import task_action
-    result = task_action(task=task, action=action)
+    result = task_action(task=task, action=action, reject_comment=reject_comment)
     return {"status": "success", **result}
 
 
@@ -371,60 +380,305 @@ def get_job(job: str) -> dict:
         {"name": job, "assigned_technician": employee},
         ["name", "title", "status", "task_type", "vehicle_number",
          "customer", "make", "model", "date", "done_comment",
-         "hold_comment", "completion_comment"],
+         "hold_comment", "completion_comment",
+         "unread_count_tech", "unread_count_support"],
         as_dict=True
     )
     if not job_doc:
         frappe.throw(_("Job not found or you are not assigned to it."))
 
+    items = frappe.db.get_all(
+        "Job Item",
+        filters={"parent": job_doc.name},
+        fields=["name", "item", "item_name", "item_type", "brand", "installed_or_removed"],
+        order_by="idx asc",
+    )
+
+    images = frappe.db.get_all(
+        "Job Image",
+        filters={"parent": job_doc.name},
+        fields=["name", "image"],
+        order_by="idx asc",
+    )
+
     return {
         "status": "success",
         "job": {
-            "name":               job_doc.name,
-            "title":              job_doc.title,
-            "status":             job_doc.status,
-            "task_type":          job_doc.task_type,
-            "vehicle_number":     job_doc.vehicle_number,
-            "customer":           job_doc.customer,
-            "make":               job_doc.make,
-            "model":              job_doc.model,
-            "date":               str(job_doc.date or ""),
-            "done_comment":       job_doc.done_comment,
-            "hold_comment":       job_doc.hold_comment,
-            "completion_comment": job_doc.completion_comment,
-            "available_actions":  _job_available_actions(job_doc.status),
+            "name":                  job_doc.name,
+            "title":                 job_doc.title,
+            "status":                job_doc.status,
+            "task_type":             job_doc.task_type,
+            "vehicle_number":        job_doc.vehicle_number,
+            "customer":              job_doc.customer,
+            "make":                  job_doc.make,
+            "model":                 job_doc.model,
+            "date":                  str(job_doc.date or ""),
+            "done_comment":          job_doc.done_comment,
+            "hold_comment":          job_doc.hold_comment,
+            "completion_comment":    job_doc.completion_comment,
+            "available_actions":      _job_available_actions(job_doc.status),
+            "unread_count_tech":      job_doc.unread_count_tech or 0,
+            "unread_count_support":   job_doc.unread_count_support or 0,
+            "item_installed_removed": items,
+            "job_images":             images,
         },
     }
 
 
 @frappe.whitelist()
-def job_action(job: str, action: str, completion_comment: str = None) -> dict:
+def update_job(
+    job: str,
+    vehicle_number: str = None,
+    make: str = None,
+    model: str = None,
+    color: str = None,
+    items=None,
+    remove_items=None,
+    remove_images=None,
+) -> dict:
+    """
+    POST /api/method/fleet.mobile_api.tasks.update_job
+    Headers:
+        Cookie: sid=<logged_in_user_sid>
+    Body:
+        job            — job name (required)
+        vehicle_number — vehicle plate number
+        make           — vehicle make
+        model          — vehicle model
+        color          — vehicle color
+
+        items          — JSON array of NEW rows to append to item_installed_removed.
+                         Duplicate item codes (same item + installed_or_removed) are silently skipped.
+                         Only pass `item` (item code) + `installed_or_removed`.
+                         item_name / item_type / brand are auto-fetched from the Item doctype.
+                         [{item, installed_or_removed}]
+
+        remove_items   — JSON array of row `name` values to delete from item_installed_removed
+                         e.g. ["abc123", "def456"]
+
+        remove_images  — JSON array of row `name` values to delete from job_images
+                         (to add images use upload_job_image instead)
+
+    Behaviour:
+        - Scalar fields: only updated when explicitly passed (partial update).
+        - items: APPENDED as new rows; duplicates (same item+direction) are skipped.
+        - remove_items / remove_images: those specific rows are deleted.
+        - Job must be Pending or On Hold and assigned to the logged-in technician.
+    """
+    if not job:
+        frappe.throw(_("job is required."))
+
+    employee = _get_employee(frappe.session.user)
+
+    job_doc = frappe.get_doc("Job", {"name": job, "assigned_technician": employee})
+    if not job_doc:
+        frappe.throw(_("Job not found or you are not assigned to it."))
+
+    if job_doc.status not in ("Pending", "On Hold"):
+        frappe.throw(_("Job can only be updated when Pending or On Hold."))
+
+    # scalar fields — only update if explicitly passed
+    if vehicle_number is not None:
+        job_doc.vehicle_number = vehicle_number
+    if make is not None:
+        job_doc.make = make
+    if model is not None:
+        job_doc.model = model
+    if color is not None:
+        job_doc.color = color
+
+    # ── items ─────────────────────────────────────────────────────────────
+    if remove_items is not None:
+        to_remove = json.loads(remove_items) if isinstance(remove_items, str) else remove_items
+        if to_remove:
+            job_doc.item_installed_removed = [
+                r for r in job_doc.item_installed_removed
+                if r.name not in to_remove
+            ]
+
+    if items is not None:
+        new_rows = json.loads(items) if isinstance(items, str) else items
+        for r in new_rows:
+            item_code = r.get("item")
+            if not item_code:
+                frappe.throw(_("Each item row must have an 'item' (item code)."))
+
+            # auto-fetch item details — technician only needs to pass item code
+            fetched = frappe.db.get_value(
+                "Item", item_code,
+                ["item_name", "item_group", "brand"],
+                as_dict=True,
+            )
+            if not fetched:
+                frappe.throw(_("Item {0} not found.").format(item_code))
+
+            direction = r.get("installed_or_removed")
+            already_exists = any(
+                row.item == item_code and row.installed_or_removed == direction
+                for row in job_doc.item_installed_removed
+            )
+            if already_exists:
+                continue
+
+            job_doc.append("item_installed_removed", {
+                "item":                 item_code,
+                "item_name":            fetched.item_name,
+                "item_type":            fetched.item_group,
+                "brand":                fetched.brand,
+                "installed_or_removed": direction,
+            })
+
+    # ── images ────────────────────────────────────────────────────────────
+    if remove_images is not None:
+        to_remove = json.loads(remove_images) if isinstance(remove_images, str) else remove_images
+        if to_remove:
+            job_doc.job_images = [
+                r for r in job_doc.job_images
+                if r.name not in to_remove
+            ]
+
+    job_doc.save(ignore_permissions=True)
+    return {"status": "success", "msg": "Job updated."}
+
+
+@frappe.whitelist()
+def upload_job_image(job: str, image_data: str = None, filename: str = None, comment: str = None) -> dict:
+    """
+    POST /api/method/fleet.mobile_api.tasks.upload_job_image
+    Headers:
+        Cookie: sid=<logged_in_user_sid>
+    Body (multipart/form-data — preferred):
+        job     — job name (required)
+        image   — image file (required)
+        comment — optional caption
+
+    Body (form-urlencoded — fallback):
+        job        — job name (required)
+        image_data — base64-encoded image string
+        filename   — optional filename
+        comment    — optional caption
+
+    Saves the image as a public Frappe File attached to the Job,
+    appends a row to job_images, and returns the file URL + row name.
+    Job must be Pending or On Hold and assigned to the logged-in technician.
+    """
+    if not job:
+        frappe.throw(_("job is required."))
+
+    employee = _get_employee(frappe.session.user)
+
+    job_doc = frappe.get_doc("Job", {"name": job, "assigned_technician": employee})
+    if not job_doc:
+        frappe.throw(_("Job not found or you are not assigned to it."))
+
+    if job_doc.status not in ("Pending", "On Hold"):
+        frappe.throw(_("Job can only be updated when Pending or On Hold."))
+
+    uploaded_file = frappe.request.files.get("image")
+    if uploaded_file:
+        img_bytes = uploaded_file.read()
+        filename = filename or uploaded_file.filename or f"job_{job}_{now_datetime().strftime('%Y%m%d_%H%M%S')}.jpg"
+    elif image_data:
+        if "," in image_data:
+            image_data = image_data.split(",", 1)[1]
+        try:
+            img_bytes = base64.b64decode(image_data)
+        except Exception:
+            frappe.throw(_("image_data is not valid base64."))
+        if not filename:
+            filename = f"job_{job}_{now_datetime().strftime('%Y%m%d_%H%M%S')}.jpg"
+    else:
+        frappe.throw(_("Either upload a file or provide image_data."))
+
+    if not filename:
+        filename = f"job_{job}_{now_datetime().strftime('%Y%m%d_%H%M%S')}.jpg"
+
+    # save to Frappe file system — attached to this Job doc, public
+    file_doc = frappe.utils.file_manager.save_file(
+        filename,
+        img_bytes,
+        "Job",
+        job,
+        is_private=0,
+    )
+
+    # append row to job_images and save
+    job_doc.append("job_images", {
+        "image":   file_doc.file_url,
+        "comment": comment,
+    })
+    job_doc.save(ignore_permissions=True)
+
+    # return the new row name so mobile can use it in remove_images later
+    new_row = job_doc.job_images[-1]
+    return {
+        "status":   "success",
+        "file_url": file_doc.file_url,
+        "row_name": new_row.name,
+    }
+
+
+@frappe.whitelist()
+def mark_job_done(job: str, done_comment: str) -> dict:
+    """
+    POST /api/method/fleet.mobile_api.tasks.mark_job_done
+    Headers:
+        Cookie: sid=<logged_in_user_sid>
+    Body:
+        job          — job name (required)
+        done_comment — mandatory technician comment (required)
+
+    Moves job from Pending / On Hold → In Review.
+    Records done_comment, completed_by_technician, completed_on_technician.
+    """
+    if not job:
+        frappe.throw(_("job is required."))
+    if not done_comment:
+        frappe.throw(_("done_comment is required."))
+
+    employee = _get_employee(frappe.session.user)
+
+    job_doc = frappe.get_doc("Job", {"name": job, "assigned_technician": employee})
+    if not job_doc:
+        frappe.throw(_("Job not found or you are not assigned to it."))
+
+    if job_doc.status not in ("Pending", "On Hold"):
+        frappe.throw(_("Job must be Pending or On Hold to mark as Done."))
+
+    job_doc.done_comment             = done_comment
+    job_doc.status                   = "In Review"
+    job_doc.completed_by_technician  = frappe.session.user
+    job_doc.completed_on_technician  = now()
+    job_doc.save(ignore_permissions=True)
+
+    return {"status": "success", "msg": "Job marked as In Review."}
+
+
+@frappe.whitelist()
+def job_action(job: str, action: str) -> dict:
     """
     POST /api/method/fleet.mobile_api.tasks.job_action
     Headers:
         Cookie: sid=<logged_in_user_sid>
     Body:
-        job                — job name (e.g. JOB-2026-03-000001)
-        action             — "done" | "hold" | "reopen"
-        completion_comment — optional, used with "done"
+        job    — job name (e.g. JOB-2026-03-000001)
+        action — "reopen"   (technician-only action remaining here)
+
+    Note: use mark_job_done for "done", support handles "hold"/"complete"/"cancel".
     """
     if not job:
         frappe.throw(_("job is required."))
 
-    if action not in ("done", "hold", "reopen"):
-        frappe.throw(_("action must be 'done', 'hold', or 'reopen'."))
+    if action not in ("reopen",):
+        frappe.throw(_("action must be 'reopen'."))
 
     employee = _get_employee(frappe.session.user)
 
-    # single query — returns nothing if job is not assigned to this employee
     assigned = frappe.db.get_value(
         "Job", {"name": job, "assigned_technician": employee}, "name"
     )
     if not assigned:
         frappe.throw(_("Job not found or you are not assigned to it."))
-
-    if action == "done" and completion_comment:
-        frappe.db.set_value("Job", job, "completion_comment", completion_comment)
 
     from fleet.fleet.doctype.job.job import job_action as _job_action
     result = _job_action(job=job, action=action)
@@ -443,8 +697,9 @@ def _task_available_actions(status: str) -> list:
 
 def _job_available_actions(status: str) -> list:
     # actions a technician can perform on a job in the given status
+    # hold / complete / cancel are support-only — never exposed here
     return {
         "Pending":   ["done"],
-        "In Review": ["hold"],
-        "On Hold":   ["reopen"],
+        "On Hold":   ["done", "reopen"],
+        # In Review → technician has no actions; support completes it
     }.get(status, [])
