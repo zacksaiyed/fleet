@@ -3,7 +3,7 @@ import json
 import base64
 import frappe
 from frappe import _
-from frappe.utils import nowdate, now, now_datetime
+from frappe.utils import nowdate, now_datetime
 
 
 # file: fleet/mobile_api/tasks.py
@@ -470,9 +470,10 @@ def update_job(
 
     employee = _get_employee(frappe.session.user)
 
-    job_doc = frappe.get_doc("Job", {"name": job, "assigned_technician": employee})
-    if not job_doc:
+    if not frappe.db.exists("Job", {"name": job, "assigned_technician": employee}):
         frappe.throw(_("Job not found or you are not assigned to it."))
+
+    job_doc = frappe.get_doc("Job", job)
 
     if job_doc.status not in ("Pending", "On Hold"):
         frappe.throw(_("Job can only be updated when Pending or On Hold."))
@@ -567,9 +568,10 @@ def upload_job_image(job: str, image_data: str = None, filename: str = None, com
 
     employee = _get_employee(frappe.session.user)
 
-    job_doc = frappe.get_doc("Job", {"name": job, "assigned_technician": employee})
-    if not job_doc:
+    if not frappe.db.exists("Job", {"name": job, "assigned_technician": employee}):
         frappe.throw(_("Job not found or you are not assigned to it."))
+
+    job_doc = frappe.get_doc("Job", job)
 
     if job_doc.status not in ("Pending", "On Hold"):
         frappe.throw(_("Job can only be updated when Pending or On Hold."))
@@ -621,56 +623,37 @@ def upload_job_image(job: str, image_data: str = None, filename: str = None, com
 @frappe.whitelist()
 def mark_job_done(job: str, done_comment: str) -> dict:
     """
-    POST /api/method/fleet.mobile_api.tasks.mark_job_done
-    Headers:
-        Cookie: sid=<logged_in_user_sid>
-    Body:
-        job          — job name (required)
-        done_comment — mandatory technician comment (required)
-
-    Moves job from Pending / On Hold → In Review.
-    Records done_comment, completed_by_technician, completed_on_technician.
+    Deprecated — use job_action(action="done", comment=...) instead.
+    Kept for backward compatibility.
     """
-    if not job:
-        frappe.throw(_("job is required."))
-    if not done_comment:
-        frappe.throw(_("done_comment is required."))
-
-    employee = _get_employee(frappe.session.user)
-
-    job_doc = frappe.get_doc("Job", {"name": job, "assigned_technician": employee})
-    if not job_doc:
-        frappe.throw(_("Job not found or you are not assigned to it."))
-
-    if job_doc.status not in ("Pending", "On Hold"):
-        frappe.throw(_("Job must be Pending or On Hold to mark as Done."))
-
-    job_doc.done_comment             = done_comment
-    job_doc.status                   = "In Review"
-    job_doc.completed_by_technician  = frappe.session.user
-    job_doc.completed_on_technician  = now()
-    job_doc.save(ignore_permissions=True)
-
-    return {"status": "success", "msg": "Job marked as In Review."}
+    return job_action(job=job, action="done", comment=done_comment)
 
 
 @frappe.whitelist()
-def job_action(job: str, action: str) -> dict:
+def job_action(job: str, action: str, comment: str = None) -> dict:
     """
     POST /api/method/fleet.mobile_api.tasks.job_action
     Headers:
         Cookie: sid=<logged_in_user_sid>
     Body:
-        job    — job name (e.g. JOB-2026-03-000001)
-        action — "reopen"   (technician-only action remaining here)
+        job     — job name (e.g. JOB-2026-03-000001)
+        action  — "done" | "reopen"
+        comment — required when action is "done"
 
-    Note: use mark_job_done for "done", support handles "hold"/"complete"/"cancel".
+    Technician-facing actions only. Support handles hold/complete/cancel.
+
+    Transitions:
+        done   : Pending / On Hold → In Review  (comment required)
+        reopen : On Hold → Pending
     """
     if not job:
         frappe.throw(_("job is required."))
 
-    if action not in ("reopen",):
-        frappe.throw(_("action must be 'reopen'."))
+    if action not in ("done", "reopen"):
+        frappe.throw(_("action must be 'done' or 'reopen'."))
+
+    if action == "done" and not comment:
+        frappe.throw(_("comment is required when action is 'done'."))
 
     employee = _get_employee(frappe.session.user)
 
@@ -681,7 +664,7 @@ def job_action(job: str, action: str) -> dict:
         frappe.throw(_("Job not found or you are not assigned to it."))
 
     from fleet.fleet.doctype.job.job import job_action as _job_action
-    result = _job_action(job=job, action=action)
+    result = _job_action(job=job, action=action, comment=comment)
     return {"status": "success", **result}
 
 

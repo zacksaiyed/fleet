@@ -1,6 +1,7 @@
 # /home/umar/f/apps/fleet/fleet/fleet/doctype/job/job.py
 import frappe
 from frappe.model.document import Document
+from frappe.utils import now
 
 
 class Job(Document):
@@ -430,8 +431,10 @@ def job_action(job, action, comment=None, comment_field=None):
 			frappe.throw("Permission denied.")
 		if not comment:
 			frappe.throw("Comment is required.")
-		doc.done_comment = comment
-		doc.status = "In Review"
+		doc.done_comment                = comment
+		doc.status                      = "In Review"
+		doc.completed_by_technician     = frappe.session.user
+		doc.completed_on_technician     = now()
 		msg = "Job marked as In Review."
 
 	elif action == "hold":
