@@ -26,6 +26,15 @@ class Job(Document):
 	def on_trash(self):
 		if self.task:
 			frappe.db.delete("Task Job", {"job": self.name, "parent": self.task})
+			# Re-sequence idx on remaining rows to avoid numbering gaps
+			remaining = frappe.get_all(
+				"Task Job",
+				filters={"parent": self.task},
+				fields=["name"],
+				order_by="idx asc",
+			)
+			for i, row in enumerate(remaining, start=1):
+				frappe.db.set_value("Task Job", row.name, "idx", i, update_modified=False)
 			frappe.db.set_value("Task", self.task, "modified", frappe.utils.now())
 			from fleet.fleet.doctype.task.task import recompute_task_status
 			recompute_task_status(self.task)
