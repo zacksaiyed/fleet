@@ -3,12 +3,24 @@ import json
 
 
 def handle_assignment(doc, method=None):
-    if not doc.custom_assign_to:
+
+    before = doc.get_doc_before_save()
+    prev_assignee = before.get("custom_assign_to") if before else None
+    curr_assignee = doc.custom_assign_to
+
+    # nothing changed
+    if prev_assignee == curr_assignee:
         return
 
-    # Skip if custom_assign_to hasn't changed
-    before = doc.get_doc_before_save()
-    if before and before.get("custom_assign_to") == doc.custom_assign_to:
+    # handle removal (field cleared)
+    if not curr_assignee:
+        if prev_assignee:
+            prev_user = frappe.db.get_value("Employee", prev_assignee, "user_id")
+            if prev_user:
+                cleanup_docshares(doc.name, keep_user=None)  # remove all
+                _cancel_todos("Task", doc.name, prev_user)
+                frappe.db.set_value("Task", doc.name, "_assign", None, update_modified=False)
+                sync_jobs_assigned_technician(doc.name, None)  # clear jobs too
         return
 
     user = frappe.db.get_value("Employee", doc.custom_assign_to, "user_id")
@@ -118,10 +130,19 @@ def create_docshare(task_name, user):
         "notify_by_email": 1
     }).insert(ignore_permissions=True)
 
+def _cancel_todos(doctype, docname, user):
+    todos = frappe.get_all("ToDo", filters={
+        "reference_type": doctype,
+        "reference_name": docname,
+        "allocated_to": user,
+        "status": ("!=", "Cancelled")
+    }, pluck="name")
+
+    for todo in todos:
+        frappe.db.set_value("ToDo", todo, "status", "Cancelled")
+
 
 def sync_jobs_assigned_technician(task_name, new_employee):
-    if not new_employee:
-        return
 
     linked_jobs = frappe.get_all(
         "Job",
@@ -129,6 +150,28 @@ def sync_jobs_assigned_technician(task_name, new_employee):
         fields=["name"]
     )
     if not linked_jobs:
+        return
+
+    if not new_employee:
+        for job in linked_jobs:
+            frappe.db.set_value("Job", job.name, {
+                "assigned_technician": None,
+                "technician_name": None,
+                "technician_warehouse": None,
+            }, update_modified=False)
+            # clean up job todos and shares too
+            _cleanup_job_docshares(job.name, keep_user=None)
+            frappe.db.set_value("Job", job.name, "_assign", None, update_modified=False)
+
+            # cancel all open todos for this job
+            open_todos = frappe.get_all("ToDo", filters={
+                "reference_type": "Job",
+                "reference_name": job.name,
+                "status": ("!=", "Cancelled")
+            }, pluck="name")
+            for todo in open_todos:
+                frappe.db.set_value("ToDo", todo, "status", "Cancelled")
+        frappe.db.commit()
         return
 
     user_id = frappe.db.get_value("Employee", new_employee, "user_id")
@@ -154,11 +197,22 @@ def sync_jobs_assigned_technician(task_name, new_employee):
 
 def handle_job_assignment(doc, _method=None):
     """Called on Job after_insert and on_update to manage ToDo and DocShare."""
-    if not doc.assigned_technician:
+    before = doc.get_doc_before_save()
+    prev_technician = before.get("assigned_technician") if before else None
+    curr_technician = doc.assigned_technician
+
+    # nothing changed
+    if prev_technician == curr_technician:
         return
 
-    before = doc.get_doc_before_save()
-    if before and before.get("assigned_technician") == doc.assigned_technician:
+    # handle removal
+    if not curr_technician:
+        if prev_technician:
+            prev_user = frappe.db.get_value("Employee", prev_technician, "user_id")
+            if prev_user:
+                _cleanup_job_docshares(doc.name, keep_user=None)
+                _cancel_todos("Job", doc.name, prev_user)
+                frappe.db.set_value("Job", doc.name, "_assign", None, update_modified=False)
         return
 
     user = frappe.db.get_value("Employee", doc.assigned_technician, "user_id")
