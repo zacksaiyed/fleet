@@ -88,6 +88,15 @@ def login(usr: str, pwd: str) -> dict:
     # fetch logged-in user details
     user_email = frappe.session.user
 
+    # Restrict mobile app to Technician role only
+    user_roles = frappe.get_roles(user_email)
+    if "Technician" not in user_roles:
+        frappe.local.login_manager.logout()
+        frappe.throw(
+            _("You are not a Technician. The mobile app is only for Technicians."),
+            frappe.AuthenticationError
+        )
+
     # Enforce simultaneous sessions limit
     # (also fires via on_session_creation hook for web logins)
     enforce_simultaneous_sessions(user_email=user_email)
