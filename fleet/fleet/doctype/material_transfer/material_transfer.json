@@ -9,6 +9,7 @@
   "date",
   "column_break_qdkg",
   "stock_entry",
+  "accepted_by",
   "section_break_yctw",
   "source",
   "column_break_crbu",
@@ -45,7 +46,7 @@
    "fieldtype": "Section Break"
   },
   {
-   "default": "Now",
+   "default": "Today",
    "fieldname": "date",
    "fieldtype": "Date",
    "label": "Date"
@@ -79,6 +80,13 @@
    "fieldtype": "Link",
    "label": "Stock Entry",
    "options": "Stock Entry",
+   "read_only": 1
+  },
+  {
+   "fieldname": "accepted_by",
+   "fieldtype": "Link",
+   "label": "Accepted By",
+   "options": "User",
    "read_only": 1
   },
   {

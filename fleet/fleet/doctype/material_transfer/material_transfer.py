@@ -255,7 +255,7 @@ def _create_stock_entry(doc_name):
 	placeholders = ", ".join(["%s"] * len(item_codes))
 	latest_sle_time = frappe.db.sql(
 		"""
-		SELECT MAX(ADDTIME(CONCAT(posting_date, ' '), posting_time))
+		SELECT MAX(TIMESTAMP(posting_date, posting_time))
 		FROM `tabStock Ledger Entry`
 		WHERE item_code IN ({placeholders})
 		  AND warehouse = %s
