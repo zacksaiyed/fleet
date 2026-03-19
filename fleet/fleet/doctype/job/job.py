@@ -23,6 +23,13 @@ class Job(Document):
 		if self.status == "Completed":
 			self._handle_warehouse_movement()
 
+	def on_trash(self):
+		if self.task:
+			frappe.db.delete("Task Job", {"job": self.name, "parent": self.task})
+			frappe.db.set_value("Task", self.task, "modified", frappe.utils.now())
+			from fleet.fleet.doctype.task.task import recompute_task_status
+			recompute_task_status(self.task)
+
 	# Private helpers
 	def _set_vehicle_number(self):
 		if self.vehicle_number:
