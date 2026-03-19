@@ -17,7 +17,8 @@
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Item",
-   "options": "Item"
+   "options": "Item",
+   "reqd": 1
   },
   {
    "fetch_from": "item.item_name",
