@@ -17,6 +17,11 @@ class MaterialTransfer(Document):
 
 	def validate(self):
 		self.validate_source_target()
+		self.validate_items()
+
+	def validate_items(self):
+		if not self.items:
+			frappe.throw(_("Please add at least one item before saving."))
 
 	def validate_source_target(self):
 		if self.source and self.target and self.source == self.target:

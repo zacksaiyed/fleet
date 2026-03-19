@@ -69,7 +69,8 @@
    "fieldname": "items",
    "fieldtype": "Table",
    "label": "Items",
-   "options": "Material Transfer Item"
+   "options": "Material Transfer Item",
+   "reqd": 1
   },
   {
    "fieldname": "column_break_qdkg",
