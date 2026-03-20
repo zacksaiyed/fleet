@@ -240,89 +240,113 @@ function _show_add_jobs_dialog(frm) {
 function _render_table(dialog, rows) {
 	const $wrap = dialog.fields_dict.jobs_html.$wrapper;
 
-	$wrap.find('tr[data-idx]').each(function () {
-		const idx = parseInt($(this).data('idx'));
-		if (rows[idx]) {
-			rows[idx].task_type = $(this).find('.ajd-type-inp').val() || rows[idx].task_type;
-			rows[idx].count     = parseInt($(this).find('.ajd-count-inp').val()) || rows[idx].count;
-			rows[idx].vehicles  = $(this).find('.ajd-veh-inp').val();
+	// build the full skeleton once ──
+	if (!$wrap.find('.ajd-table').length) {
+		if (!$('#ajd-styles').length) {
+			$(`<style id="ajd-styles">
+				.ajd-table { width:100%; border-collapse:collapse; }
+				.ajd-table th { font-size:11px; font-weight:600; color:var(--text-muted);
+					text-transform:uppercase; letter-spacing:.04em;
+					padding:0 8px 10px; text-align:left;
+					border-bottom:1px solid var(--border-color); }
+				.ajd-table td { padding:6px 8px; vertical-align:top; }
+				.ajd-table tr:not(:last-child) td { border-bottom:1px solid var(--border-color); }
+				.ajd-remove { width:28px; height:30px; border:1px solid var(--border-color);
+					border-radius:var(--border-radius); background:var(--control-bg);
+					cursor:pointer; display:flex; align-items:center; justify-content:center;
+					color:var(--text-muted); }
+				.ajd-remove:hover { border-color:#ef4444; color:#ef4444; background:#fff5f5; }
+				.ajd-add-row { margin-top:10px; font-size:12px; padding:4px 10px; }
+			</style>`).appendTo('head');
 		}
-	});
 
-	$wrap.empty();
+		const $table = $(`
+			<table class="ajd-table">
+				<thead><tr>
+					<th style="width:30%">Task Type</th>
+					<th style="width:12%">Count</th>
+					<th>Vehicle(s) <span style="font-weight:400;text-transform:none;font-size:10px;">(comma separated)</span></th>
+					<th style="width:32px"></th>
+				</tr></thead>
+				<tbody></tbody>
+			</table>
+		`);
+		$wrap.append($table);
 
-	if (!$('#ajd-styles').length) {
-		$(`<style id="ajd-styles">
-			.ajd-table { width:100%; border-collapse:collapse; }
-			.ajd-table th { font-size:11px; font-weight:600; color:var(--text-muted);
-				text-transform:uppercase; letter-spacing:.04em;
-				padding:0 8px 10px; text-align:left;
-				border-bottom:1px solid var(--border-color); }
-			.ajd-table td { padding:6px 8px; vertical-align:top; }
-			.ajd-table tr:not(:last-child) td { border-bottom:1px solid var(--border-color); }
-			.ajd-remove { width:28px; height:30px; border:1px solid var(--border-color);
-				border-radius:var(--border-radius); background:var(--control-bg);
-				cursor:pointer; display:flex; align-items:center; justify-content:center;
-				color:var(--text-muted); }
-			.ajd-remove:hover { border-color:#ef4444; color:#ef4444; background:#fff5f5; }
-			.ajd-add-row { margin-top:10px; font-size:12px; padding:4px 10px; }
-		</style>`).appendTo('head');
+		const $add = $(`<button class="btn btn-xs btn-default ajd-add-row">+ Add Row</button>`);
+		$add.on('click', () => {
+			// save current values before adding
+			_save_current_values($wrap, rows);
+			rows.push({ task_type: "", count: 1, vehicles: "" });
+			_append_row(dialog, rows, rows.length - 1);
+			_update_remove_buttons($wrap, rows);
+			setTimeout(() => $wrap.find('.ajd-type-inp').last().focus(), 80);
+		});
+		$wrap.append($add);
 	}
 
-	const $table = $(`
-		<table class="ajd-table">
-			<thead><tr>
-				<th style="width:30%">Task Type</th>
-				<th style="width:12%">Count</th>
-				<th>Vehicle(s) <span style="font-weight:400;text-transform:none;font-size:10px;">(comma separated)</span></th>
-				<th style="width:32px"></th>
-			</tr></thead>
-			<tbody></tbody>
-		</table>
+	// render all existing rows on first call
+	rows.forEach((_, idx) => _append_row(dialog, rows, idx));
+}
+
+function _append_row(dialog, rows, idx) {
+	const $wrap  = dialog.fields_dict.jobs_html.$wrapper;
+	const $tbody = $wrap.find('tbody');
+	const row    = rows[idx];
+
+	const $tr = $(`
+		<tr data-idx="${idx}">
+			<td class="ajd-type-td"></td>
+			<td><input class="form-control form-control-sm ajd-count-inp"
+				type="number" min="1" max="99" value="${row.count || 1}" style="width:75px;"></td>
+			<td><input class="form-control form-control-sm ajd-veh-inp"
+				type="text" placeholder="e.g. BHU9876, NHJ9870"
+				value="${frappe.utils.escape_html(row.vehicles || '')}"></td>
+			<td><button class="ajd-remove" type="button">
+				<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+					<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+				</svg></button></td>
+		</tr>
 	`);
 
-	rows.forEach((row, idx) => {
-		const $tr = $(`
-			<tr data-idx="${idx}">
-				<td class="ajd-type-td"></td>
-				<td><input class="form-control form-control-sm ajd-count-inp"
-					type="number" min="1" max="99" value="${row.count || 1}" style="width:75px;"></td>
-				<td><input class="form-control form-control-sm ajd-veh-inp"
-					type="text" placeholder="e.g. BHU9876, NHJ9870"
-					value="${frappe.utils.escape_html(row.vehicles || '')}"></td>
-				<td><button class="ajd-remove" type="button"
-					style="${rows.length === 1 ? 'visibility:hidden' : ''}">
-					<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-						<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-					</svg></button></td>
-			</tr>
-		`);
+	const type_ctrl = frappe.ui.form.make_control({
+		df: { fieldtype: "Link", fieldname: `task_type_${idx}`,
+			  options: "Task Type", placeholder: __("Select Task Type") },
+		parent: $tr.find('.ajd-type-td')[0],
+		only_input: true,
+	});
+	type_ctrl.make_input();
+	type_ctrl.$input.addClass('ajd-type-inp');
+	if (row.task_type) setTimeout(() => type_ctrl.set_value(row.task_type), 0);
 
-		const type_ctrl = frappe.ui.form.make_control({
-			df: { fieldtype: "Link", fieldname: `task_type_${idx}`,
-				  options: "Task Type", placeholder: __("Select Task Type") },
-			parent: $tr.find('.ajd-type-td')[0],
-			only_input: true,
+	$tr.find('.ajd-remove').on('click', () => {
+		_save_current_values($wrap, rows);   // save before splice
+		rows.splice(idx, 1);
+		$tr.remove();                     // only re-render on delete (no flicker risk)
+		$wrap.find('tr[data-idx]').each(function (newIdx) {
+			$(this).attr('data-idx', newIdx);
 		});
-		type_ctrl.make_input();
-		type_ctrl.$input.addClass('ajd-type-inp');
-		if (row.task_type) setTimeout(() => type_ctrl.set_value(row.task_type), 0);
-
-		$tr.find('.ajd-remove').on('click', () => {
-			rows.splice(idx, 1);
-			_render_table(dialog, rows);
-		});
-		$table.find('tbody').append($tr);
+		_update_remove_buttons($wrap, rows);
 	});
 
-	$wrap.append($table);
-	const $add = $(`<button class="btn btn-xs btn-default ajd-add-row">+ Add Row</button>`);
-	$add.on('click', () => {
-		rows.push({ task_type: "", count: 1, vehicles: "" });
-		_render_table(dialog, rows);
-		setTimeout(() => $wrap.find('.ajd-type-inp').last().focus(), 80);
+	$tbody.append($tr);
+	_update_remove_buttons($wrap, rows);
+}
+
+// save all current input values back into rows array
+function _save_current_values($wrap, rows) {
+	$wrap.find('tr[data-idx]').each(function () {
+		const idx = parseInt($(this).data('idx'));
+		if (!rows[idx]) return;
+		rows[idx].task_type = $(this).find('.ajd-type-inp').val() || rows[idx].task_type;
+		rows[idx].count     = parseInt($(this).find('.ajd-count-inp').val()) || rows[idx].count;
+		rows[idx].vehicles  = $(this).find('.ajd-veh-inp').val();
 	});
-	$wrap.append($add);
+}
+
+// hide remove button when only 1 row remains
+function _update_remove_buttons($wrap, rows) {
+	$wrap.find('.ajd-remove').css('visibility', rows.length === 1 ? 'hidden' : '');
 }
 
 function _parse_vehicles(raw) {
