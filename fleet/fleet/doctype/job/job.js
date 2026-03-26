@@ -44,7 +44,7 @@ frappe.ui.form.on("Job Item", {
 							if (!items || !items.length) return;
 
 							frm.clear_table("item_installed_removed");
-							items.forEach((vi) => {
+							items.forEach((_vi) => {
 								const new_row = frm.add_child("item_installed_removed");
 								new_row.installed_or_removed = "Removed";
 								// new_row.item = vi.item;
@@ -92,7 +92,7 @@ frappe.ui.form.on("Job", {
 
 		// SUPPORT TEAM + TECHNICIAN
 		if (is_support || is_tech) {
-			if (["Pending", "On Hold"].includes(status)) {
+			if (status === "Pending") {
 				frm.add_custom_button(__("Mark as Done"), () =>
 					_job_action_with_comment(frm, "done", __("Done Comment"), "done_comment")
 				).addClass("btn-primary");

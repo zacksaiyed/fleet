@@ -12,8 +12,10 @@ from frappe.utils import nowdate, now_datetime
 # GET  /api/method/fleet.mobile_api.tasks.get_task_jobs
 # GET  /api/method/fleet.mobile_api.tasks.get_job
 # GET  /api/method/fleet.mobile_api.tasks.get_profile
+# GET  /api/method/fleet.mobile_api.tasks.get_task_types
 # POST /api/method/fleet.mobile_api.tasks.respond_to_task
 # POST /api/method/fleet.mobile_api.tasks.start_task
+# POST /api/method/fleet.mobile_api.tasks.create_job_for_task
 # POST /api/method/fleet.mobile_api.tasks.update_job   (append items/images, remove by row name)
 # POST /api/method/fleet.mobile_api.tasks.upload_job_image
 # POST /api/method/fleet.mobile_api.tasks.mark_job_done
@@ -337,6 +339,22 @@ def start_task(task: str) -> dict:
 
 
 @frappe.whitelist()
+def get_task_types() -> dict:
+    """
+    GET /api/method/fleet.mobile_api.tasks.get_task_types
+    Headers:
+        Cookie: sid=<logged_in_user_sid>
+
+    Returns all active Task Type options.
+    """
+    types = frappe.get_all("Task Type", fields=["name"], order_by="name asc")
+    return {
+        "status":     "success",
+        "task_types": [t["name"] for t in types],
+    }
+
+
+@frappe.whitelist()
 def get_profile() -> dict:
     """
     GET /api/method/fleet.mobile_api.tasks.get_profile
@@ -422,6 +440,85 @@ def get_job(job: str) -> dict:
             "item_installed_removed": items,
             "job_images":             images,
         },
+    }
+
+
+@frappe.whitelist()
+def create_job_for_task(task: str, task_type: str, vehicle_number: str = None) -> dict:
+    """
+    POST /api/method/fleet.mobile_api.tasks.create_job_for_task
+    Headers:
+        Cookie: sid=<logged_in_user_sid>
+    Body:
+        task           — task name (required)
+        task_type      — task type (required, e.g. "Installation")
+        vehicle_number — vehicle plate number (optional)
+
+    Creates a new Job linked to the given task and appends it to
+    the task's custom_task_jobs child table.
+    Only works when the task is assigned to the logged-in technician.
+    """
+    if not task:
+        frappe.throw(_("task is required."))
+    if not task_type:
+        frappe.throw(_("task_type is required."))
+
+    employee = _get_employee(frappe.session.user)
+
+    task_doc = frappe.db.get_value(
+        "Task",
+        {"name": task, "custom_assign_to": employee},
+        ["name", "custom_customer", "custom_date"],
+        as_dict=True,
+    )
+    if not task_doc:
+        frappe.throw(_("Task not found or you are not assigned to it."))
+
+    tech_warehouse = frappe.db.get_value(
+        "Warehouse", {"custom_employee": employee, "disabled": 0}, "name"
+    )
+
+    vehicle_number = vehicle_number.replace(" ", "").upper() if vehicle_number else None
+
+    customer = task_doc.custom_customer
+    customer_warehouse = None
+    if customer:
+        customer_warehouse = frappe.db.get_value(
+            "Warehouse", {"custom_customer_name": customer, "disabled": 0}, "name"
+        )
+
+    parts = [task_type]
+    if customer:
+        parts.append(customer)
+
+    job = frappe.get_doc({
+        "doctype":              "Job",
+        "title":                " - ".join(parts),
+        "task":                 task_doc.name,
+        "assigned_technician":  employee,
+        "status":               "Pending",
+        "vehicle_number":       vehicle_number,
+        "task_type":            task_type,
+        "customer":             customer or None,
+        "technician_warehouse": tech_warehouse or None,
+        "customer_warehouse":   customer_warehouse or None,
+        "date":                 task_doc.custom_date,
+    })
+    job.insert(ignore_permissions=True)
+
+    task_parent = frappe.get_doc("Task", task_doc.name)
+    task_parent.append("custom_task_jobs", {
+        "task_type": task_type,
+        "vehicle":   vehicle_number,
+        "status":    "Pending",
+        "job":       job.name,
+    })
+    task_parent.save(ignore_permissions=True)
+
+    return {
+        "status": "success",
+        "msg":    "Job created.",
+        "job":    job.name,
     }
 
 
@@ -649,11 +746,11 @@ def job_action(job: str, action: str, comment: str = None) -> dict:
     if not job:
         frappe.throw(_("job is required."))
 
-    if action not in ("done", "reopen"):
-        frappe.throw(_("action must be 'done' or 'reopen'."))
+    if action not in ("done", "hold", "reopen"):
+        frappe.throw(_("action must be 'done', 'hold', or 'reopen'."))
 
-    if action == "done" and not comment:
-        frappe.throw(_("comment is required when action is 'done'."))
+    if action in ("done", "hold") and not comment:
+        frappe.throw(_("comment is required when action is '{0}'.").format(action))
 
     employee = _get_employee(frappe.session.user)
 
@@ -680,9 +777,9 @@ def _task_available_actions(status: str) -> list:
 
 def _job_available_actions(status: str) -> list:
     # actions a technician can perform on a job in the given status
-    # hold / complete / cancel are support-only — never exposed here
+    # complete / cancel are support-only — never exposed here
     return {
-        "Pending":   ["done"],
-        "On Hold":   ["done", "reopen"],
+        "Pending":   ["done", "hold"],
+        "On Hold":   ["reopen"],
         # In Review → technician has no actions; support completes it
     }.get(status, [])

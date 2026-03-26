@@ -149,7 +149,19 @@ def get_my_warehouse_inventory():
         groups[key]["items"].append(item_row)
 
     groups_list = list(groups.values())
-    summary = [{"item_type": g["item_type"], "icon": g["icon"], "qty": g["total_qty"]} for g in groups_list]
+
+    # Build summary from ALL item types, not just those with stock
+    all_item_types = frappe.db.get_all(
+        "Item Type", fields=["name as item_type", "icon"], order_by="name"
+    )
+    summary = [
+        {
+            "item_type": it.item_type,
+            "icon":      it.icon,
+            "qty":       groups.get(it.item_type, {}).get("total_qty", 0),
+        }
+        for it in all_item_types
+    ]
 
     return {
         "status":    "success",
@@ -338,20 +350,39 @@ def get_transfer(name):
         for r in doc.items
     ]
 
+    _STORE_IMAGE = "/assets/fleet/images/store-default.svg"
+
+    def _warehouse_user_image(warehouse_name):
+        """Return the user_image for the employee linked to a warehouse.
+        Returns the store default image if the warehouse is a Store."""
+        if _is_store_warehouse(warehouse_name):
+            return _STORE_IMAGE
+        row = frappe.db.sql("""
+            SELECT u.user_image
+            FROM `tabWarehouse` w
+            JOIN `tabEmployee` e ON e.name = w.custom_employee
+            LEFT JOIN `tabUser` u ON u.name = e.user_id
+            WHERE w.name = %s
+            LIMIT 1
+        """, warehouse_name, as_dict=True)
+        return (row[0].user_image or None) if row else None
+
     return {
         "status": "success",
         "transfer": {
-            "name":           doc.name,
-            "date":           str(doc.date or ""),
-            "source":         doc.source,
-            "target":         doc.target,
-            "workflow_state": doc.workflow_state,
-            "stock_entry":    doc.stock_entry,
-            "accepted_by":    doc.get("accepted_by"),
-            "owner":          doc.owner,
-            "creation":       str(doc.creation),
-            "can_approve":    can_approve,
-            "items":          items,
+            "name":              doc.name,
+            "date":              str(doc.date or ""),
+            "source":            doc.source,
+            "source_user_image": _warehouse_user_image(doc.source),
+            "target":            doc.target,
+            "target_user_image": _warehouse_user_image(doc.target),
+            "workflow_state":    doc.workflow_state,
+            "stock_entry":       doc.stock_entry,
+            "accepted_by":       doc.get("accepted_by"),
+            "owner":             doc.owner,
+            "creation":          str(doc.creation),
+            "can_approve":       can_approve,
+            "items":             items,
         },
     }
 
