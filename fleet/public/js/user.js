@@ -20,6 +20,23 @@ frappe.ui.form.on("User", {
 
     // adding technician role
     if (!hadTech && hasTech) {
+      const empCheck = await frappe.call({
+        method: "fleet.erpnext_events.user_warehouse_hooks.check_user_has_employee",
+        args: { user: frm.doc.name }
+      });
+
+      if (!empCheck.message?.has_employee) {
+        frappe.msgprint({
+          title: "Cannot Assign Role",
+          message: "Cannot assign the <b>Technician</b> role directly to a user. Please create an Employee with designation <b>Technician</b> first — the role and warehouse will be set up automatically.",
+          indicator: "red"
+        });
+        revert_roles();
+        frm.__original_roles = (frm.doc.roles || []).map(r => r.role);
+        frappe.validated = false;
+        return;
+      }
+
       const ok = await new Promise(resolve => {
         frappe.confirm(
           `Assigning Role Technician will create Warehouse for this User, are you sure to assign this role to <b>${frm.doc.name}</b>?`,

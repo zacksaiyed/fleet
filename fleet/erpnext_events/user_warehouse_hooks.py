@@ -67,15 +67,27 @@ def _is_warehouse_empty(warehouse):
 
 
 def validate_user_roles(doc, method=None):
-    if doc.name in ["Administrator", "Guest"]:
-        return
-
     old_doc = doc.get_doc_before_save()
     old_roles = _get_roles(old_doc) if old_doc else set()
     new_roles = _get_roles(doc)
 
     had_tech = ROLE_NAME in old_roles
     has_tech = ROLE_NAME in new_roles
+
+    # Block Technician role assignment for users not linked to an Employee.
+    # Skip this check when the role is being assigned via the Employee sync flow.
+    if not had_tech and has_tech and not frappe.flags.get("syncing_employee_user"):
+        employee = _get_employee_for_user(doc.name)
+        if not employee:
+            frappe.throw(
+                "Cannot assign the <b>Technician</b> role directly to a user. "
+                "Please create an Employee with designation <b>Technician</b> first — "
+                "the role and warehouse will be set up automatically."
+            )
+
+    # Administrator/Guest have no warehouse — skip the warehouse-empty check for them
+    if doc.name in ["Administrator", "Guest"]:
+        return
 
     if had_tech and not has_tech:
         root = _get_root_warehouse()
@@ -139,6 +151,13 @@ def on_update_user_roles(doc, method=None):
                 frappe.db.set_value("Warehouse", wh.name, "disabled", 1)
                 frappe.msgprint(f"Warehouse <b>{wh.name}</b> has been disabled.", alert=True)
             # else already disabled - nothing to do
+
+
+@frappe.whitelist()
+def check_user_has_employee(user):
+    """Return whether the given user is linked to an Employee."""
+    employee = _get_employee_for_user(user)
+    return {"has_employee": bool(employee), "employee": employee}
 
 
 @frappe.whitelist()

@@ -441,8 +441,8 @@ def job_action(job, action, comment=None, comment_field=None):
 	is_tech    = "Technician"   in roles
 
 	if action == "done":
-		if doc.status not in ("Pending", "On Hold"):
-			frappe.throw("Job must be Pending or On Hold to mark as Done.")
+		if doc.status != "Pending":
+			frappe.throw("Job must be Pending to mark as Done.")
 		if not (is_support or is_tech):
 			frappe.throw("Permission denied.")
 		if not comment:
