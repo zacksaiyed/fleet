@@ -339,18 +339,18 @@ def start_task(task: str) -> dict:
 
 
 @frappe.whitelist()
-def get_task_types() -> dict:
+def get_job_types() -> dict:
     """
-    GET /api/method/fleet.mobile_api.tasks.get_task_types
+    GET /api/method/fleet.mobile_api.tasks.get_job_types
     Headers:
         Cookie: sid=<logged_in_user_sid>
 
-    Returns all active Task Type options.
+    Returns all active Task Type(Job Type) options.
     """
     types = frappe.get_all("Task Type", fields=["name"], order_by="name asc")
     return {
         "status":     "success",
-        "task_types": [t["name"] for t in types],
+        "job_types": [t["name"] for t in types],
     }
 
 

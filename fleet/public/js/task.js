@@ -201,7 +201,7 @@ function _show_add_jobs_dialog(frm) {
 
 			for (const row of rows) {
 				if (!row.task_type) {
-					frappe.msgprint({ message: __("Task Type is required for every row."), indicator: "orange" });
+					frappe.msgprint({ message: __("Job Type is required for every row."), indicator: "orange" });
 					return;
 				}
 				const vehicles = _parse_vehicles(row.vehicles);
@@ -272,7 +272,7 @@ function _render_table(dialog, rows) {
 	const $table = $(`
 		<table class="ajd-table">
 			<thead><tr>
-				<th style="width:30%">Task Type</th>
+				<th style="width:30%">Job Type</th>
 				<th style="width:12%">Count</th>
 				<th>Vehicle(s) <span style="font-weight:400;text-transform:none;font-size:10px;">(comma separated)</span></th>
 				<th style="width:32px"></th>
@@ -300,7 +300,7 @@ function _render_table(dialog, rows) {
 
 		const type_ctrl = frappe.ui.form.make_control({
 			df: { fieldtype: "Link", fieldname: `task_type_${idx}`,
-				  options: "Task Type", placeholder: __("Select Task Type") },
+				  options: "Task Type", placeholder: __("Select Job Type") },
 			parent: $tr.find('.ajd-type-td')[0],
 			only_input: true,
 		});
