@@ -329,7 +329,21 @@ def get_transfer(name):
 
     doc = frappe.get_doc("Material Transfer", name)
 
-    if doc.owner != user and (not my_warehouse or doc.target != my_warehouse):
+    # Allow if user is source warehouse → full access
+    if my_warehouse and doc.source == my_warehouse:
+        pass
+
+    # Allow if user is target warehouse with restricted states
+    elif my_warehouse and doc.target == my_warehouse:
+        if doc.workflow_state not in ["Approval Pending", "Approved", "Rejected"]:
+            frappe.throw(_("You do not have access to this Material Transfer."), frappe.PermissionError)
+
+    # Allow owner (fallback)
+    elif doc.owner == user:
+        pass
+
+    # Otherwise deny
+    else:
         frappe.throw(_("You do not have access to this Material Transfer."), frappe.PermissionError)
 
     can_approve = (
