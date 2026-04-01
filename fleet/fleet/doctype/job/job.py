@@ -49,12 +49,13 @@ class Job(Document):
 			vehicle = frappe.db.get_value(
 				"Vehicle",
 				{"name": self.vehicle_number},
-				["make", "model"],
+				["make", "model", "color"],
 				as_dict=True
 			)
 			if vehicle:
 				self.make  = vehicle.make
 				self.model = vehicle.model
+				self.color = vehicle.color
 			
 	def _set_date_from_task(self):
 		if not self.date and self.task:
@@ -209,6 +210,7 @@ class Job(Document):
 			"license_plate": self.vehicle_number,
 			"make" : self.make,	
 			"model" : self.model,
+			"color" : self.color,
 			"custom_customer": self.customer or None,
 		})
 		for row in self.item_installed_removed:
