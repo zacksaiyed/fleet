@@ -673,47 +673,51 @@ def upload_job_image(job: str, image_data: str = None, filename: str = None, com
     if job_doc.status not in ("Pending", "On Hold"):
         frappe.throw(_("Job can only be updated when Pending or On Hold."))
 
-    uploaded_file = frappe.request.files.get("image")
-    if uploaded_file:
-        img_bytes = uploaded_file.read()
-        filename = filename or uploaded_file.filename or f"job_{job}_{now_datetime().strftime('%Y%m%d_%H%M%S')}.jpg"
+    uploaded_files = frappe.request.files.getlist("images")  # list of FileStorage objects
+    files_to_save = []
+    if uploaded_files:
+        for idx, uf in enumerate(uploaded_files):
+            img_bytes = uf.read()
+            fname = uf.filename or f"job_{job}_{now_datetime().strftime('%Y%m%d_%H%M%S')}_{idx}.jpg"
+            files_to_save.append((img_bytes, fname))
+
     elif image_data:
-        if "," in image_data:
-            image_data = image_data.split(",", 1)[1]
-        try:
-            img_bytes = base64.b64decode(image_data)
-        except Exception:
-            frappe.throw(_("image_data is not valid base64."))
-        if not filename:
-            filename = f"job_{job}_{now_datetime().strftime('%Y%m%d_%H%M%S')}.jpg"
+        # fallback: support comma-separated base64 strings or a JSON array
+        entries = json.loads(image_data) if image_data.strip().startswith("[") else [image_data]
+        for idx, entry in enumerate(entries):
+            if "," in entry:
+                entry = entry.split(",", 1)[1]
+            try:
+                img_bytes = base64.b64decode(entry)
+            except Exception:
+                frappe.throw(_("image_data[{0}] is not valid base64.").format(idx))
+            fname = f"job_{job}_{now_datetime().strftime('%Y%m%d_%H%M%S')}_{idx}.jpg"
+            files_to_save.append((img_bytes, fname))
     else:
-        frappe.throw(_("Either upload a file or provide image_data."))
+        frappe.throw(_("Either upload file(s) or provide image_data."))
 
     if not filename:
         filename = f"job_{job}_{now_datetime().strftime('%Y%m%d_%H%M%S')}.jpg"
 
     # save to Frappe file system — attached to this Job doc, public
-    file_doc = frappe.utils.file_manager.save_file(
-        filename,
-        img_bytes,
-        "Job",
-        job,
-        is_private=0,
-    )
+    results = []
+    for img_bytes, fname in files_to_save:
+        file_doc = frappe.utils.file_manager.save_file(
+            fname, img_bytes, "Job", job, is_private=0
+        )
+        job_doc.append("job_images", {"image": file_doc.file_url, "comment": comment})
+        results.append(file_doc.file_url)
 
-    # append row to job_images and save
-    job_doc.append("job_images", {
-        "image":   file_doc.file_url,
-        "comment": comment,
-    })
     job_doc.save(ignore_permissions=True)
 
-    # return the new row name so mobile can use it in remove_images later
-    new_row = job_doc.job_images[-1]
+    # return all new rows
+    new_rows = job_doc.job_images[-len(files_to_save):]
     return {
         "status":   "success",
-        "file_url": file_doc.file_url,
-        "row_name": new_row.name,
+        "uploaded": [
+            {"file_url": r.image, "row_name": r.name}
+            for r in new_rows
+        ],
     }
 
 
