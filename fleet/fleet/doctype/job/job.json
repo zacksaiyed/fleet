@@ -257,6 +257,7 @@
    "fieldname": "completed_by_support",
    "fieldtype": "Link",
    "label": "Completed By",
+   "link_filters": "[[\"User\",\"role\",\"=\",\"Support Team\"]]",
    "options": "User"
   },
   {
@@ -306,7 +307,7 @@
  ],
  "in_create": 1,
  "links": [],
- "modified": "2026-03-16 01:45:58.577233",
+ "modified": "2026-04-01 10:40:20.766324",
  "modified_by": "Administrator",
  "module": "Fleet",
  "name": "Job",
