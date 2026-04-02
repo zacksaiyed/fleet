@@ -150,10 +150,12 @@ frappe.ui.form.on("Job", {
 
 	task_type(frm) {
         fetch_vehicle_details(frm);
+		auto_fill_removal_items(frm);
     },
 
     vehicle_number(frm) {
         fetch_vehicle_details(frm);
+		auto_fill_removal_items(frm);
     }
 
 });
@@ -212,6 +214,58 @@ function fetch_vehicle_details(frm) {
                 frm.set_value("make", "");
                 frm.set_value("model", "");
             }
+        }
+    });
+}
+
+function auto_fill_removal_items(frm) {
+    const { task_type, vehicle_number } = frm.doc;
+
+    // Only for Removal + vehicle present
+    if (task_type !== "Removal" || !vehicle_number) {
+        frm.clear_table("item_installed_removed");
+        frm.refresh_field("item_installed_removed");
+        return;
+    }
+
+    const clean_vehicle = vehicle_number.replace(/\s+/g, "").toUpperCase();
+
+    frappe.call({
+        method: "frappe.client.get",
+        args: {
+            doctype: "Vehicle",
+            name: clean_vehicle,
+        },
+        callback(r) {
+            if (!r.message) return;
+
+            const installed_items = (r.message.custom_vehicle_item || []).filter(
+                vi => vi.status === "Installed"
+            );
+
+            if (!installed_items.length) {
+                frappe.show_alert({
+                    message: __(`No installed items found on vehicle ${clean_vehicle}`),
+                    indicator: "orange"
+                }, 4);
+                return;
+            }
+
+            frm.clear_table("item_installed_removed");
+
+            installed_items.forEach(vi => {
+                const row = frm.add_child("item_installed_removed");
+                row.installed_or_removed = "Removed";
+                row.item      = vi.item;
+                row.item_type = vi.item_type;
+            });
+
+            frm.refresh_field("item_installed_removed");
+
+            frappe.show_alert({
+                message: __(`${installed_items.length} item(s) loaded from vehicle ${clean_vehicle}`),
+                indicator: "green"
+            }, 4);
         }
     });
 }

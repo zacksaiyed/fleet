@@ -316,7 +316,15 @@ function add_item_row(frm, item_code) {
 				return;
 			}
 
-			const row = frappe.model.add_child(frm.doc, "Material Transfer Item", "items");
+			// check if empty row exists — use it, else add new row
+			const empty_row = (frm.doc.items || []).find(r => !r.item);
+
+			let row;
+			if (empty_row) {
+				row = empty_row;   // use existing empty row
+			} else {
+				row = frappe.model.add_child(frm.doc, "Material Transfer Item", "items");  // add new row
+			}
 
 			const updates = {
 				item      : item_code,
