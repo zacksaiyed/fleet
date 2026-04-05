@@ -129,6 +129,10 @@ doctype_list_js = {
 # -----------
 # Permissions evaluated in scripted ways
 
+on_socket_event = {
+    "join_job_room": "fleet.override.job_chat.on_join_job_room",
+}
+
 permission_query_conditions = {
 	"Task":               "fleet.custom_py.permissions.task_permission_query",
 	"Job":                "fleet.custom_py.permissions.job_permission_query",

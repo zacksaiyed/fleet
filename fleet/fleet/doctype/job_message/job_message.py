@@ -50,3 +50,6 @@ class JobMessage(Document):
 		if tech_user:
 			frappe.publish_realtime(
 				event="job_message", message=payload, user=tech_user, after_commit=True)
+			
+		frappe.publish_realtime(
+    		event="job_message", message=payload, room=f"job:{job}", after_commit=True)
