@@ -118,11 +118,13 @@ def publish_job_chat(job=None, message=None, sender_name=None, role=None):
         "creation":    str(msg.creation),
     }
 
-    frappe.publish_realtime(event="support_dashboard_new_message", message=payload)
-    frappe.publish_realtime(event="task_job_chat_list_update", message=payload)
+    frappe.publish_realtime(event="support_dashboard_new_message", message=payload, after_commit=True)
+    frappe.publish_realtime(event="task_job_chat_list_update", message=payload, after_commit=True)
+    
     if tech_user:
-        frappe.publish_realtime(event="job_message", message=payload, user=tech_user)
-
+        frappe.publish_realtime(event="job_message", message=payload, user=tech_user, after_commit=True)
+    
+    frappe.publish_realtime(event="job_message", message=payload, room=f"job:{job}", after_commit=True)
     return {"name": msg.name, "creation": str(msg.creation)}
 
 
