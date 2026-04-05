@@ -444,7 +444,16 @@ def get_job(job: str) -> dict:
 
 
 @frappe.whitelist()
-def create_job_for_task(task: str, task_type: str, vehicle_number: str = None) -> dict:
+def create_job_for_task(
+    task: str,
+    task_type: str,
+    vehicle_number: str = None,
+    make: str = None,
+    model: str = None,
+    type: str = None,
+    color: str = None,
+    items: str = None,
+) -> dict:
     """
     POST /api/method/fleet.mobile_api.tasks.create_job_for_task
     Headers:
@@ -453,6 +462,11 @@ def create_job_for_task(task: str, task_type: str, vehicle_number: str = None) -
         task           — task name (required)
         task_type      — task type (required, e.g. "Installation")
         vehicle_number — vehicle plate number (optional)
+        make           — vehicle make (optional)
+        model          — vehicle model (optional)
+        type           — vehicle type e.g. Car, Truck, Tempo (optional)
+        color          — vehicle color (optional)
+        items          — JSON array of item codes to mark as Installed, e.g. ["ITEM-001", "ITEM-002"] (optional)
 
     Creates a new Job linked to the given task and appends it to
     the task's custom_task_jobs child table.
@@ -503,6 +517,10 @@ def create_job_for_task(task: str, task_type: str, vehicle_number: str = None) -
         "technician_warehouse": tech_warehouse or None,
         "customer_warehouse":   customer_warehouse or None,
         "date":                 task_doc.custom_date,
+        "make":                 make or None,
+        "model":                model or None,
+        "type":                 type or None,
+        "color":                color or None,
     })
     job.insert(ignore_permissions=True)
 
@@ -529,9 +547,8 @@ def update_job(
     make: str = None,
     model: str = None,
     color: str = None,
-    items=None,
-    remove_items=None,
-    remove_images=None,
+    type: str = None,
+    set_items: list = None,
 ) -> dict:
     """
     POST /api/method/fleet.mobile_api.tasks.update_job
@@ -543,23 +560,15 @@ def update_job(
         make           — vehicle make
         model          — vehicle model
         color          — vehicle color
-
-        items          — JSON array of NEW rows to append to item_installed_removed.
-                         Duplicate item codes (same item + installed_or_removed) are silently skipped.
-                         Only pass `item` (item code) + `installed_or_removed`.
+        type           — vehicle type e.g. Car, Truck, Tempo
+        set_items      — JSON array that REPLACES the entire item_installed_removed table.
+                         Use this from the "edit assets" screen — just send the final list.
                          item_name / item_type / brand are auto-fetched from the Item doctype.
                          [{item, installed_or_removed}]
 
-        remove_items   — JSON array of row `name` values to delete from item_installed_removed
-                         e.g. ["abc123", "def456"]
-
-        remove_images  — JSON array of row `name` values to delete from job_images
-                         (to add images use upload_job_image instead)
-
     Behaviour:
         - Scalar fields: only updated when explicitly passed (partial update).
-        - items: APPENDED as new rows; duplicates (same item+direction) are skipped.
-        - remove_items / remove_images: those specific rows are deleted.
+        - set_items: replaces ALL existing rows — use for "save full list" from edit screen.
         - Job must be Pending or On Hold and assigned to the logged-in technician.
     """
     if not job:
@@ -584,56 +593,36 @@ def update_job(
         job_doc.model = model
     if color is not None:
         job_doc.color = color
+    if type is not None:
+        job_doc.type = type
 
     # ── items ─────────────────────────────────────────────────────────────
-    if remove_items is not None:
-        to_remove = json.loads(remove_items) if isinstance(remove_items, str) else remove_items
-        if to_remove:
-            job_doc.item_installed_removed = [
-                r for r in job_doc.item_installed_removed
-                if r.name not in to_remove
-            ]
+    def _fetch_item_row(item_code, direction):
+        """Fetch item details and return a Job Item dict."""
+        fetched = frappe.db.get_value(
+            "Item", item_code,
+            ["item_name", "custom_item_type", "brand"],
+            as_dict=True,
+        )
+        if not fetched:
+            frappe.throw(_("Item {0} not found.").format(item_code))
+        return {
+            "item":                 item_code,
+            "item_name":            fetched.item_name,
+            "item_type":            fetched.custom_item_type,
+            "brand":                fetched.brand,
+            "installed_or_removed": direction,
+        }
 
-    if items is not None:
-        new_rows = json.loads(items) if isinstance(items, str) else items
-        for r in new_rows:
+    if set_items is not None:
+        # Full replace — used from the "edit assets" save screen
+        rows = set_items
+        job_doc.item_installed_removed = []
+        for r in rows:
             item_code = r.get("item")
             if not item_code:
                 frappe.throw(_("Each item row must have an 'item' (item code)."))
-
-            # auto-fetch item details — technician only needs to pass item code
-            fetched = frappe.db.get_value(
-                "Item", item_code,
-                ["item_name", "item_group", "brand"],
-                as_dict=True,
-            )
-            if not fetched:
-                frappe.throw(_("Item {0} not found.").format(item_code))
-
-            direction = r.get("installed_or_removed")
-            already_exists = any(
-                row.item == item_code and row.installed_or_removed == direction
-                for row in job_doc.item_installed_removed
-            )
-            if already_exists:
-                continue
-
-            job_doc.append("item_installed_removed", {
-                "item":                 item_code,
-                "item_name":            fetched.item_name,
-                "item_type":            fetched.item_group,
-                "brand":                fetched.brand,
-                "installed_or_removed": direction,
-            })
-
-    # ── images ────────────────────────────────────────────────────────────
-    if remove_images is not None:
-        to_remove = json.loads(remove_images) if isinstance(remove_images, str) else remove_images
-        if to_remove:
-            job_doc.job_images = [
-                r for r in job_doc.job_images
-                if r.name not in to_remove
-            ]
+            job_doc.append("item_installed_removed", _fetch_item_row(item_code, r.get("installed_or_removed", "Installed")))
 
     job_doc.save(ignore_permissions=True)
     return {"status": "success", "msg": "Job updated."}

@@ -112,8 +112,16 @@ def get_my_warehouse_inventory():
         WHERE b.warehouse = %s
           AND b.actual_qty > 0
           AND i.disabled = 0
+          AND i.name NOT IN (
+              SELECT mti.item
+              FROM `tabMaterial Transfer Item` mti
+              JOIN `tabMaterial Transfer` mt ON mt.name = mti.parent
+              WHERE mt.source = %s
+                AND mt.workflow_state = 'Approval Pending'
+                AND mt.docstatus < 2
+          )
         ORDER BY i.custom_item_type, i.item_name
-    """, warehouse, as_dict=True)
+    """, (warehouse, warehouse), as_dict=True)
 
     # which extra field to include per item type
     _TYPE_EXTRA = {
@@ -353,16 +361,60 @@ def get_transfer(name):
         and doc.target == my_warehouse
     )
 
-    items = [
-        {
+    # fetch extra fields from Item master for each item in the transfer
+    _TYPE_EXTRA = {
+        "GPS Device":    "custom_imei_no",
+        "SIM":           "custom_sim_type",
+        "Fuel Sensor":   "custom_sensor_unique_number",
+        "Temperature":   "custom_temperature_serial_number",
+    }
+
+    item_codes = [r.item for r in doc.items]
+    item_master = {}
+    if item_codes:
+        rows = frappe.db.sql("""
+            SELECT i.name, it.icon AS item_type_icon,
+                   i.custom_imei_no, i.custom_sim_type,
+                   i.custom_sensor_unique_number, i.custom_temperature_serial_number
+            FROM `tabItem` i
+            LEFT JOIN `tabItem Type` it ON it.name = i.custom_item_type
+            WHERE i.name IN %(codes)s
+        """, {"codes": item_codes}, as_dict=True)
+        item_master = {r.name: r for r in rows}
+
+    # fetch icons for all item types in one query
+    type_icon = {
+        r.name: r.icon
+        for r in frappe.db.get_all("Item Type", fields=["name", "icon"])
+    }
+
+    groups = {}
+    for r in doc.items:
+        key = r.item_type or "Uncategorized"
+        if key not in groups:
+            groups[key] = {
+                "item_type":  key,
+                "icon":       type_icon.get(key),
+                "total_qty":  0,
+                "items":      [],
+            }
+        groups[key]["total_qty"] += 1
+
+        item_row = {
             "name":      r.name,
             "item":      r.item,
             "item_name": r.item_name,
-            "item_type": r.item_type,
             "brand":     r.brand,
         }
-        for r in doc.items
-    ]
+
+        extra_field = _TYPE_EXTRA.get(key)
+        if extra_field:
+            master = item_master.get(r.item, {})
+            item_row[extra_field] = master.get(extra_field) if master else None
+
+        groups[key]["items"].append(item_row)
+
+    item_groups = list(groups.values())
 
     _STORE_IMAGE = "/assets/fleet/images/store-default.svg"
 
@@ -396,7 +448,7 @@ def get_transfer(name):
             "owner":             doc.owner,
             "creation":          str(doc.creation),
             "can_approve":       can_approve,
-            "items":             items,
+            "groups":            item_groups,
         },
     }
 
