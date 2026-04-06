@@ -10,7 +10,8 @@
   "item",
   "item_type",
   "item_name",
-  "brand"
+  "brand",
+  "customer_item_received"
  ],
  "fields": [
   {
@@ -56,20 +57,27 @@
    "in_list_view": 1,
    "label": "Installed/Removed",
    "options": "\nInstalled\nRemoved"
+  },
+  {
+   "default": "0",
+   "depends_on": "eval: doc.installed_or_removed == \"Removed\"",
+   "fieldname": "customer_item_received",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Customer Item Received"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2026-03-02 02:42:55.912124",
+ "modified": "2026-04-06 18:44:49.170410",
  "modified_by": "Administrator",
  "module": "Fleet",
  "name": "Job Item",
  "owner": "Administrator",
  "permissions": [],
  "row_format": "Dynamic",
- "rows_threshold_for_grid_search": 20,
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": []

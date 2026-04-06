@@ -126,13 +126,21 @@ class Job(Document):
 		# Idempotent guard — skip if already submitted for this job
 		if frappe.db.exists("Stock Entry", {"custom_job": self.name, "docstatus": 1}):
 			return
-		if not self.technician_warehouse:
-			frappe.throw("Technician warehouse not set. Cannot create stock movement.")
-		if not self.customer_warehouse:
-			frappe.throw("Customer warehouse not set. Cannot create stock movement.")
 
 		installed = [r for r in self.item_installed_removed if r.installed_or_removed == "Installed"]
-		removed   = [r for r in self.item_installed_removed if r.installed_or_removed == "Removed"]
+
+		# Exclude items customer already has — no stock movement needed for these
+		removed = [r for r in self.item_installed_removed if r.installed_or_removed == "Removed" and not r.customer_item_received]
+
+		# Only validate warehouses if there are items that actually need moving
+		if installed and not self.technician_warehouse:
+			frappe.throw("Technician warehouse not set. Cannot create stock movement.")
+		if (installed or removed) and not self.customer_warehouse:
+			frappe.throw("Customer warehouse not set. Cannot create stock movement.")
+
+		# If nothing to move at all — skip silently
+		if not installed and not removed:
+			return
 
 		# For Removed items — verify each exists in customer warehouse before moving
 		if removed:
@@ -152,8 +160,8 @@ class Job(Document):
 					+ "<br>".join(missing_items)
 				)
 
-		# Installed: technician warehouse → customer warehouse
-		# Removed:   customer warehouse  → technician warehouse
+		# Installed: technician → customer warehouse
+		# Removed (not received by customer): customer → technician warehouse
 		for items, src, tgt in [
 			(installed, self.technician_warehouse, self.customer_warehouse),
 			(removed,   self.customer_warehouse,   self.technician_warehouse),
@@ -348,7 +356,6 @@ class Job(Document):
 					"date":      self.date,
 				})
 		vehicle.save(ignore_permissions=True)
-
 
 # Item search by warehouse
 

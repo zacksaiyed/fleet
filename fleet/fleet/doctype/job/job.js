@@ -56,6 +56,31 @@ frappe.ui.form.on("Job Item", {
 			);
 		}
 	},
+    // ... your existing installed_or_removed handler ...
+    customer_item_received(frm, cdt, cdn) {
+		const row = locals[cdt][cdn];
+
+		// Guard: only for Removal jobs
+		if (frm.doc.task_type !== "Removal") {
+			frappe.model.set_value(cdt, cdn, "customer_item_received", 0);
+			frappe.show_alert({
+				message: __("'Customer Item Received' is only applicable for Removal jobs."),
+				indicator: "orange"
+			}, 5);
+			return;
+		}
+
+		// Unchecking — nothing to do
+		if (!row.customer_item_received) return;
+
+		// Checked — save flag, stock stays in customer warehouse naturally
+		frm.save().then(() => {
+			frappe.show_alert({
+				message: __("Item marked as received. Stock remains in Customer Warehouse."),
+				indicator: "green"
+			}, 5);
+		});
+	},
 });
 
 frappe.ui.form.on("Job", {
