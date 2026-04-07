@@ -20,6 +20,7 @@ from frappe.utils import nowdate, now_datetime
 # POST /api/method/fleet.mobile_api.tasks.upload_job_image
 # POST /api/method/fleet.mobile_api.tasks.mark_job_done
 # POST /api/method/fleet.mobile_api.tasks.job_action
+# GET  /api/method/fleet.mobile_api.tasks.get_vehicle_details
 
 # statuses considered active (not done/cancelled)
 _ACTIVE = ("Open", "Accepted", "In Progress", "On Hold", "In Review")
@@ -444,6 +445,49 @@ def get_job(job: str) -> dict:
 
 
 @frappe.whitelist()
+def get_vehicle_details(vehicle_number: str, task: str) -> dict:
+    """
+    GET /api/method/fleet.mobile_api.tasks.get_vehicle_details
+    Params:
+        vehicle_number — plate number to look up
+        task           — task name (used to resolve the expected customer)
+
+    Returns vehicle details if the vehicle exists and belongs to the task's customer.
+    Throws if there is a customer mismatch.
+    Used by the mobile app for live lookup when the user enters a vehicle number.
+    """
+    vehicle_number = (vehicle_number or "").replace(" ", "").upper()
+    if not vehicle_number:
+        frappe.throw(_("vehicle_number is required."))
+
+    customer = frappe.db.get_value("Task", task, "custom_customer")
+
+    vehicle_data = frappe.db.get_value(
+        "Vehicle", vehicle_number,
+        ["custom_customer", "make", "model", "color", "custom_vehicle_type"],
+        as_dict=True,
+    )
+
+    if not vehicle_data:
+        return {"found": False}
+
+    if vehicle_data.custom_customer != customer:
+        frappe.throw(
+            _("Vehicle {0} is linked to customer {1}, not the task customer {2}.").format(
+                vehicle_number, vehicle_data.custom_customer or "(none)", customer
+            )
+        )
+
+    return {
+        "found": True,
+        "make":  vehicle_data.make,
+        "model": vehicle_data.model,
+        "color": vehicle_data.color,
+        "type":  vehicle_data.custom_vehicle_type,
+    }
+
+
+@frappe.whitelist()
 def create_job_for_task(
     task: str,
     task_type: str,
@@ -500,6 +544,26 @@ def create_job_for_task(
         customer_warehouse = frappe.db.get_value(
             "Warehouse", {"custom_customer_name": customer, "disabled": 0}, "name"
         )
+
+    # Validate vehicle-customer linkage and auto-fetch vehicle details
+    if vehicle_number:
+        vehicle_data = frappe.db.get_value(
+            "Vehicle", vehicle_number,
+            ["custom_customer", "make", "model", "color", "custom_vehicle_type"],
+            as_dict=True,
+        )
+        if vehicle_data:
+            if vehicle_data.custom_customer != customer:
+                frappe.throw(
+                    _(
+                        "Vehicle {0} is linked to customer {1}, not the task customer {2}."
+                    ).format(vehicle_number, vehicle_data.custom_customer or "(none)", customer)
+                )
+            # Override with values from Vehicle record
+            make  = vehicle_data.make
+            model = vehicle_data.model
+            color = vehicle_data.color
+            type  = vehicle_data.custom_vehicle_type
 
     parts = [task_type]
     if customer:
