@@ -195,6 +195,28 @@ def create_jobs_from_dialog(task, job_rows):
 			"Warehouse", {"custom_employee": technician, "disabled": 0}, "name"
 		)
 
+	# Pre-validate all vehicle numbers before creating any jobs
+	errors = []
+	for entry in job_rows:
+		for raw_vehicle in (entry.get("vehicles") or []):
+			if not raw_vehicle:
+				continue
+			normalized = raw_vehicle.replace(" ", "").upper()
+			vehicle_data = frappe.db.get_value(
+				"Vehicle", normalized,
+				["custom_customer", "make", "model", "color", "custom_vehicle_type"],
+				as_dict=True,
+			)
+			if vehicle_data and vehicle_data.custom_customer != customer:
+				errors.append(
+					f"Vehicle <b>{normalized}</b> is linked to customer "
+					f"<b>{vehicle_data.custom_customer or '(none)'}</b>, "
+					f"not the task customer <b>{customer}</b>."
+				)
+
+	if errors:
+		frappe.throw("<br>".join(errors), title="Vehicle Customer Mismatch")
+
 	created_count     = 0
 	entries_to_append = []
 
@@ -211,7 +233,21 @@ def create_jobs_from_dialog(task, job_rows):
 		for vehicle in vehicles[:count]:
 			# Normalize: strip spaces and uppercase
 			vehicle = vehicle.replace(" ", "").upper() if vehicle else None
-			
+
+			# Fetch vehicle details if the vehicle exists in the system
+			vehicle_make = vehicle_model = vehicle_color = vehicle_type = None
+			if vehicle:
+				vehicle_data = frappe.db.get_value(
+					"Vehicle", vehicle,
+					["make", "model", "color", "custom_vehicle_type"],
+					as_dict=True,
+				)
+				if vehicle_data:
+					vehicle_make  = vehicle_data.make
+					vehicle_model = vehicle_data.model
+					vehicle_color = vehicle_data.color
+					vehicle_type  = vehicle_data.custom_vehicle_type
+
 			parts = [task_type]
 			if customer:
 				parts.append(customer)
@@ -227,6 +263,10 @@ def create_jobs_from_dialog(task, job_rows):
 				"customer":             customer or None,
 				"technician_warehouse": tech_warehouse or None,
 				"date":                 date,
+				"make":                 vehicle_make,
+				"model":                vehicle_model,
+				"color":                vehicle_color,
+				"type":                 vehicle_type,
 			})
 			job.insert(ignore_permissions=True)
 			created_count += 1
