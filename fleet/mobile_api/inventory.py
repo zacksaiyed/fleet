@@ -9,8 +9,9 @@ from frappe import _
 # GET  /api/method/fleet.mobile_api.inventory.get_my_transfers
 # GET  /api/method/fleet.mobile_api.inventory.get_transfer
 # POST /api/method/fleet.mobile_api.inventory.create_transfer
-# POST /api/method/fleet.mobile_api.inventory.approve_transfer
-# POST /api/method/fleet.mobile_api.inventory.reject_transfer
+# POST /api/method/fleet.mobile_api.inventory.submit_transfer
+# POST /api/method/fleet.mobile_api.inventory.cancel_transfer
+# POST /api/method/fleet.mobile_api.inventory.respond_transfer
 # GET  /api/method/fleet.mobile_api.inventory.get_warehouse_items
 # GET  /api/method/fleet.mobile_api.inventory.check_vehicle
 
@@ -361,6 +362,12 @@ def get_transfer(name):
         and doc.target == my_warehouse
     )
 
+    can_cancel = (
+        doc.docstatus == 0
+        and doc.workflow_state in ("Initiated", "Approval Pending")
+        and (doc.owner == frappe.session.user or (my_warehouse and doc.source == my_warehouse))
+    )
+
     # fetch extra fields from Item master for each item in the transfer
     _TYPE_EXTRA = {
         "GPS Device":    "custom_imei_no",
@@ -448,6 +455,7 @@ def get_transfer(name):
             "owner":             doc.owner,
             "creation":          str(doc.creation),
             "can_approve":       can_approve,
+            "can_cancel":        can_cancel,
             "groups":            item_groups,
         },
     }
@@ -532,7 +540,7 @@ def create_transfer(target, items):
         FROM `tabMaterial Transfer Item` mti
         JOIN `tabMaterial Transfer` mt ON mt.name = mti.parent
         WHERE mt.source = %(source)s
-          AND mt.workflow_state NOT IN ('Approved', 'Rejected')
+          AND mt.workflow_state NOT IN ('Approved', 'Rejected', 'Cancelled')
           AND mt.docstatus < 2
           AND mti.item IN %(items)s
         """,
@@ -593,7 +601,10 @@ def submit_transfer(name):
 
     doc = frappe.get_doc("Material Transfer", name)
 
-    if doc.owner != frappe.session.user:
+    employee     = _get_employee(frappe.session.user)
+    my_warehouse = _get_tech_warehouse(employee)
+
+    if doc.owner != frappe.session.user and not (my_warehouse and doc.source == my_warehouse):
         frappe.throw(_("You can only submit your own transfers."), frappe.PermissionError)
 
     if doc.workflow_state != "Initiated":
@@ -611,7 +622,50 @@ def submit_transfer(name):
     return {"status": "success", "msg": "Transfer sent for approval."}
 
 
-# 7. Approve or reject a material transfer
+# 7. Cancel a material transfer (Initiated or Approval Pending → Cancelled)
+
+@frappe.whitelist()
+def cancel_transfer(name):
+    """
+    POST /api/method/fleet.mobile_api.inventory.cancel_transfer
+    Body:
+        name — Material Transfer name (required)
+
+    Only the creator can cancel their own transfer.
+    Applies the "Cancel" workflow action from either "Initiated" or "Approval Pending" state.
+
+    Response:
+    {
+        "status": "success",
+        "msg": "Transfer cancelled."
+    }
+    """
+    if not name:
+        frappe.throw(_("name is required."))
+
+    if "Material Transfer User" not in frappe.get_roles():
+        frappe.throw(_("You do not have permission to cancel a Material Transfer."))
+
+    doc = frappe.get_doc("Material Transfer", name)
+
+    employee     = _get_employee(frappe.session.user)
+    my_warehouse = _get_tech_warehouse(employee)
+
+    if doc.owner != frappe.session.user and not (my_warehouse and doc.source == my_warehouse):
+        frappe.throw(_("You can only cancel your own transfers."), frappe.PermissionError)
+
+    if doc.workflow_state not in ("Initiated", "Approval Pending"):
+        frappe.throw(
+            _("Only transfers in 'Initiated' or 'Approval Pending' state can be cancelled.")
+        )
+
+    from frappe.model.workflow import apply_workflow
+    apply_workflow(doc, "Cancel")
+
+    return {"status": "success", "msg": "Transfer cancelled."}
+
+
+# 8. Approve or reject a material transfer
 
 @frappe.whitelist()
 def respond_transfer(name, action):
