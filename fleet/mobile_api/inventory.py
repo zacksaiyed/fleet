@@ -661,6 +661,7 @@ def cancel_transfer(name):
 
     from frappe.model.workflow import apply_workflow
     apply_workflow(doc, "Cancel")
+    frappe.db.commit()
 
     return {"status": "success", "msg": "Transfer cancelled."}
 
