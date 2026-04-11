@@ -32,7 +32,7 @@ class MaterialTransfer(Document):
 		# frappe sets docstatus=1 which triggers on_submit — reliable every time
 		# if stock entry creation fails here, frappe rolls back the entire submit
 		# doc stays at docstatus=0, never reaches Approved
-		if self.workflow_state == "Rejected":
+		if self.workflow_state in ("Rejected", "Cancelled"):
 			return
 		_create_stock_entry(self.name)
 
