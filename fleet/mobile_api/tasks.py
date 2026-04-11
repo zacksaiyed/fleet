@@ -12,18 +12,26 @@ from frappe.utils import nowdate, now_datetime
 # GET  /api/method/fleet.mobile_api.tasks.get_task_jobs
 # GET  /api/method/fleet.mobile_api.tasks.get_job
 # GET  /api/method/fleet.mobile_api.tasks.get_profile
-# GET  /api/method/fleet.mobile_api.tasks.get_task_types
+# GET  /api/method/fleet.mobile_api.tasks.get_job_types
+# GET  /api/method/fleet.mobile_api.tasks.get_job_item_options
+# GET  /api/method/fleet.mobile_api.tasks.get_vehicle_details
 # POST /api/method/fleet.mobile_api.tasks.respond_to_task
 # POST /api/method/fleet.mobile_api.tasks.start_task
 # POST /api/method/fleet.mobile_api.tasks.create_job_for_task
-# POST /api/method/fleet.mobile_api.tasks.update_job   (append items/images, remove by row name)
+# POST /api/method/fleet.mobile_api.tasks.update_job
 # POST /api/method/fleet.mobile_api.tasks.upload_job_image
-# POST /api/method/fleet.mobile_api.tasks.mark_job_done
 # POST /api/method/fleet.mobile_api.tasks.job_action
-# GET  /api/method/fleet.mobile_api.tasks.get_vehicle_details
 
 # statuses considered active (not done/cancelled)
 _ACTIVE = ("Open", "Accepted", "In Progress", "On Hold", "In Review")
+
+# allowed item directions per job type
+_JOB_TYPE_DIRECTIONS = {
+    "Installation": ["Installed"],
+    "Checkup":      ["Installed", "Removed"],
+    "Removal":      ["Removed"],
+    "Accessory":    ["Installed"],
+}
 
 
 # auth helper
@@ -436,6 +444,7 @@ def get_job(job: str) -> dict:
             "hold_comment":          job_doc.hold_comment,
             "completion_comment":    job_doc.completion_comment,
             "available_actions":      _job_available_actions(job_doc.status),
+            "allowed_directions":     _JOB_TYPE_DIRECTIONS.get(job_doc.task_type, ["Installed", "Removed"]),
             "unread_count_tech":      job_doc.unread_count_tech or 0,
             "unread_count_support":   job_doc.unread_count_support or 0,
             "item_installed_removed": items,
@@ -445,23 +454,242 @@ def get_job(job: str) -> dict:
 
 
 @frappe.whitelist()
-def get_vehicle_details(vehicle_number: str, task: str) -> dict:
+def get_job_item_options(job: str, direction: str = None) -> dict:
+    """
+    GET /api/method/fleet.mobile_api.tasks.get_job_item_options
+    Params:
+        job       — job name (required)
+        direction — "Installed" or "Removed"
+                    Optional for Installation/Removal (inferred automatically).
+                    Required for Checkup (technician must pick a direction first).
+
+    Returns the correct selectable items based on job_type × direction:
+
+    ┌──────────────┬───────────────────────────────┬───────────────────────────────┐
+    │ job_type     │ direction = Installed          │ direction = Removed           │
+    ├──────────────┼───────────────────────────────┼───────────────────────────────┤
+    │ Installation │ technician warehouse items     │ ❌ not allowed                │
+    │ Checkup      │ technician warehouse items     │ vehicle installed items        │
+    │ Removal      │ ❌ not allowed                 │ vehicle installed items        │
+    │ Accessory    │ technician warehouse items     │ ❌ not allowed                │
+    └──────────────┴───────────────────────────────┴───────────────────────────────┘
+
+    Response:
+    {
+        "status": "success",
+        "job_type": "Checkup",
+        "direction": "Removed",
+        "allowed_directions": ["Installed", "Removed"],
+        "items": [
+            {
+                "item", "item_name", "item_type", "brand",
+                "custom_imei_no"          // GPS Device
+                "custom_sim_type"         // SIM
+                "custom_sensor_unique_number"        // Fuel Sensor
+                "custom_temperature_serial_number"   // Temperature
+            }
+        ]
+    }
+    """
+    if not job:
+        frappe.throw(_("job is required."))
+
+    employee = _get_employee(frappe.session.user)
+
+    job_doc = frappe.db.get_value(
+        "Job",
+        {"name": job, "assigned_technician": employee},
+        ["name", "task_type", "vehicle_number", "customer", "technician_warehouse"],
+        as_dict=True,
+    )
+    if not job_doc:
+        frappe.throw(_("Job not found or you are not assigned to it."))
+
+    task_type = job_doc.task_type or ""
+
+    allowed_directions = _JOB_TYPE_DIRECTIONS.get(task_type, ["Installed", "Removed"])
+
+    # Infer direction when there is only one option
+    if not direction:
+        if len(allowed_directions) == 1:
+            direction = allowed_directions[0]
+        else:
+            frappe.throw(
+                _("direction is required for job type '{0}'. Pass 'Installed' or 'Removed'.").format(task_type)
+            )
+
+    if direction not in allowed_directions:
+        frappe.throw(
+            _("Direction '{0}' is not allowed for job type '{1}'. Allowed: {2}").format(
+                direction, task_type, ", ".join(allowed_directions)
+            )
+        )
+
+    _TYPE_EXTRA = {
+        "GPS Device":  "custom_imei_no",
+        "SIM":         "custom_sim_type",
+        "Fuel Sensor": "custom_sensor_unique_number",
+        "Temperature": "custom_temperature_serial_number",
+    }
+
+    items = []
+
+    if direction == "Installed":
+        warehouse = job_doc.technician_warehouse
+        if not warehouse:
+            return {
+                "status":             "success",
+                "job_type":           task_type,
+                "direction":          direction,
+                "allowed_directions": allowed_directions,
+                "items":              [],
+                "warning":            "No warehouse linked to your account.",
+            }
+
+        rows = frappe.db.sql("""
+            SELECT
+                i.name                                        AS item,
+                i.item_name,
+                COALESCE(i.custom_item_type, '')              AS item_type,
+                COALESCE(i.brand, '')                         AS brand,
+                i.custom_imei_no,
+                i.custom_sim_type,
+                i.custom_sensor_unique_number,
+                i.custom_temperature_serial_number,
+                CAST(b.actual_qty AS UNSIGNED)                AS qty
+            FROM `tabBin` b
+            JOIN `tabItem` i ON i.name = b.item_code
+            WHERE b.warehouse = %(warehouse)s
+              AND b.actual_qty > 0
+              AND i.disabled = 0
+            ORDER BY i.custom_item_type, i.item_name
+        """, {"warehouse": warehouse}, as_dict=True)
+
+        for r in rows:
+            row = {
+                "item":      r.item,
+                "item_name": r.item_name,
+                "item_type": r.item_type,
+                "brand":     r.brand,
+                "qty":       r.qty,
+            }
+            extra = _TYPE_EXTRA.get(r.item_type)
+            if extra:
+                row[extra] = r.get(extra)
+            items.append(row)
+
+    else:  # direction == "Removed"
+        vehicle_number = job_doc.vehicle_number
+        if not vehicle_number:
+            frappe.throw(_("Vehicle number is not set on this job. Cannot fetch removable items."))
+
+        vehicle = frappe.db.get_value(
+            "Vehicle",
+            vehicle_number,
+            ["name", "custom_customer"],
+            as_dict=True,
+        )
+        if not vehicle:
+            frappe.throw(_("Vehicle {0} not found.").format(vehicle_number))
+
+        if vehicle.custom_customer != job_doc.customer:
+            frappe.throw(
+                _("Vehicle {0} is linked to a different customer.").format(vehicle_number)
+            )
+
+        rows = frappe.db.sql("""
+            SELECT
+                vi.item,
+                i.item_name,
+                COALESCE(vi.item_type, i.custom_item_type, '') AS item_type,
+                COALESCE(i.brand, '')                           AS brand,
+                i.custom_imei_no,
+                i.custom_sim_type,
+                i.custom_sensor_unique_number,
+                i.custom_temperature_serial_number
+            FROM `tabVehicle Item` vi
+            JOIN `tabItem` i ON i.name = vi.item
+            WHERE vi.parent = %(vehicle)s
+              AND vi.status = 'Installed'
+              AND i.disabled = 0
+            ORDER BY vi.item_type, i.item_name
+        """, {"vehicle": vehicle.name}, as_dict=True)
+
+        for r in rows:
+            row = {
+                "item":      r.item,
+                "item_name": r.item_name,
+                "item_type": r.item_type,
+                "brand":     r.brand,
+            }
+            extra = _TYPE_EXTRA.get(r.item_type)
+            if extra:
+                row[extra] = r.get(extra)
+            items.append(row)
+
+    return {
+        "status":             "success",
+        "job_type":           task_type,
+        "direction":          direction,
+        "allowed_directions": allowed_directions,
+        "items":              items,
+    }
+
+
+@frappe.whitelist()
+def get_vehicle_details(vehicle_number: str, job: str) -> dict:
     """
     GET /api/method/fleet.mobile_api.tasks.get_vehicle_details
     Params:
-        vehicle_number — plate number to look up
-        task           — task name (used to resolve the expected customer)
+        vehicle_number — plate number entered by the technician (required)
+        job            — job name (required); task_type and customer are resolved from it
 
-    Returns vehicle details if the vehicle exists and belongs to the task's customer.
-    Throws if there is a customer mismatch.
-    Used by the mobile app for live lookup when the user enters a vehicle number.
+    Called live as the technician finishes typing the vehicle number in a job form.
+
+    Behaviour by job's task_type (Job Type):
+
+        Installation:
+            Vehicle must NOT exist — it will be created on job completion.
+            Throws if the vehicle already exists (wrong plate entered).
+            Returns: { "found": false }
+
+        All other types (Checkup, Removal, Accessory, …):
+            Vehicle must exist AND must be linked to the job's customer.
+            Throws if vehicle not found or customer does not match.
+            Returns: { "found": true, make, model, color, type, installed_items }
     """
     vehicle_number = (vehicle_number or "").replace(" ", "").upper()
     if not vehicle_number:
         frappe.throw(_("vehicle_number is required."))
+    if not job:
+        frappe.throw(_("job is required."))
 
-    customer = frappe.db.get_value("Task", task, "custom_customer")
+    employee = _get_employee(frappe.session.user)
 
+    job_doc = frappe.db.get_value(
+        "Job",
+        {"name": job, "assigned_technician": employee},
+        ["task_type", "customer"],
+        as_dict=True,
+    )
+    if not job_doc:
+        frappe.throw(_("Job not found or you are not assigned to it."))
+
+    if job_doc.task_type == "Installation":
+        # Vehicle must not exist yet — Installation creates it on job completion
+        if frappe.db.exists("Vehicle", vehicle_number):
+            return {
+                "status":  "failed",
+                "message": _("Vehicle {0} is already registered in the system. "
+                             "Installation is only for new vehicles. Please check the plate number.").format(vehicle_number),
+            }
+        return {
+            "status":  "success",
+            "found":   False,
+            "message": _("Vehicle {0} is not registered yet. It will be created on job completion.").format(vehicle_number),
+        }
+
+    # All other job types — vehicle must exist and belong to the job's customer
     vehicle_data = frappe.db.get_value(
         "Vehicle", vehicle_number,
         ["custom_customer", "make", "model", "color", "custom_vehicle_type"],
@@ -469,21 +697,36 @@ def get_vehicle_details(vehicle_number: str, task: str) -> dict:
     )
 
     if not vehicle_data:
-        return {"found": False}
+        return {
+            "status":  "failed",
+            "message": _("Vehicle {0} was not found. Please check the plate number.").format(vehicle_number),
+        }
 
-    if vehicle_data.custom_customer != customer:
-        frappe.throw(
-            _("Vehicle {0} is linked to customer {1}, not the task customer {2}.").format(
-                vehicle_number, vehicle_data.custom_customer or "(none)", customer
-            )
-        )
+    if vehicle_data.custom_customer != job_doc.customer:
+        return {
+            "status":  "failed",
+            "message": _("Vehicle {0} belongs to {1}, not to the customer on this job. "
+                         "Please check the plate number.").format(
+                             vehicle_number,
+                             vehicle_data.custom_customer or _("an unknown customer"),
+                         ),
+        }
+
+    installed_items = frappe.db.get_all(
+        "Vehicle Item",
+        filters={"parent": vehicle_number, "status": "Installed"},
+        fields=["item", "item_type", "status", "date"],
+        order_by="date desc",
+    )
 
     return {
-        "found": True,
-        "make":  vehicle_data.make,
-        "model": vehicle_data.model,
-        "color": vehicle_data.color,
-        "type":  vehicle_data.custom_vehicle_type,
+        "status":          "success",
+        "found":           True,
+        "make":            vehicle_data.make,
+        "model":           vehicle_data.model,
+        "color":           vehicle_data.color,
+        "type":            vehicle_data.custom_vehicle_type,
+        "installed_items": installed_items,
     }
 
 
