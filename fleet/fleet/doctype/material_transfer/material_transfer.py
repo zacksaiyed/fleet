@@ -112,6 +112,8 @@ def mt_has_permission(doc, user=None, ptype="read"):
 			return True
 		if user_warehouse and doc.target == user_warehouse:
 			return True
+		if user_warehouse and doc.source == user_warehouse:
+			return True
 
 	return False
 

@@ -32,6 +32,13 @@ frappe.ui.form.on("Material Transfer", {
 			return;
 		}
 
+		// workflow terminal states — read only for everyone
+		const TERMINAL_STATES = ["Approved", "Rejected", "Cancelled"];
+		if (TERMINAL_STATES.includes(frm.doc.workflow_state)) {
+			frm.disable_form();
+			return;
+		}
+
 		// draft doc — set filters and item query
 		set_warehouse_filters(frm);
 		set_item_query(frm);
@@ -93,6 +100,14 @@ frappe.ui.form.on("Material Transfer", {
 				message: __("Material Transfer has been rejected."),
 				indicator: "red",
 			}, 4);
+		}
+
+		if (state === "Cancelled") {
+			frappe.show_alert({
+				message: __("Material Transfer has been cancelled."),
+				indicator: "orange",
+			}, 4);
+			frm.reload_doc();
 		}
 	},
 
