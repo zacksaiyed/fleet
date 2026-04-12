@@ -130,7 +130,8 @@ doctype_list_js = {
 # Permissions evaluated in scripted ways
 
 on_socket_event = {
-    "join_job_room": "fleet.override.job_chat.on_join_job_room",
+    "join_job_room":  "fleet.override.job_chat.on_join_job_room",
+    "leave_job_room": "fleet.override.job_chat.on_leave_job_room",
 }
 
 permission_query_conditions = {
