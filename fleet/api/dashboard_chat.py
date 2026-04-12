@@ -128,7 +128,22 @@ def publish_job_chat(job=None, message=None, sender_name=None, role=None):
 
     # Room-based delivery covers both directions for any socket that joined the job room.
     frappe.publish_realtime(event="job_message", message=payload, room=f"job:{job}", after_commit=True)
-    return {"name": msg.name, "creation": str(msg.creation)}
+    return {
+        "status":      "success",
+        "name":        msg.name,
+        "job":         job,
+        "sender":      user,
+        "sender_name": sender_name,
+        "sender_role": role,
+        "message":     message,
+        "message_type": msg.message_type,
+        "file_url":    msg.file_url,
+        "is_read":     msg.is_read,
+        "creation":    str(msg.creation),
+        "sent_by":     user,
+        "content":     message,
+        "role":        role,
+    }
 
 
 @frappe.whitelist()

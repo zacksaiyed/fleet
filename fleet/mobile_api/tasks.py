@@ -421,6 +421,61 @@ def get_job(job: str) -> dict:
         order_by="idx asc",
     )
 
+    # fetch icons for all item types in one query
+    type_icon = {
+        r.name: r.icon
+        for r in frappe.db.get_all("Item Type", fields=["name", "icon"])
+    }
+
+    # fetch extra fields from Item master for each item
+    _TYPE_EXTRA = {
+        "GPS Device":  "custom_imei_no",
+        "SIM":         "custom_sim_type",
+        "Fuel Sensor": "custom_sensor_unique_number",
+        "Temperature": "custom_temperature_serial_number",
+    }
+
+    item_codes = [r.item for r in items]
+    item_master = {}
+    if item_codes:
+        rows = frappe.db.sql("""
+            SELECT name, custom_imei_no, custom_sim_type,
+                   custom_sensor_unique_number, custom_temperature_serial_number
+            FROM `tabItem`
+            WHERE name IN %(codes)s
+        """, {"codes": item_codes}, as_dict=True)
+        item_master = {r.name: r for r in rows}
+
+    # group by item_type
+    groups = {}
+    for r in items:
+        key = r.item_type or "Uncategorized"
+        if key not in groups:
+            groups[key] = {
+                "item_type": key,
+                "icon":      type_icon.get(key),
+                "total_qty": 0,
+                "items":     [],
+            }
+        groups[key]["total_qty"] += 1
+
+        item_row = {
+            "name":                r.name,
+            "item":                r.item,
+            "item_name":           r.item_name,
+            "brand":               r.brand,
+            "installed_or_removed": r.installed_or_removed,
+        }
+
+        extra_field = _TYPE_EXTRA.get(key)
+        if extra_field:
+            master = item_master.get(r.item, {})
+            item_row[extra_field] = master.get(extra_field) if master else None
+
+        groups[key]["items"].append(item_row)
+
+    item_groups = list(groups.values())
+
     images = frappe.db.get_all(
         "Job Image",
         filters={"parent": job_doc.name},
@@ -447,7 +502,7 @@ def get_job(job: str) -> dict:
             "allowed_directions":     _JOB_TYPE_DIRECTIONS.get(job_doc.task_type, ["Installed", "Removed"]),
             "unread_count_tech":      job_doc.unread_count_tech or 0,
             "unread_count_support":   job_doc.unread_count_support or 0,
-            "item_installed_removed": items,
+            "item_installed_removed": item_groups,
             "job_images":             images,
         },
     }
@@ -628,12 +683,24 @@ def get_job_item_options(job: str, direction: str = None) -> dict:
                 row[extra] = r.get(extra)
             items.append(row)
 
-    # group flat items list by item_type
+    # fetch icons for all item types in one query
+    type_icon = {
+        r.name: r.icon
+        for r in frappe.db.get_all("Item Type", fields=["name", "icon"])
+    }
+
+    # group flat items list by item_type with icon and total_qty
     groups = {}
     for item in items:
         key = item.get("item_type") or "Uncategorized"
         if key not in groups:
-            groups[key] = {"item_type": key, "items": []}
+            groups[key] = {
+                "item_type": key,
+                "icon":      type_icon.get(key),
+                "total_qty": 0,
+                "items":     [],
+            }
+        groups[key]["total_qty"] += 1
         groups[key]["items"].append(item)
 
     return {
@@ -728,12 +795,55 @@ def get_vehicle_details(vehicle_number: str, job: str) -> dict:
         order_by="item_type asc, date desc",
     )
 
+    # fetch item master fields and type icons in one go
+    _TYPE_EXTRA = {
+        "GPS Device":  "custom_imei_no",
+        "SIM":         "custom_sim_type",
+        "Fuel Sensor": "custom_sensor_unique_number",
+        "Temperature": "custom_temperature_serial_number",
+    }
+
+    item_codes = [r.item for r in raw_items]
+    item_master = {}
+    if item_codes:
+        rows = frappe.db.sql("""
+            SELECT name, item_name, brand,
+                   custom_imei_no, custom_sim_type,
+                   custom_sensor_unique_number, custom_temperature_serial_number
+            FROM `tabItem`
+            WHERE name IN %(codes)s
+        """, {"codes": item_codes}, as_dict=True)
+        item_master = {r.name: r for r in rows}
+
+    type_icon = {
+        r.name: r.icon
+        for r in frappe.db.get_all("Item Type", fields=["name", "icon"])
+    }
+
     groups = {}
     for r in raw_items:
         key = r.item_type or "Uncategorized"
         if key not in groups:
-            groups[key] = {"item_type": key, "items": []}
-        groups[key]["items"].append({"item": r.item, "date": str(r.date or "")})
+            groups[key] = {
+                "item_type": key,
+                "icon":      type_icon.get(key),
+                "total_qty": 0,
+                "items":     [],
+            }
+        groups[key]["total_qty"] += 1
+
+        master = item_master.get(r.item, {})
+        item_row = {
+            "item":      r.item,
+            "item_name": master.get("item_name"),
+            "brand":     master.get("brand"),
+            "date":      str(r.date or ""),
+        }
+        extra_field = _TYPE_EXTRA.get(key)
+        if extra_field:
+            item_row[extra_field] = master.get(extra_field)
+
+        groups[key]["items"].append(item_row)
 
     installed_items = list(groups.values())
 

@@ -43,7 +43,25 @@ frappe.ui.form.on("Job Item", {
 							const items = res.message && res.message.custom_vehicle_item;
 							if (!items || !items.length) return;
 
+							// Preserve Installed rows for task types that allow both
+							// directions (e.g. Checkup). Only wipe Removed rows.
+							const saved_installed = (frm.doc.item_installed_removed || [])
+								.filter(r => r.installed_or_removed === "Installed")
+								.map(r => ({
+									item:                 r.item,
+									item_name:            r.item_name,
+									item_type:            r.item_type,
+									brand:                r.brand,
+									installed_or_removed: "Installed",
+								}));
+
 							frm.clear_table("item_installed_removed");
+
+							saved_installed.forEach(saved => {
+								const new_row = frm.add_child("item_installed_removed");
+								Object.assign(new_row, saved);
+							});
+
 							items.forEach((_vi) => {
 								const new_row = frm.add_child("item_installed_removed");
 								new_row.installed_or_removed = "Removed";
