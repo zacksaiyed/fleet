@@ -128,17 +128,15 @@ function connectSocket() {
     return;
   }
 
+  // Frappe v15 requires namespace = site name e.g. /fleet.xbarq.in
+  const siteHost = new URL(url).hostname;
+  const namespaceUrl = `${url}/${siteHost}`;
   setStatus('connecting');
-  log(`Connecting to ${url} ...`, 'info');
+  log(`Connecting to ${namespaceUrl} ...`, 'info');
 
-  socket = io(url, {
-    // Try polling first so Frappe can authenticate via cookie in the HTTP phase,
-    // then upgrade to websocket. Websocket-only skips the HTTP auth phase.
-    transports: ['polling', 'websocket'],
+  socket = io(namespaceUrl, {
+    transports: ['websocket'],
     withCredentials: true,
-    // Also pass sid via auth option (Frappe v15 may use this)
-    auth: { sid: sid },
-    extraHeaders: { 'Cookie': `sid=${sid}` },
     reconnection: true,
     reconnectionAttempts: 5,
     reconnectionDelay: 2000,
@@ -148,9 +146,7 @@ function connectSocket() {
     setStatus('connected');
     log(`Socket connected! Socket ID: ${socket.id}`, 'success');
 
-    // Frappe v14 style login event
-    socket.emit('login', sid);
-    log(`Emitted login with sid`, 'info');
+    // No login event needed — Frappe v15 authenticates via cookie on connect
 
     if (currentJobId) {
       socket.emit('join_job_room', { job: currentJobId });
