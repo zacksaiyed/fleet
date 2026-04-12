@@ -579,6 +579,7 @@ def get_job_item_options(job: str, direction: str = None) -> dict:
             items.append(row)
 
     else:  # direction == "Removed"
+
         vehicle_number = job_doc.vehicle_number
         if not vehicle_number:
             frappe.throw(_("Vehicle number is not set on this job. Cannot fetch removable items."))
@@ -627,12 +628,20 @@ def get_job_item_options(job: str, direction: str = None) -> dict:
                 row[extra] = r.get(extra)
             items.append(row)
 
+    # group flat items list by item_type
+    groups = {}
+    for item in items:
+        key = item.get("item_type") or "Uncategorized"
+        if key not in groups:
+            groups[key] = {"item_type": key, "items": []}
+        groups[key]["items"].append(item)
+
     return {
         "status":             "success",
         "job_type":           task_type,
         "direction":          direction,
         "allowed_directions": allowed_directions,
-        "items":              items,
+        "groups":             list(groups.values()),
     }
 
 
@@ -712,12 +721,21 @@ def get_vehicle_details(vehicle_number: str, job: str) -> dict:
                          ),
         }
 
-    installed_items = frappe.db.get_all(
+    raw_items = frappe.db.get_all(
         "Vehicle Item",
         filters={"parent": vehicle_number, "status": "Installed"},
-        fields=["item", "item_type", "status", "date"],
-        order_by="date desc",
+        fields=["item", "item_type", "date"],
+        order_by="item_type asc, date desc",
     )
+
+    groups = {}
+    for r in raw_items:
+        key = r.item_type or "Uncategorized"
+        if key not in groups:
+            groups[key] = {"item_type": key, "items": []}
+        groups[key]["items"].append({"item": r.item, "date": str(r.date or "")})
+
+    installed_items = list(groups.values())
 
     return {
         "status":          "success",
