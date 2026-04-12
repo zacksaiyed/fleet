@@ -121,13 +121,11 @@ def publish_job_chat(job=None, message=None, sender_name=None, role=None):
     frappe.publish_realtime(event="support_dashboard_new_message", message=payload, after_commit=True)
     frappe.publish_realtime(event="task_job_chat_list_update", message=payload, after_commit=True)
 
-    # Deliver to the technician's user room only when support is the sender,
-    # so the tech receives it and there is no echo back to themselves.
+    # Deliver via user room only. Frappe v15 uses a Node.js socket server — Python
+    # on_socket_event hooks are not processed, so custom room joins are not possible.
+    # User room is auto-subscribed on connect via cookie auth.
     if tech_user and role != "Technician":
         frappe.publish_realtime(event="job_message", message=payload, user=tech_user, after_commit=True)
-
-    # Room-based delivery covers both directions for any socket that joined the job room.
-    frappe.publish_realtime(event="job_message", message=payload, room=f"job:{job}", after_commit=True)
     return {
         "status":      "success",
         "name":        msg.name,
