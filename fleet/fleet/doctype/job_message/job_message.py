@@ -47,6 +47,11 @@ class JobMessage(Document):
 		frappe.publish_realtime(
 			event="support_dashboard_new_message", message=payload, after_commit=True)
 
-		# Single delivery via job room only — avoids duplicates.
+		# Deliver to the technician's user room only when support is the sender.
+		if tech_user and role != "Technician":
+			frappe.publish_realtime(
+				event="job_message", message=payload, user=tech_user, after_commit=True)
+
+		# Room-based delivery covers both directions.
 		frappe.publish_realtime(
 			event="job_message", message=payload, room=f"job:{job}", after_commit=True)
