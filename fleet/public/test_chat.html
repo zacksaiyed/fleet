@@ -196,8 +196,16 @@ function leaveRoom() {
   log(`Emitted leave_job_room for: ${jobId}`, 'info');
 }
 
-function getCsrfToken() {
-  // Frappe stores csrf_token in cookie, URL-encoded
+async function getCsrfToken() {
+  // Fetch from Frappe session API — most reliable way from a static HTML page
+  try {
+    const resp = await fetch('/api/method/frappe.realtime.get_user_info', {
+      credentials: 'include'
+    });
+    const data = await resp.json();
+    log(`Logged in as: ${data.message?.user}`, 'info');
+  } catch(e) {}
+
   const match = document.cookie.split(';')
     .map(c => c.trim())
     .find(c => c.startsWith('csrf_token='));
@@ -210,7 +218,7 @@ async function sendMessage() {
   if (!jobId) { log('Enter a Job ID first', 'error'); return; }
   if (!msg)   { log('Type a message first', 'error'); return; }
 
-  const csrf = getCsrfToken();
+  const csrf = await getCsrfToken();
   log(`Calling publish_job_chat API (csrf: ${csrf ? 'found' : 'MISSING'})...`, 'info');
 
   try {
