@@ -132,7 +132,12 @@ function connectSocket() {
   log(`Connecting to ${url} ...`, 'info');
 
   socket = io(url, {
-    transports: ['websocket'],
+    // Try polling first so Frappe can authenticate via cookie in the HTTP phase,
+    // then upgrade to websocket. Websocket-only skips the HTTP auth phase.
+    transports: ['polling', 'websocket'],
+    withCredentials: true,
+    // Also pass sid via auth option (Frappe v15 may use this)
+    auth: { sid: sid },
     extraHeaders: { 'Cookie': `sid=${sid}` },
     reconnection: true,
     reconnectionAttempts: 5,
@@ -143,7 +148,7 @@ function connectSocket() {
     setStatus('connected');
     log(`Socket connected! Socket ID: ${socket.id}`, 'success');
 
-    // KEY: emit login so Frappe subscribes this socket to the user room
+    // Frappe v14 style login event
     socket.emit('login', sid);
     log(`Emitted login with sid`, 'info');
 
@@ -195,19 +200,27 @@ function leaveRoom() {
   log(`Emitted leave_job_room for: ${jobId}`, 'info');
 }
 
+function getCsrfToken() {
+  // Frappe stores csrf_token in cookie, URL-encoded
+  const match = document.cookie.split(';')
+    .map(c => c.trim())
+    .find(c => c.startsWith('csrf_token='));
+  return match ? decodeURIComponent(match.split('=').slice(1).join('=')) : '';
+}
+
 async function sendMessage() {
   const jobId = document.getElementById('jobId').value.trim();
   const msg   = document.getElementById('msgText').value.trim();
   if (!jobId) { log('Enter a Job ID first', 'error'); return; }
   if (!msg)   { log('Type a message first', 'error'); return; }
 
-  log(`Calling publish_job_chat API...`, 'info');
-  try {
-    const csrf = document.cookie.split(';').map(c => c.trim())
-      .find(c => c.startsWith('csrf_token='))?.split('=')[1] || '';
+  const csrf = getCsrfToken();
+  log(`Calling publish_job_chat API (csrf: ${csrf ? 'found' : 'MISSING'})...`, 'info');
 
+  try {
     const resp = await fetch('/api/method/fleet.api.dashboard_chat.publish_job_chat', {
       method: 'POST',
+      credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
         'X-Frappe-CSRF-Token': csrf,
