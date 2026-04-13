@@ -7,10 +7,13 @@ def _get_roles(doc):
     return {d.role for d in (doc.roles or [])}
 
 
-def _get_root_warehouse():
+def _get_root_warehouse(company=None):
+    filters = {"is_group": 1, "parent_warehouse": ["is", "not set"]}
+    if company:
+        filters["company"] = company
     root = frappe.db.get_value(
         "Warehouse",
-        {"is_group": 1, "parent_warehouse": ["is", "not set"]},
+        filters,
         ["name", "company"],
         as_dict=True
     )
@@ -90,7 +93,9 @@ def validate_user_roles(doc, method=None):
         return
 
     if had_tech and not has_tech:
-        root = _get_root_warehouse()
+        employee_name = _get_employee_for_user(doc.name)
+        employee_company = frappe.db.get_value("Employee", employee_name, "company") if employee_name else None
+        root = _get_root_warehouse(employee_company)
         wh = _resolve_warehouse(doc, root.company)
         if wh and not _is_warehouse_empty(wh.name):
             frappe.throw(
@@ -113,7 +118,14 @@ def on_update_user_roles(doc, method=None):
     if had_tech == has_tech:
         return
 
-    root = _get_root_warehouse()
+    # During user creation the Employee→User link (user_id) is not set yet,
+    # so _get_employee_for_user would return None. Use the flag set by _create_user.
+    employee_context = frappe.flags.get("employee_context") or {}
+    employee_name = employee_context.get("name") or _get_employee_for_user(doc.name)
+    employee_company = employee_context.get("company") or (
+        frappe.db.get_value("Employee", employee_name, "company") if employee_name else None
+    )
+    root = _get_root_warehouse(employee_company)
     company = root.company
 
     # assigning technician
@@ -129,7 +141,6 @@ def on_update_user_roles(doc, method=None):
                 frappe.msgprint(f"Warehouse <b>{wh.name}</b> has been re-enabled.", alert=True)
             # else already active, nothing to do
         else:
-            employee_name = _get_employee_for_user(doc.name)
             wh_name = (doc.full_name or doc.email or doc.name).strip()
             new_wh = frappe.get_doc({
                 "doctype": "Warehouse",
@@ -163,7 +174,9 @@ def check_user_has_employee(user):
 @frappe.whitelist()
 def get_user_warehouse_status(user):
     user_doc = frappe.get_doc("User", user)
-    root = _get_root_warehouse()
+    employee_name = _get_employee_for_user(user)
+    employee_company = frappe.db.get_value("Employee", employee_name, "company") if employee_name else None
+    root = _get_root_warehouse(employee_company)
     wh = _resolve_warehouse(user_doc, root.company)
 
     if not wh:

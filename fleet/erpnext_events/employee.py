@@ -45,19 +45,34 @@ def _create_user(doc):
     user_doc.default_workspace = "Fleet Track"
     user_doc.simultaneous_sessions = 1
 
-    # Assign roles BEFORE insert to satisfy Frappe's role validation
-    roles = ROLE_MAP.get(doc.designation, [])
-    if not roles:
+    # Assign designation roles BEFORE insert.
+    # NOTE: "Employee" role is intentionally NOT added here — ERPNext strips it during
+    # insert because no Employee has user_id pointing to this user yet.
+    # It is added below after db_set links the Employee record.
+    designation_roles = ROLE_MAP.get(doc.designation, [])
+    if not designation_roles:
         frappe.log_error(
             f"No roles mapped for designation: {doc.designation} (Employee: {doc.name})",
             "sync_user_with_employee"
         )
-    for role in roles:
+    for role in designation_roles:
         user_doc.append("roles", {"role": role})
 
-    user_doc.insert(ignore_permissions=True)
+    # Expose employee context so on_update_user_roles can read the correct
+    # employee name and company before db_set has linked Employee → User.
+    frappe.flags.employee_context = {"name": doc.name, "company": doc.company}
+    try:
+        user_doc.insert(ignore_permissions=True)
+    finally:
+        frappe.flags.employee_context = None
 
+    # Link Employee → User first so ERPNext validation passes for the Employee role
     doc.db_set("user_id", user_doc.name)
+
+    # Now add the Employee role — ERPNext will find the linked Employee and keep it
+    user_doc.reload()
+    user_doc.append("roles", {"role": "Employee"})
+    user_doc.save(ignore_permissions=True)
 
     _update_warehouse_user(doc.name)
 
@@ -93,17 +108,19 @@ def _update_user(doc, current_user_name):
     user_doc.enabled = 1 if doc.status == "Active" else 0
 
     # Update roles inline — avoids a second save from update_roles()
-    managed_roles = set(role for role_list in ROLE_MAP.values() for role in role_list)
+    # "Employee" is always managed here so it stays in sync
+    managed_roles = {"Employee"} | {role for role_list in ROLE_MAP.values() for role in role_list}
     for r in list(user_doc.roles):
         if r.role in managed_roles:
             user_doc.remove(r)
 
-    roles = ROLE_MAP.get(doc.designation, [])
-    if not roles:
+    designation_roles = ROLE_MAP.get(doc.designation, [])
+    if not designation_roles:
         frappe.log_error(
             f"No roles mapped for designation: {doc.designation} (Employee: {doc.name})",
             "sync_user_with_employee"
         )
+    roles = ["Employee"] + designation_roles
     for role in roles:
         user_doc.append("roles", {"role": role})
 
@@ -130,7 +147,7 @@ def _update_warehouse_user(employee_name):
         # Try to find it by name pattern and backfill custom_employee.
         employee = frappe.get_doc("Employee", employee_name)
         full_name = " ".join(filter(None, [employee.first_name, employee.middle_name, employee.last_name])).strip()
-        company = frappe.db.get_single_value("Global Defaults", "default_company")
+        company = employee.company
         company_abbr = frappe.db.get_value("Company", company, "abbr")
         warehouse_name = f"{full_name} - {company_abbr}"
         if frappe.db.exists("Warehouse", warehouse_name):
