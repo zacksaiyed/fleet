@@ -856,7 +856,7 @@ def get_vehicle_details(vehicle_number: str, task: str, task_type: str) -> dict:
 
         master = item_master.get(r.item, {})
         item_row = {
-            "item":      r.item,
+            "item_code": r.item,
             "item_name": master.get("item_name"),
             "brand":     master.get("brand"),
             "date":      str(r.date or ""),
