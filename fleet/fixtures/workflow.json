@@ -72,6 +72,22 @@
     "update_field": null,
     "update_value": null,
     "workflow_builder_id": null
+   },
+   {
+    "allow_edit": "Material Transfer User",
+    "avoid_status_override": 0,
+    "doc_status": "0",
+    "is_optional_state": 0,
+    "message": null,
+    "next_action_email_template": null,
+    "parent": "Material Transfer Workflow",
+    "parentfield": "states",
+    "parenttype": "Workflow",
+    "send_email": 1,
+    "state": "Cancelled",
+    "update_field": null,
+    "update_value": null,
+    "workflow_builder_id": null
    }
   ],
   "transitions": [
@@ -107,6 +123,32 @@
     "allowed": "Material Transfer User",
     "condition": null,
     "next_state": "Rejected",
+    "parent": "Material Transfer Workflow",
+    "parentfield": "transitions",
+    "parenttype": "Workflow",
+    "send_email_to_creator": 0,
+    "state": "Approval Pending",
+    "workflow_builder_id": null
+   },
+   {
+    "action": "Cancel",
+    "allow_self_approval": 1,
+    "allowed": "Material Transfer User",
+    "condition": null,
+    "next_state": "Cancelled",
+    "parent": "Material Transfer Workflow",
+    "parentfield": "transitions",
+    "parenttype": "Workflow",
+    "send_email_to_creator": 0,
+    "state": "Initiated",
+    "workflow_builder_id": null
+   },
+   {
+    "action": "Cancel",
+    "allow_self_approval": 1,
+    "allowed": "Material Transfer User",
+    "condition": null,
+    "next_state": "Cancelled",
     "parent": "Material Transfer Workflow",
     "parentfield": "transitions",
     "parenttype": "Workflow",
