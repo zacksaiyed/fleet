@@ -1,5 +1,22 @@
 import json
 import frappe
+from frappe.utils import now_datetime
+
+
+def validate(doc, method=None):
+	"""Stamp custom_assigned_at whenever custom_assign_to changes so the
+	1-hour auto-reject countdown resets correctly and the form sees the value."""
+	before = doc.get_doc_before_save()
+	prev_assignee = before.get("custom_assign_to") if before else None
+	curr_assignee = doc.custom_assign_to
+
+	if prev_assignee == curr_assignee:
+		return
+
+	if curr_assignee:
+		doc.custom_assigned_at = now_datetime()
+	else:
+		doc.custom_assigned_at = None
 
 
 # task actions

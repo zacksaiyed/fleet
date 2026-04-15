@@ -170,6 +170,7 @@ doc_events = {
         ],
     },
     "Task": {
+        "validate": "fleet.fleet.doctype.task.task.validate",
         "after_insert": "fleet.custom_py.task_assignment.handle_assignment",
         "on_update": [
             "fleet.override.task.sync_vehicle_data",               # Vehicle sync on Complete
@@ -216,6 +217,15 @@ doc_events = {
 # 		"fleet.tasks.monthly"
 # 	],
 # }
+
+scheduler_events = {
+    "cron": {
+        # Run every 5 minutes — auto-reject tasks not accepted within 1 hour
+        "*/5 * * * *": [
+            "fleet.fleet.scheduled.task_auto_reject.auto_reject_unaccepted_tasks"
+        ],
+    },
+}
 
 # Testing
 # -------
