@@ -1004,7 +1004,7 @@ def update_job(
     model: str = None,
     color: str = None,
     type: str = None,
-    set_items: list = None,
+    set_items=None,
 ) -> dict:
     """
     POST /api/method/fleet.mobile_api.tasks.update_job
