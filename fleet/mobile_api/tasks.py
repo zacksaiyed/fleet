@@ -1053,32 +1053,35 @@ def update_job(
         job_doc.type = type
 
     # ── items ─────────────────────────────────────────────────────────────
-    def _fetch_item_row(item_code, direction):
-        """Fetch item details and return a Job Item dict."""
-        fetched = frappe.db.get_value(
-            "Item", item_code,
-            ["item_name", "custom_item_type", "brand"],
-            as_dict=True,
-        )
-        if not fetched:
-            return _error(404, "NOT_FOUND", f"Item {item_code} not found.")
-        return {
-            "item":                 item_code,
-            "item_name":            fetched.item_name,
-            "item_type":            fetched.custom_item_type,
-            "brand":                fetched.brand,
-            "installed_or_removed": direction,
-        }
-
     if set_items is not None:
-        # Full replace — used from the "edit assets" save screen
-        rows = set_items
+        # form-data sends lists as a JSON string — parse it
+        if isinstance(set_items, str):
+            try:
+                set_items = json.loads(set_items)
+            except Exception:
+                return _error(400, "INVALID_PARAMS", "set_items must be a valid JSON array.")
+
         job_doc.item_installed_removed = []
-        for r in rows:
+        for r in set_items:
             item_code = r.get("item")
             if not item_code:
                 return _error(400, "MISSING_PARAMS", "Each item row must have an 'item' (item code).")
-            job_doc.append("item_installed_removed", _fetch_item_row(item_code, r.get("installed_or_removed", "Installed")))
+
+            fetched = frappe.db.get_value(
+                "Item", item_code,
+                ["item_name", "custom_item_type", "brand"],
+                as_dict=True,
+            )
+            if not fetched:
+                return _error(404, "NOT_FOUND", f"Item {item_code} not found.")
+
+            job_doc.append("item_installed_removed", {
+                "item":                 item_code,
+                "item_name":            fetched.item_name,
+                "item_type":            fetched.custom_item_type,
+                "brand":                fetched.brand,
+                "installed_or_removed": r.get("installed_or_removed", "Installed"),
+            })
 
     job_doc.save(ignore_permissions=True)
     return {"status": "success", "msg": "Job updated."}
