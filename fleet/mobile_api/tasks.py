@@ -171,10 +171,16 @@ def get_my_tasks() -> dict:
     job_counts      = {}
     job_type_counts = {}
 
+    completed_counts = {}  # jobs in "In Review" per task
+
     if task_names:
         rows = frappe.db.sql(
             """
-            SELECT task, task_type, COUNT(*) AS cnt
+            SELECT
+                task,
+                task_type,
+                COUNT(*) AS cnt,
+                SUM(CASE WHEN status = 'In Review' THEN 1 ELSE 0 END) AS in_review_cnt
             FROM `tabJob`
             WHERE task IN %(tasks)s
             GROUP BY task, task_type
@@ -185,13 +191,15 @@ def get_my_tasks() -> dict:
         for row in rows:
             t = row["task"]
             job_counts[t] = job_counts.get(t, 0) + row["cnt"]
+            completed_counts[t] = completed_counts.get(t, 0) + (row["in_review_cnt"] or 0)
             if t not in job_type_counts:
                 job_type_counts[t] = {}
             job_type_counts[t][row["task_type"]] = row["cnt"]
 
     for task in tasks:
         n = task["name"]
-        task["jobs_count"]              = job_counts.get(n, 0)
+        task["total_jobs"]              = job_counts.get(n, 0)
+        task["completed_jobs"]          = completed_counts.get(n, 0)
         task["job_type_counts"]         = job_type_counts.get(n, {})
         task["description"]             = _strip_html(task.get("description"))
         task["custom_complete_address"] = _strip_html(task.get("custom_complete_address"))
@@ -272,6 +280,9 @@ def get_task_jobs(task: str) -> dict:
         order_by="creation asc"
     )
 
+    total_jobs     = len(jobs)
+    completed_jobs = sum(1 for j in jobs if j["status"] == "In Review")
+
     return {
         "status": "success",
         "task": {
@@ -283,8 +294,9 @@ def get_task_jobs(task: str) -> dict:
             "priority":    task_doc.priority,
             "description": _strip_html(task_doc.description),
         },
-        "total": len(jobs),
-        "jobs":  jobs,
+        "total_jobs":    total_jobs,
+        "completed_jobs": completed_jobs,
+        "jobs":          jobs,
     }
 
 
@@ -412,7 +424,7 @@ def get_job(job: str) -> dict:
         "Job",
         {"name": job, "assigned_technician": employee},
         ["name", "title", "status", "task_type", "vehicle_number",
-         "customer", "make", "model", "date", "done_comment",
+         "customer", "make", "model", "color", "type", "date", "done_comment",
          "hold_comment", "completion_comment",
          "unread_count_tech", "unread_count_support"],
         as_dict=True
@@ -500,6 +512,8 @@ def get_job(job: str) -> dict:
             "customer":              job_doc.customer,
             "make":                  job_doc.make,
             "model":                 job_doc.model,
+            "color":                 job_doc.color,
+            "type":                  job_doc.type,
             "date":                  str(job_doc.date or ""),
             "done_comment":          job_doc.done_comment,
             "hold_comment":          job_doc.hold_comment,
@@ -717,45 +731,49 @@ def get_job_item_options(job: str, direction: str = None) -> dict:
 
 
 @frappe.whitelist()
-def get_vehicle_details(vehicle_number: str, job: str) -> dict:
+def get_vehicle_details(vehicle_number: str, task: str, task_type: str) -> dict:
     """
     GET /api/method/fleet.mobile_api.tasks.get_vehicle_details
     Params:
         vehicle_number — plate number entered by the technician (required)
-        job            — job name (required); task_type and customer are resolved from it
+        task           — task name (required); customer is resolved from it
+        task_type      — job type, e.g. "Installation", "Checkup" (required)
 
-    Called live as the technician finishes typing the vehicle number in a job form.
+    Called live as the technician types a vehicle number — works whether a job
+    already exists or is still being created.
 
-    Behaviour by job's task_type (Job Type):
+    Behaviour by task_type:
 
         Installation:
             Vehicle must NOT exist — it will be created on job completion.
-            Throws if the vehicle already exists (wrong plate entered).
-            Returns: { "found": false }
+            Returns: { "status": "success", "found": false }
+            Returns: { "status": "failed" }  if vehicle already exists
 
         All other types (Checkup, Removal, Accessory, …):
-            Vehicle must exist AND must be linked to the job's customer.
-            Throws if vehicle not found or customer does not match.
-            Returns: { "found": true, make, model, color, type, installed_items }
+            Vehicle must exist AND be linked to the task's customer.
+            Returns: { "status": "success", "found": true, make, model, color, type, installed_items }
+            Returns: { "status": "failed" }  if not found or customer mismatch
     """
     vehicle_number = (vehicle_number or "").replace(" ", "").upper()
     if not vehicle_number:
         return _error(400, "MISSING_PARAMS", "vehicle_number is required.")
-    if not job:
-        return _error(400, "MISSING_PARAMS", "job is required.")
+    if not task:
+        return _error(400, "MISSING_PARAMS", "task is required.")
+    if not task_type:
+        return _error(400, "MISSING_PARAMS", "task_type is required.")
 
     employee = _get_employee(frappe.session.user)
 
-    job_doc = frappe.db.get_value(
-        "Job",
-        {"name": job, "assigned_technician": employee},
-        ["task_type", "customer"],
+    task_doc = frappe.db.get_value(
+        "Task",
+        {"name": task, "custom_assign_to": employee},
+        ["custom_customer"],
         as_dict=True,
     )
-    if not job_doc:
-        return _error(404, "NOT_FOUND", "Job not found or you are not assigned to it.")
+    if not task_doc:
+        return _error(404, "NOT_FOUND", "Task not found or you are not assigned to it.")
 
-    if job_doc.task_type == "Installation":
+    if task_type == "Installation":
         # Vehicle must not exist yet — Installation creates it on job completion
         if frappe.db.exists("Vehicle", vehicle_number):
             return {
@@ -769,7 +787,7 @@ def get_vehicle_details(vehicle_number: str, job: str) -> dict:
             "message": _("Vehicle {0} is not registered yet. It will be created on job completion.").format(vehicle_number),
         }
 
-    # All other job types — vehicle must exist and belong to the job's customer
+    # All other job types — vehicle must exist and belong to the task's customer
     vehicle_data = frappe.db.get_value(
         "Vehicle", vehicle_number,
         ["custom_customer", "make", "model", "color", "custom_vehicle_type"],
@@ -782,7 +800,7 @@ def get_vehicle_details(vehicle_number: str, job: str) -> dict:
             "message": _("Vehicle {0} was not found. Please check the plate number.").format(vehicle_number),
         }
 
-    if vehicle_data.custom_customer != job_doc.customer:
+    if vehicle_data.custom_customer != task_doc.custom_customer:
         return {
             "status":  "failed",
             "message": _("Vehicle {0} belongs to {1}, not to the customer on this job. "
