@@ -59,6 +59,12 @@ def enforce_simultaneous_sessions(login_manager=None, user_email: str = None):
         frappe.db.commit()
 
 
+def _error(http_status: int, code: str, message: str) -> dict:
+    """Return a clean, traceback-free error envelope and set the HTTP status code."""
+    frappe.local.response["http_status_code"] = http_status
+    return {"status": "error", "code": code, "message": message}
+
+
 @frappe.whitelist(allow_guest=True)
 def login(usr: str, pwd: str) -> dict:
     """
@@ -69,11 +75,16 @@ def login(usr: str, pwd: str) -> dict:
     Body (form-data or JSON):
         usr  = "786876756"          <- username  OR  "chanda@company.com"
         pwd  = "their_password"
+
+    Error responses (always clean JSON, no stacktraces):
+        400  MISSING_CREDENTIALS   — usr or pwd not provided
+        401  INVALID_CREDENTIALS   — wrong username / password
+        403  NOT_AUTHORIZED        — not a Technician
     """
 
     # validate input
     if not usr or not pwd:
-        frappe.throw(_("Username and password are required."), frappe.AuthenticationError)
+        return _error(400, "MISSING_CREDENTIALS", "Username and password are required.")
 
     # login manager
     try:
@@ -83,7 +94,7 @@ def login(usr: str, pwd: str) -> dict:
         login_manager.authenticate()
         login_manager.post_login()
     except frappe.AuthenticationError:
-        frappe.throw(_("Invalid username or password."), frappe.AuthenticationError)
+        return _error(401, "INVALID_CREDENTIALS", "Invalid username or password.")
 
     # fetch logged-in user details
     user_email = frappe.session.user
@@ -92,10 +103,7 @@ def login(usr: str, pwd: str) -> dict:
     user_roles = frappe.get_roles(user_email)
     if "Technician" not in user_roles:
         frappe.local.login_manager.logout()
-        frappe.throw(
-            _("You are not a Technician. The mobile app is only for Technicians."),
-            frappe.AuthenticationError
-        )
+        return _error(403, "NOT_AUTHORIZED", "Access denied. The mobile app is only for Technicians.")
 
     # Enforce simultaneous sessions limit
     # (also fires via on_session_creation hook for web logins)
