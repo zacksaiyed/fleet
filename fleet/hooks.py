@@ -222,7 +222,7 @@ scheduler_events = {
     "cron": {
         # Run every 5 minutes — auto-reject tasks not accepted within 1 hour
         "*/5 * * * *": [
-            "fleet.fleet.scheduled.task_auto_reject.auto_reject_unaccepted_tasks"
+            "fleet.scheduled.task_auto_reject.auto_reject_unaccepted_tasks"
         ],
     },
 }
