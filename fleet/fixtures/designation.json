@@ -14,5 +14,21 @@
   "doctype": "Designation",
   "modified": "2026-02-17 19:46:25.335487",
   "name": "Support"
+ },
+ {
+  "description": null,
+  "designation_name": "Administrator",
+  "docstatus": 0,
+  "doctype": "Designation",
+  "modified": "2026-02-17 19:46:25.335487",
+  "name": "Administrator"
+ },
+ {
+  "description": null,
+  "designation_name": "Manager",
+  "docstatus": 0,
+  "doctype": "Designation",
+  "modified": "2026-04-16 00:00:00.000000",
+  "name": "Manager"
  }
 ]

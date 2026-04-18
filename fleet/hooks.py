@@ -46,10 +46,11 @@ app_home = "/fleet-track"
 # include js in doctype views
 
 doctype_js = {
-  "Task" : "public/js/task.js",
-  "User": "public/js/user.js",
-  "Item": "public/js/item.js",
-  "Address": "public/js/address.js"
+  "Task"     : "public/js/task.js",
+  "User"     : "public/js/user.js",
+  "Item"     : "public/js/item.js",
+  "Address"  : "public/js/address.js",
+  "Employee" : "public/js/employee.js",
 }
 
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
@@ -180,6 +181,7 @@ doc_events = {
     },
     "Employee": {
         # "after_insert": "fleet.erpnext_events.employee.sync_user_with_employee",
+        "validate": "fleet.erpnext_events.employee.validate_employee",
         "on_update": "fleet.erpnext_events.employee.sync_user_with_employee"
     },
     "Customer": {
@@ -305,6 +307,9 @@ on_session_creation = "fleet.mobile_api.auth.enforce_simultaneous_sessions"
 # }
 
 fixtures = [
+    {"dt": "Custom DocPerm", "filters": [
+        ["role", "in", ["Fleet Administrator", "Fleet Manager"]]
+    ]},
     {"dt": "Workflow","filters": [
         [
             "name", "in", [
