@@ -1,9 +1,46 @@
 import frappe
+from frappe.utils.password import update_password
 
 ROLE_MAP = {
-    "Technician": ["Technician", "Workspace Manager", "Material Transfer User"],
-    "Support": ["Support Team", "Workspace Manager", "Material Transfer User"]
+    "Technician":    ["Technician",        "Workspace Manager", "Material Transfer User"],
+    "Support":       ["Support Team",      "Workspace Manager", "Material Transfer User"],
+    "Administrator": ["Fleet Administrator", "Workspace Manager"],
+    "Manager":       ["Fleet Manager",      "Workspace Manager"],
 }
+
+# Designations that don't need a physical warehouse (office/admin roles)
+_NO_WAREHOUSE = {"Administrator", "Manager"}
+
+
+def validate_employee(doc, method):
+    if doc.company_email:
+        duplicate = frappe.db.get_value(
+            "Employee",
+            {"company_email": doc.company_email, "name": ["!=", doc.name]},
+            "name"
+        )
+        if duplicate:
+            frappe.throw(
+                f"Company email <b>{doc.company_email}</b> is already used by employee "
+                f"<b>{duplicate}</b>. Please enter a different email.",
+                title="Duplicate Email"
+            )
+
+    if doc.custom_national_registration_card_no:
+        duplicate = frappe.db.get_value(
+            "Employee",
+            {
+                "custom_national_registration_card_no": doc.custom_national_registration_card_no,
+                "name": ["!=", doc.name]
+            },
+            "name"
+        )
+        if duplicate:
+            frappe.throw(
+                f"NRC number <b>{doc.custom_national_registration_card_no}</b> is already used by employee "
+                f"<b>{duplicate}</b>. Please enter a different NRC number.",
+                title="Duplicate NRC Number"
+            )
 
 
 def sync_user_with_employee(doc, method):
@@ -74,7 +111,8 @@ def _create_user(doc):
     user_doc.append("roles", {"role": "Employee"})
     user_doc.save(ignore_permissions=True)
 
-    _update_warehouse_user(doc.name)
+    if doc.designation not in _NO_WAREHOUSE:
+        _update_warehouse_user(doc.name)
 
     frappe.msgprint(
         f'User <a href="/app/user/{user_doc.name}" target="_blank">'
@@ -130,12 +168,29 @@ def _update_user(doc, current_user_name):
     if doc.user_id != current_user_name:
         doc.db_set("user_id", current_user_name)
 
-    _update_warehouse_user(doc.name)
+    if doc.designation not in _NO_WAREHOUSE:
+        _update_warehouse_user(doc.name)
 
     frappe.msgprint(
         f'User <a href="/app/user/{current_user_name}" target="_blank">'
         f'<b>{current_user_name}</b></a> Updated Successfully'
     )
+
+
+@frappe.whitelist()
+def change_employee_user_password(employee: str, new_password: str):
+    if not frappe.has_permission("Employee", "write", employee):
+        frappe.throw("Not permitted.", frappe.PermissionError)
+
+    user_id = frappe.db.get_value("Employee", employee, "user_id")
+    if not user_id:
+        frappe.throw("No user account is linked to this employee.")
+
+    if len(new_password) < 6:
+        frappe.throw("Password must be at least 6 characters.")
+
+    update_password(user_id, new_password)
+    return {"message": "Password updated successfully."}
 
 
 def _update_warehouse_user(employee_name):
