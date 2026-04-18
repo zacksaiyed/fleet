@@ -6,7 +6,7 @@ frappe.ui.form.on("Employee", {
     },
 
     refresh(frm) {
-        if (!frm.doc.user_id) return;
+        if (!frm.doc.user_id || frm.doc.status !== "Active") return;
 
         frm.add_custom_button(__("Change Password"), () => {
             const dialog = new frappe.ui.Dialog({
