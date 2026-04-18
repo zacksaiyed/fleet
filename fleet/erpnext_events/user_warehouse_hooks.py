@@ -119,6 +119,10 @@ def on_update_user_roles(doc, method=None):
     if had_tech == has_tech:
         return
 
+    in_setup_wizard = "setup_wizard" in (getattr(getattr(frappe, "local", None), "form_dict", {}).get("cmd", "") or "")
+    if in_setup_wizard:
+        return
+
     # During user creation the Employee→User link (user_id) is not set yet,
     # so _get_employee_for_user would return None. Use the flag set by _create_user.
     employee_context = frappe.flags.get("employee_context") or {}
