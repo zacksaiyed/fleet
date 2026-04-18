@@ -78,9 +78,9 @@ def validate_user_roles(doc, method=None):
     has_tech = ROLE_NAME in new_roles
 
     # Block Technician role assignment for users not linked to an Employee.
-    # Skip during setup wizard (setup not yet complete) and Employee sync flow.
-    setup_done = frappe.db.get_value("System Settings", "System Settings", "setup_complete") or 0
-    if not had_tech and has_tech and not frappe.flags.get("syncing_employee_user") and setup_done:
+    # Skip during setup wizard and Employee sync flow.
+    in_setup_wizard = "setup_wizard" in (getattr(getattr(frappe, "local", None), "form_dict", {}).get("cmd", "") or "")
+    if not had_tech and has_tech and not frappe.flags.get("syncing_employee_user") and not in_setup_wizard:
         employee = _get_employee_for_user(doc.name)
         if not employee:
             frappe.throw(
