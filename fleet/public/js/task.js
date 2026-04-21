@@ -90,9 +90,7 @@ frappe.ui.form.on('Task', {
 
 		// Hide Timesheet from connections panel (keep Job)
 		setTimeout(() => {
-			frm.$wrapper.find('.form-stats-item').filter(function () {
-				return $(this).find('.count-label').text().trim() === 'Timesheet';
-			}).hide();
+			frm.$wrapper.find('.col-md-4').has('[data-doctype="Timesheet"]').hide();
 		}, 200);
 
 		// STATUS INDICATOR
