@@ -61,5 +61,41 @@
   "name": "Accepted",
   "style": "Info",
   "workflow_state_name": "Accepted"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "icon": "",
+  "modified": "2026-02-26 00:19:00.000000",
+  "name": "Initiated",
+  "style": "Primary",
+  "workflow_state_name": "Initiated"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "icon": "",
+  "modified": "2026-02-26 00:19:01.000000",
+  "name": "Approval Pending",
+  "style": "Warning",
+  "workflow_state_name": "Approval Pending"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "icon": "",
+  "modified": "2026-02-26 00:19:02.000000",
+  "name": "Approved",
+  "style": "Success",
+  "workflow_state_name": "Approved"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "icon": "",
+  "modified": "2026-02-26 00:19:03.000000",
+  "name": "Rejected",
+  "style": "Danger",
+  "workflow_state_name": "Rejected"
  }
 ]

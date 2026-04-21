@@ -119,7 +119,7 @@ def create_docshare(task_name, user):
     }):
         return
 
-    frappe.get_doc({
+    doc = frappe.get_doc({
         "doctype": "DocShare",
         "user": user,
         "share_doctype": "Task",
@@ -128,7 +128,9 @@ def create_docshare(task_name, user):
         "write": 1,
         "share": 1,
         "notify_by_email": 1
-    }).insert(ignore_permissions=True)
+    })
+    doc.flags.ignore_share_permission = True
+    doc.insert(ignore_permissions=True)
 
 def _cancel_todos(doctype, docname, user):
     todos = frappe.get_all("ToDo", filters={
@@ -292,7 +294,7 @@ def _create_job_docshare(job_name, user):
         "user": user
     }):
         return
-    frappe.get_doc({
+    doc = frappe.get_doc({
         "doctype": "DocShare",
         "user": user,
         "share_doctype": "Job",
@@ -301,7 +303,9 @@ def _create_job_docshare(job_name, user):
         "write": 1,
         "share": 1,
         "notify_by_email": 1
-    }).insert(ignore_permissions=True)
+    })
+    doc.flags.ignore_share_permission = True
+    doc.insert(ignore_permissions=True)
 
 
 def delete_docshare(task_name, user):

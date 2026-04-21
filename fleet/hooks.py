@@ -184,6 +184,9 @@ doc_events = {
         "validate": "fleet.erpnext_events.employee.validate_employee",
         "on_update": "fleet.erpnext_events.employee.sync_user_with_employee"
     },
+    "Vehicle": {
+        "validate": "fleet.erpnext_events.vehicle.validate_vehicle"
+    },
     "Customer": {
         "after_insert": [
             "fleet.override.customer_warehouse.set_customer_warehouse"
@@ -307,6 +310,13 @@ on_session_creation = "fleet.mobile_api.auth.enforce_simultaneous_sessions"
 # }
 
 fixtures = [
+    {"dt": "Workflow State", "filters": [
+        ["name", "in", [
+            "Completed", "Open", "Cancelled", "In Review", "On Hold",
+            "In Progress", "Accepted", "Initiated", "Approval Pending",
+            "Approved", "Rejected"
+        ]]
+    ]},
     {"dt": "Custom DocPerm", "filters": [
         ["role", "in", ["Fleet Administrator", "Fleet Manager"]]
     ]},
