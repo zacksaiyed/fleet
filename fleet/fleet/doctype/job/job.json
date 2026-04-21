@@ -278,6 +278,7 @@
    "label": "Model"
   },
   {
+   "depends_on": "eval: doc.vehicle_number",
    "fieldname": "type",
    "fieldtype": "Data",
    "label": "Type"
@@ -295,6 +296,7 @@
    "fieldtype": "Column Break"
   },
   {
+   "depends_on": "eval: doc.vehicle_number",
    "fieldname": "color",
    "fieldtype": "Data",
    "label": "Color"
