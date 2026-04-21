@@ -88,6 +88,11 @@ frappe.ui.form.on('Task', {
 			}
 		}
 
+		// Hide Timesheet from connections panel (keep Job)
+		setTimeout(() => {
+			frm.$wrapper.find('.col-md-4').has('[data-doctype="Timesheet"]').hide();
+		}, 200);
+
 		// STATUS INDICATOR
 		const color_map = {
 			"Open":        "blue",
