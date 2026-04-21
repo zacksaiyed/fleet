@@ -88,6 +88,13 @@ frappe.ui.form.on('Task', {
 			}
 		}
 
+		// Hide Timesheet from connections panel (keep Job)
+		setTimeout(() => {
+			frm.$wrapper.find('.form-stats-item').filter(function () {
+				return $(this).find('.count-label').text().trim() === 'Timesheet';
+			}).hide();
+		}, 200);
+
 		// STATUS INDICATOR
 		const color_map = {
 			"Open":        "blue",
