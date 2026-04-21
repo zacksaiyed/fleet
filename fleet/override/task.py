@@ -21,23 +21,24 @@ def sync_vehicle_data(doc, method=None):
 
         task_type = row.task_type  # Installation / Removal / Checkup / Accessory
         completed_date = doc.completed_on
+        vehicle_key = row.vehicle.replace(" ", "").upper() if row.vehicle else row.vehicle
 
         # INSTALLATION :- Create Vehicle if not exists (only for Installation tasks)
         if task_type == "Installation":
-            if row.vehicle not in vehicle_cache:
-                if frappe.db.exists("Vehicle", row.vehicle):
-                    vehicle_cache[row.vehicle] = frappe.get_doc("Vehicle", row.vehicle)
+            if vehicle_key not in vehicle_cache:
+                if frappe.db.exists("Vehicle", vehicle_key):
+                    vehicle_cache[vehicle_key] = frappe.get_doc("Vehicle", vehicle_key)
                 else:
                     # Only Installation can create a new Vehicle
                     new_vehicle = frappe.get_doc({
                         "doctype": "Vehicle",
-                        "license_plate": row.vehicle,
+                        "license_plate": vehicle_key,
                         "custom_customer": doc.custom_customer,
                     })
                     new_vehicle.insert(ignore_permissions=True)
-                    vehicle_cache[row.vehicle] = new_vehicle
+                    vehicle_cache[vehicle_key] = new_vehicle
 
-            vehicle_doc = vehicle_cache[row.vehicle]
+            vehicle_doc = vehicle_cache[vehicle_key]
             vehicle_doc.custom_customer = doc.custom_customer
 
             new_items = []
@@ -81,16 +82,16 @@ def sync_vehicle_data(doc, method=None):
 
         # REMOVAL :- Do NOT create Vehicle if not exists → throw error
         elif task_type == "Removal":
-            if row.vehicle not in vehicle_cache:
-                if frappe.db.exists("Vehicle", row.vehicle):
-                    vehicle_cache[row.vehicle] = frappe.get_doc("Vehicle", row.vehicle)
+            if vehicle_key not in vehicle_cache:
+                if frappe.db.exists("Vehicle", vehicle_key):
+                    vehicle_cache[vehicle_key] = frappe.get_doc("Vehicle", vehicle_key)
                 else:
                     frappe.throw(
-                        f"Vehicle <b>{row.vehicle}</b> not found. "
+                        f"Vehicle <b>{vehicle_key}</b> not found. "
                         f"Vehicle can only be created for <b>Installation</b> tasks."
                     )
 
-            vehicle_doc = vehicle_cache[row.vehicle]
+            vehicle_doc = vehicle_cache[vehicle_key]
 
             items_to_remove = []
             if row.sim:
@@ -112,7 +113,7 @@ def sync_vehicle_data(doc, method=None):
                 if not all_rows_for_type:
                     frappe.throw(
                         f"<b>{item_type}: {item_value}</b> has never been installed "
-                        f"on Vehicle <b>{row.vehicle}</b>. "
+                        f"on Vehicle <b>{vehicle_key}</b>. "
                         f"Item must be installed in the vehicle before it can be removed."
                     )
 
@@ -124,7 +125,7 @@ def sync_vehicle_data(doc, method=None):
                     frappe.throw(
                         f"<b>{item_type}: {item_value}</b> is already "
                         f"<b>{last_row.status or 'Removed'}</b> "
-                        f"on Vehicle <b>{row.vehicle}</b>. "
+                        f"on Vehicle <b>{vehicle_key}</b>. "
                         f"Item is already removed. Please install it before attempting removal again."
                     )
 
@@ -143,16 +144,16 @@ def sync_vehicle_data(doc, method=None):
         # ACCESSORY / CHECKUP :- Do NOT create Vehicle if not exists → throw error
         elif task_type in ("Accessory", "Checkup"):
             # Vehicle must already exist
-            if row.vehicle not in vehicle_cache:
-                if frappe.db.exists("Vehicle", row.vehicle):
-                    vehicle_cache[row.vehicle] = frappe.get_doc("Vehicle", row.vehicle)
+            if vehicle_key not in vehicle_cache:
+                if frappe.db.exists("Vehicle", vehicle_key):
+                    vehicle_cache[vehicle_key] = frappe.get_doc("Vehicle", vehicle_key)
                 else:
                     frappe.throw(
-                        f"Vehicle <b>{row.vehicle}</b> not found. "
+                        f"Vehicle <b>{vehicle_key}</b> not found. "
                         f"Vehicle can only be created for <b>Installation</b> tasks."
                     )
 
-            vehicle_doc = vehicle_cache[row.vehicle]
+            vehicle_doc = vehicle_cache[vehicle_key]
 
             # Build list of items selected in this Task row
             items_to_check = []
@@ -177,7 +178,7 @@ def sync_vehicle_data(doc, method=None):
                 if not matching_rows:
                     frappe.throw(
                         f"<b>{item_type}: {item_value}</b> has no installation history "
-                        f"on Vehicle <b>{row.vehicle}</b>. "
+                        f"on Vehicle <b>{vehicle_key}</b>. "
                         f"Checkup/Accessory can only be performed on a currently installed item."
                     )
 
@@ -188,7 +189,7 @@ def sync_vehicle_data(doc, method=None):
                 if last_row.item != item_value:
                     frappe.throw(
                         f"<b>{item_type}: {item_value}</b> is not the currently active item "
-                        f"on Vehicle <b>{row.vehicle}</b>. "
+                        f"on Vehicle <b>{vehicle_key}</b>. "
                         f"The currently installed {item_type} is <b>{last_row.item}</b>. "
                         f"Checkup/Accessory can only be performed on the currently installed item."
                     )
@@ -197,7 +198,7 @@ def sync_vehicle_data(doc, method=None):
                 if last_row.status != "Installed":
                     frappe.throw(
                         f"<b>{item_type}: {item_value}</b> is currently <b>{last_row.status or 'inactive'}</b> "
-                        f"on Vehicle <b>{row.vehicle}</b>. "
+                        f"on Vehicle <b>{vehicle_key}</b>. "
                         f"Checkup/Accessory can only be performed on a currently installed item."
                     )
 
