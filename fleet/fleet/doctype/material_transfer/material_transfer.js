@@ -364,6 +364,14 @@ frappe.ui.form.on("Material Transfer Item", {
 		const row = locals[cdt][cdn];
 		if (!row.item) return;
 
+		const duplicate = (frm.doc.items || []).find(r => r.item === row.item && r.name !== cdn);
+		if (duplicate) {
+			frappe.msgprint(__("{0} is already in the list.", [row.item]));
+			frappe.model.remove_from_locals(cdt, cdn);
+			frm.refresh_field("items");
+			return;
+		}
+
 		if (!frm.doc.source) {
 			frappe.show_alert({
 				message: __("Please select Source Warehouse before adding items"),
