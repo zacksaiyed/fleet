@@ -23,6 +23,12 @@ class MaterialTransfer(Document):
 		if not self.items:
 			frappe.throw(_("Please add at least one item before saving."))
 
+		seen = set()
+		for row in self.items:
+			if row.item in seen:
+				frappe.throw(_("Item {0} is added more than once. Please remove the duplicate row.").format(row.item))
+			seen.add(row.item)
+
 	def validate_source_target(self):
 		if self.source and self.target and self.source == self.target:
 			frappe.throw(_("Source and Target Warehouse cannot be the same."))
