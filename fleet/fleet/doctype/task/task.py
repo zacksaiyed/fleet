@@ -15,6 +15,12 @@ def validate(doc, method=None):
 
 	if curr_assignee:
 		doc.custom_assigned_at = now_datetime()
+		# When a technician is assigned to a Rejected task, reopen it so the
+		# new technician sees it as Open (covers direct field edits and the
+		# Reassign button path — the button already sets status=Open before save,
+		# so this condition is only hit for direct edits).
+		if doc.status == "Rejected":
+			doc.status = "Open"
 	else:
 		doc.custom_assigned_at = None
 
@@ -62,6 +68,9 @@ def task_action(task, action, technician=None, reject_comment=None):
 		doc.custom_assign_to      = technician
 		emp_name = frappe.db.get_value("Employee", technician, "employee_name")
 		doc.custom_employee_name  = emp_name or technician
+		# Always reset the countdown — same technician may be reassigned,
+		# in which case validate's early-return won't update custom_assigned_at.
+		doc.custom_assigned_at    = now_datetime()
 		# update all pending jobs to new technician
 		_reassign_jobs(doc.name, technician)
 		doc.status = "Open"
