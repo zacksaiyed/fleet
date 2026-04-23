@@ -163,6 +163,8 @@ def notify_target_warehouse(doc_name):
 		"<a href='{4}'>Open Material Transfer</a>"
 	).format(doc_name, doc.source, doc.target, len(doc.items or []), link)
 
+	from fleet.firebase import send_push
+
 	for user in users_to_notify:
 		try:
 			frappe.get_doc({
@@ -176,6 +178,16 @@ def notify_target_warehouse(doc_name):
 			}).insert(ignore_permissions=True)
 		except Exception:
 			frappe.log_error(frappe.get_traceback(), "mt notification failed")
+
+		try:
+			send_push(
+				user=user,
+				title="Material Transfer Requires Approval",
+				body=f"{doc_name} — {len(doc.items or [])} item(s) from {doc.source}",
+				data={"doctype": "Material Transfer", "name": doc_name, "type": "mt_approval"},
+			)
+		except Exception:
+			frappe.log_error(frappe.get_traceback(), "FCM: mt notification failed")
 
 	frappe.db.commit()
 

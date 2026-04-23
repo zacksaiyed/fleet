@@ -1,3 +1,6 @@
+# Copyright (c) 2026, XBarq Technologies and contributors
+# For license information, please see license.txt
+
 import frappe
 from frappe import _
 from frappe.utils.password import update_password
@@ -138,8 +141,34 @@ def logout() -> dict:
     Headers:
         Cookie: sid=<the_sid_from_login>
     """
+    from fleet.firebase import delete_fcm_token
+    delete_fcm_token(frappe.session.user)
     frappe.local.login_manager.logout()
     return {"status": "success", "message": "Logged out successfully."}
+
+
+@frappe.whitelist(allow_guest=False)
+def register_fcm_token(token: str, device_id: str = "") -> dict:
+    """
+    Store the device's FCM token so the server can send push notifications.
+    Call this after login and whenever the FCM token is refreshed.
+
+    POST /api/method/fleet.mobile_api.auth.register_fcm_token
+    Headers:
+        Cookie: sid=<logged_in_sid>
+    Body (JSON):
+        { "token": "<fcm_device_token>", "device_id": "<optional>" }
+    """
+    user = frappe.session.user
+    if user == "Guest":
+        frappe.throw(_("Session expired. Please login again."), frappe.AuthenticationError)
+
+    if not token:
+        frappe.throw(_("FCM token is required."))
+
+    from fleet.firebase import save_fcm_token
+    save_fcm_token(user, token.strip(), device_id)
+    return {"status": "success", "message": "FCM token registered."}
 
 
 @frappe.whitelist(allow_guest=False)
