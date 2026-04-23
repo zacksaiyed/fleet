@@ -1,0 +1,55 @@
+{
+ "actions": [],
+ "autoname": "field:user",
+ "creation": "2026-04-23 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "user",
+  "token",
+  "device_id"
+ ],
+ "fields": [
+  {
+   "fieldname": "user",
+   "fieldtype": "Link",
+   "label": "User",
+   "options": "User",
+   "reqd": 1,
+   "unique": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "token",
+   "fieldtype": "Data",
+   "label": "FCM Token",
+   "reqd": 1,
+   "length": 512
+  },
+  {
+   "fieldname": "device_id",
+   "fieldtype": "Data",
+   "label": "Device ID"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "modified": "2026-04-23 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Fleet",
+ "name": "FCM Token",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
+   "role": "System Manager",
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}

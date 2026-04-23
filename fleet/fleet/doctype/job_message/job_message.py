@@ -52,3 +52,15 @@ class JobMessage(Document):
 		if tech_user and role != "Technician":
 			frappe.publish_realtime(
 				event="job_message", message=payload, user=tech_user, after_commit=True)
+
+			# Push notification to technician when support sends a message
+			try:
+				from fleet.firebase import send_push
+				send_push(
+					user=tech_user,
+					title=f"New message from {sender_name}",
+					body=self.message[:100] if self.message else "",
+					data={"doctype": "Job", "name": job, "type": "chat_message"},
+				)
+			except Exception:
+				frappe.log_error(frappe.get_traceback(), "FCM: chat message notification failed")

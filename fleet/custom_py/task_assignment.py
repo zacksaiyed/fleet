@@ -1,3 +1,6 @@
+# Copyright (c) 2026, XBarq Technologies and contributors
+# For license information, please see license.txt
+
 import frappe
 import json
 
@@ -83,6 +86,18 @@ def handle_assignment(doc, method=None):
 
     # Sync assigned_technician on all Jobs linked to this Task
     sync_jobs_assigned_technician(doc.name, doc.custom_assign_to)
+
+    # Push notification to the newly assigned technician
+    try:
+        from fleet.firebase import send_push
+        send_push(
+            user=user,
+            title="New Task Assigned",
+            body=doc.subject or doc.name,
+            data={"doctype": "Task", "name": doc.name, "type": "task_assigned"},
+        )
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "FCM: task assignment notification failed")
 
 
 def cleanup_docshares(task_name, keep_user=None):
