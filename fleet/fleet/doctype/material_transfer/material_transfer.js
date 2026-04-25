@@ -32,9 +32,9 @@ frappe.ui.form.on("Material Transfer", {
 			return;
 		}
 
-		// workflow terminal states — read only for everyone
-		const TERMINAL_STATES = ["Approved", "Rejected", "Cancelled"];
-		if (TERMINAL_STATES.includes(frm.doc.workflow_state)) {
+		// read-only states — form is locked for everyone
+		const READONLY_STATES = ["Approval Pending", "Approved", "Rejected", "Cancelled"];
+		if (READONLY_STATES.includes(frm.doc.workflow_state)) {
 			frm.disable_form();
 			return;
 		}
@@ -111,12 +111,16 @@ frappe.ui.form.on("Material Transfer", {
 		}
 	},
 
-	// propagate source to all child rows and update item dropdown filter
+	// clear items table and update item dropdown filter when source changes
 	source: function (frm) {
-		(frm.doc.items || []).forEach(row => {
-			frappe.model.set_value(row.doctype, row.name, "s_warehouse", frm.doc.source);
-		});
-		frm.refresh_field("items");
+		if (frm.doc.items && frm.doc.items.length) {
+			frm.clear_table("items");
+			frm.refresh_field("items");
+			frappe.show_alert({
+				message: __("Items cleared because Source Warehouse changed."),
+				indicator: "orange",
+			}, 4);
+		}
 		validate_source_target(frm);
 		set_item_query(frm);
 	},
@@ -397,7 +401,8 @@ frappe.ui.form.on("Material Transfer Item", {
 						message: __("Item {0} is not available in {1}. Removed.", [row.item, frm.doc.source]),
 						indicator: "red",
 					}, 5);
-					frm.get_field("items").grid.grid_rows_by_docname[cdn] && frm.fields_dict.items.grid.delete_row(cdn);
+					const grid_row = frm.get_field("items").grid.grid_rows_by_docname[cdn];
+					if (grid_row) grid_row.remove();
 					frm.refresh_field("items");
 					return;
 				}

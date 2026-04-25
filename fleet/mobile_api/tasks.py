@@ -5,6 +5,8 @@ import frappe
 from frappe import _
 from frappe.utils import nowdate, now_datetime
 
+_VALID_VEHICLE_TYPES = {"Truck", "Bus", "Car", "Mini Truck"}
+
 
 # file: fleet/mobile_api/tasks.py
 #
@@ -43,13 +45,20 @@ _JOB_TYPE_DIRECTIONS = {
 # auth helper
 
 def _get_employee(user_email):
-    # resolve logged-in user to employee, throw if not found
     if user_email == "Guest":
-        frappe.throw(_("You must be logged in."), frappe.AuthenticationError)
-    employee = frappe.db.get_value("Employee", {"user_id": user_email}, "name")
+        return None
+    return frappe.db.get_value("Employee", {"user_id": user_email}, "name") or None
+
+
+def _get_auth():
+    """Returns (employee, error_response). Call at the top of every auth-required endpoint."""
+    user = frappe.session.user
+    if user == "Guest":
+        return None, _error(401, "SESSION_EXPIRED", "Session expired. Please login again.")
+    employee = _get_employee(user)
     if not employee:
-        frappe.throw(_("No Employee record found for this user."))
-    return employee
+        return None, _error(404, "NO_EMPLOYEE", "No employee record linked to your account.")
+    return employee, None
 
 
 def _strip_html(value):
@@ -101,7 +110,9 @@ def get_my_tasks() -> dict:
       - Tasks with status Completed or Cancelled are never returned.
       - job_count and job_type_counts are aggregated per task from the Job doctype.
     """
-    employee = _get_employee(frappe.session.user)
+    employee, err = _get_auth()
+    if err:
+        return err
 
     tab           = frappe.form_dict.get("tab")
     from_date     = frappe.form_dict.get("from_date")
@@ -243,7 +254,9 @@ def get_task_jobs(task: str) -> dict:
     if not task:
         return _error(400, "MISSING_PARAMS", "task is required.")
 
-    employee = _get_employee(frappe.session.user)
+    employee, err = _get_auth()
+    if err:
+        return err
 
     # single query — returns nothing if task is not assigned to this employee
     task_doc = frappe.db.get_value(
@@ -317,7 +330,9 @@ def respond_to_task(task: str, action: str, reject_comment: str = None) -> dict:
     if action == "reject" and not reject_comment:
         return _error(400, "MISSING_PARAMS", "reject_comment is required when rejecting a task.")
 
-    employee = _get_employee(frappe.session.user)
+    employee, err = _get_auth()
+    if err:
+        return err
 
     task_doc = frappe.db.get_value(
         "Task",
@@ -348,7 +363,9 @@ def start_task(task: str) -> dict:
     if not task:
         return _error(400, "MISSING_PARAMS", "task is required.")
 
-    employee = _get_employee(frappe.session.user)
+    employee, err = _get_auth()
+    if err:
+        return err
 
     # single query — returns nothing if task is not assigned to this employee
     task_doc = frappe.db.get_value(
@@ -388,7 +405,9 @@ def get_profile() -> dict:
     Headers:
         Cookie: sid=<logged_in_user_sid>
     """
-    employee = _get_employee(frappe.session.user)
+    employee, err = _get_auth()
+    if err:
+        return err
 
     emp = frappe.get_doc("Employee", employee)
     warehouse = frappe.db.get_value(
@@ -417,7 +436,9 @@ def get_job(job: str) -> dict:
     if not job:
         return _error(400, "MISSING_PARAMS", "job is required.")
 
-    employee = _get_employee(frappe.session.user)
+    employee, err = _get_auth()
+    if err:
+        return err
 
     # single query — returns nothing if job is not assigned to this employee
     job_doc = frappe.db.get_value(
@@ -569,7 +590,9 @@ def get_job_item_options(job: str, direction: str = None) -> dict:
     if not job:
         return _error(400, "MISSING_PARAMS", "job is required.")
 
-    employee = _get_employee(frappe.session.user)
+    employee, err = _get_auth()
+    if err:
+        return err
 
     job_doc = frappe.db.get_value(
         "Job",
@@ -762,7 +785,9 @@ def get_vehicle_details(vehicle_number: str, task: str, task_type: str) -> dict:
     if not task_type:
         return _error(400, "MISSING_PARAMS", "task_type is required.")
 
-    employee = _get_employee(frappe.session.user)
+    employee, err = _get_auth()
+    if err:
+        return err
 
     task_doc = frappe.db.get_value(
         "Task",
@@ -901,7 +926,7 @@ def create_job_for_task(
         vehicle_number — vehicle plate number (optional)
         make           — vehicle make (optional)
         model          — vehicle model (optional)
-        type           — vehicle type e.g. Car, Truck, Tempo (optional)
+        type           — vehicle type; one of: Truck, Bus, Car, Mini Truck (optional)
         color          — vehicle color (optional)
         items          — JSON array of item codes to mark as Installed, e.g. ["ITEM-001", "ITEM-002"] (optional)
 
@@ -913,8 +938,12 @@ def create_job_for_task(
         return _error(400, "MISSING_PARAMS", "task is required.")
     if not task_type:
         return _error(400, "MISSING_PARAMS", "task_type is required.")
+    if type is not None and type not in _VALID_VEHICLE_TYPES:
+        return _error(400, "INVALID_PARAMS", f"type must be one of: {', '.join(sorted(_VALID_VEHICLE_TYPES))}")
 
-    employee = _get_employee(frappe.session.user)
+    employee, err = _get_auth()
+    if err:
+        return err
 
     task_doc = frappe.db.get_value(
         "Task",
@@ -1016,7 +1045,7 @@ def update_job(
         make           — vehicle make
         model          — vehicle model
         color          — vehicle color
-        type           — vehicle type e.g. Car, Truck, Tempo
+        type           — vehicle type; one of: Truck, Bus, Car, Mini Truck
         set_items      — JSON array that REPLACES the entire item_installed_removed table.
                          Use this from the "edit assets" screen — just send the final list.
                          item_name / item_type / brand are auto-fetched from the Item doctype.
@@ -1030,7 +1059,9 @@ def update_job(
     if not job:
         return _error(400, "MISSING_PARAMS", "job is required.")
 
-    employee = _get_employee(frappe.session.user)
+    employee, err = _get_auth()
+    if err:
+        return err
 
     if not frappe.db.exists("Job", {"name": job, "assigned_technician": employee}):
         return _error(404, "NOT_FOUND", "Job not found or you are not assigned to it.")
@@ -1039,6 +1070,9 @@ def update_job(
 
     if job_doc.status not in ("Pending", "On Hold"):
         return _error(422, "INVALID_STATE", "Job can only be updated when Pending or On Hold.")
+
+    if type is not None and type not in _VALID_VEHICLE_TYPES:
+        return _error(400, "INVALID_PARAMS", f"type must be one of: {', '.join(sorted(_VALID_VEHICLE_TYPES))}")
 
     # scalar fields — only update if explicitly passed
     if vehicle_number is not None:
@@ -1111,7 +1145,9 @@ def upload_job_image(job: str, image_data: str = None, filename: str = None, com
     if not job:
         return _error(400, "MISSING_PARAMS", "job is required.")
 
-    employee = _get_employee(frappe.session.user)
+    employee, err = _get_auth()
+    if err:
+        return err
 
     if not frappe.db.exists("Job", {"name": job, "assigned_technician": employee}):
         return _error(404, "NOT_FOUND", "Job not found or you are not assigned to it.")
@@ -1196,7 +1232,9 @@ def get_job_images(job: str) -> dict:
     if not job:
         return _error(400, "MISSING_PARAMS", "job is required.")
 
-    employee = _get_employee(frappe.session.user)
+    employee, err = _get_auth()
+    if err:
+        return err
 
     if not frappe.db.exists("Job", {"name": job, "assigned_technician": employee}):
         return _error(404, "NOT_FOUND", "Job not found or you are not assigned to it.")
@@ -1250,7 +1288,9 @@ def job_action(job: str, action: str, comment: str = None) -> dict:
     if action in ("done", "hold") and not comment:
         return _error(400, "MISSING_PARAMS", f"comment is required when action is '{action}'.")
 
-    employee = _get_employee(frappe.session.user)
+    employee, err = _get_auth()
+    if err:
+        return err
 
     assigned = frappe.db.get_value(
         "Job", {"name": job, "assigned_technician": employee}, "name"

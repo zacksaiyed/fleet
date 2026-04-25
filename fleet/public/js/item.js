@@ -1,12 +1,6 @@
 frappe.ui.form.on('Item', {
 
-    onload: frm => toggle_fields(frm),
-    refresh: frm => toggle_fields(frm),
-
-    custom_item_type: frm => {
-        toggle_fields(frm);
-        generate_item_details(frm);
-    },
+    custom_item_type: frm => generate_item_details(frm),
 
     custom_serial_no: frm => generate_item_details(frm),
     custom_mobile_number: frm => generate_item_details(frm),
