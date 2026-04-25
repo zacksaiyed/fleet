@@ -132,7 +132,7 @@ def login(usr: str, pwd: str) -> dict:
     }
 
 
-@frappe.whitelist(allow_guest=False)
+@frappe.whitelist(allow_guest=True)
 def logout() -> dict:
     """
     Invalidates the current session (sid).
@@ -141,9 +141,14 @@ def logout() -> dict:
     Headers:
         Cookie: sid=<the_sid_from_login>
     """
-    from fleet.firebase import delete_fcm_token
-    delete_fcm_token(frappe.session.user)
-    frappe.local.login_manager.logout()
+    user = frappe.session.user
+    if user and user != "Guest":
+        try:
+            from fleet.firebase import delete_fcm_token
+            delete_fcm_token(user)
+        except Exception:
+            pass
+        frappe.local.login_manager.logout()
     return {"status": "success", "message": "Logged out successfully."}
 
 
@@ -161,10 +166,10 @@ def register_fcm_token(token: str, device_id: str = "") -> dict:
     """
     user = frappe.session.user
     if user == "Guest":
-        frappe.throw(_("Session expired. Please login again."), frappe.AuthenticationError)
+        return _error(401, "SESSION_EXPIRED", "Session expired. Please login again.")
 
     if not token:
-        frappe.throw(_("FCM token is required."))
+        return _error(400, "MISSING_PARAMS", "FCM token is required.")
 
     from fleet.firebase import save_fcm_token
     save_fcm_token(user, token.strip(), device_id)
@@ -186,7 +191,7 @@ def get_logged_in_user() -> dict:
     user_email = frappe.session.user
 
     if user_email == "Guest":
-        frappe.throw(_("Session expired. Please login again."), frappe.AuthenticationError)
+        return _error(401, "SESSION_EXPIRED", "Session expired. Please login again.")
 
     user_doc = frappe.get_doc("User", user_email)
 
@@ -231,17 +236,17 @@ def change_password(old_password: str, new_password: str) -> dict:
     user = frappe.session.user
 
     if user == "Guest":
-        frappe.throw(_("You must be logged in to change your password."), frappe.AuthenticationError)
+        return _error(401, "SESSION_EXPIRED", "Session expired. Please login again.")
 
     # validate inputs
     if not old_password or not new_password:
-        frappe.throw(_("Both old and new password are required."))
+        return _error(400, "MISSING_PARAMS", "Both old and new password are required.")
 
     if old_password == new_password:
-        frappe.throw(_("New password must be different from old password."))
+        return _error(400, "SAME_PASSWORD", "New password must be different from old password.")
 
     if len(new_password) < 8:
-        frappe.throw(_("New password must be at least 8 characters long."))
+        return _error(400, "WEAK_PASSWORD", "New password must be at least 8 characters long.")
 
     # verify old password is correct
     try:
@@ -250,7 +255,7 @@ def change_password(old_password: str, new_password: str) -> dict:
         login_manager = LoginManager()
         login_manager.authenticate()
     except frappe.AuthenticationError:
-        frappe.throw(_("Current password is incorrect."), frappe.AuthenticationError)
+        return _error(401, "WRONG_PASSWORD", "Current password is incorrect.")
 
     # update to new password
     update_password(user, new_password)
@@ -274,13 +279,13 @@ def get_profile():
     user = frappe.session.user
 
     if user == "Guest":
-        frappe.throw("Session expired", frappe.AuthenticationError)
+        return _error(401, "SESSION_EXPIRED", "Session expired. Please login again.")
 
     # Use get_doc instead of get_value("*") for reliable full record
     employee_name = frappe.db.get_value("Employee", {"user_id": user}, "name")
 
     if not employee_name:
-        frappe.throw("Employee not linked with this user")
+        return _error(404, "NO_EMPLOYEE", "No employee record linked to your account.")
 
     employee = frappe.get_doc("Employee", employee_name)
     user_doc  = frappe.get_doc("User", user)
@@ -303,6 +308,7 @@ def get_profile():
             "date_of_joining":  employee.date_of_joining,
             # --- Contact ---
             "mobile_number":            employee.cell_number,
+            "alternate_mobile_number":  employee.custom_alternate_mobile_number,
             "company_email":            employee.company_email,
             "personal_email":           employee.personal_email,
             "preferred_email":          employee.prefered_email,
@@ -332,7 +338,7 @@ def get_session_info() -> dict:
     user = frappe.session.user
 
     if user == "Guest":
-        frappe.throw(_("Session expired. Please login again."), frappe.AuthenticationError)
+        return _error(401, "SESSION_EXPIRED", "Session expired. Please login again.")
 
     user_doc = frappe.get_doc("User", user)
 

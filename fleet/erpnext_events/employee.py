@@ -125,10 +125,25 @@ def _create_user(doc):
     if doc.designation not in _NO_WAREHOUSE:
         _update_warehouse_user(doc.name)
 
+    if doc.designation == "Support":
+        _create_own_record_permissions(user_doc.name, doc.name)
+
     frappe.msgprint(
         f'User <a href="/app/user/{user_doc.name}" target="_blank">'
         f'<b>{user_doc.name}</b></a> Created Successfully'
     )
+
+
+def _create_own_record_permissions(user_email, employee_name):
+    """Create User Permissions so a Support user can only see their own Employee and User records."""
+    for allow, for_value in (("Employee", employee_name), ("User", user_email)):
+        perm = frappe.new_doc("User Permission")
+        perm.user = user_email
+        perm.allow = allow
+        perm.for_value = for_value
+        perm.apply_to_all_doctypes = 0
+        perm.applicable_for = allow
+        perm.insert(ignore_permissions=True)
 
 
 def _update_user(doc, current_user_name):

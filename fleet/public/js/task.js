@@ -71,7 +71,7 @@ frappe.ui.form.on('Task', {
 
 		// TECHNICIAN
 		if (is_tech) {
-			if (status === "Open") {
+			if (status === "Open" && frm.doc.custom_assign_to) {
 				frm.add_custom_button(__("Accept"), () =>
 					_task_action(frm, "accept")
 				).addClass("btn-primary");

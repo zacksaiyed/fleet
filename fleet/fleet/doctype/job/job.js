@@ -76,9 +76,61 @@ frappe.ui.form.on("Job Item", {
 	},
 });
 
+function _attachVehicleNumberMask(frm) {
+	const field = frm.get_field("vehicle_number");
+	if (!field || !field.$input) return;
+
+	field.$input.off("keydown.vnr input.vnr blur.vnr");
+
+	// Block spaces, non-alphanumeric, and position-based mismatches while typing
+	field.$input.on("keydown.vnr", function (e) {
+		const isNav  = [8, 9, 13, 27, 35, 36, 37, 38, 39, 40, 46].includes(e.keyCode);
+		const isCtrl = (e.ctrlKey || e.metaKey) && [65, 67, 86, 88, 90].includes(e.keyCode);
+		if (isNav || isCtrl) return;
+		if (e.key === " ") { e.preventDefault(); return; }
+		if (!/^[a-zA-Z0-9]$/.test(e.key)) { e.preventDefault(); return; }
+
+		const hasSel = this.selectionStart !== this.selectionEnd;
+		const pos    = this.selectionStart;
+		if (!hasSel) {
+			if (this.value.replace(/[^a-zA-Z0-9]/g, "").length >= 7) { e.preventDefault(); return; }
+			if (pos < 3  && !/^[a-zA-Z]$/.test(e.key)) { e.preventDefault(); return; }
+			if (pos >= 3 && !/^\d$/.test(e.key))        { e.preventDefault(); return; }
+		}
+	});
+
+	// Normalize on every input (handles paste, autofill, etc.)
+	field.$input.on("input.vnr", function () {
+		const cursor = this.selectionStart;
+		let letters = "", digits = "";
+		for (const ch of this.value.toUpperCase().replace(/[^A-Z0-9]/g, "")) {
+			if (/[A-Z]/.test(ch) && letters.length < 3)                         letters += ch;
+			else if (/[0-9]/.test(ch) && letters.length === 3 && digits.length < 4) digits += ch;
+		}
+		const fmt = letters + digits;
+		if (this.value !== fmt) {
+			this.value = fmt;
+			this.setSelectionRange(Math.min(cursor, fmt.length), Math.min(cursor, fmt.length));
+		}
+		frm.doc.vehicle_number = this.value;
+		frm.dirty();
+	});
+
+	// Validate and fetch details once the user leaves the field.
+	// The Frappe form event is unreliable here because the mask sets frm.doc directly,
+	// so Frappe sometimes sees "no change" on blur and skips the trigger.
+	field.$input.on("blur.vnr", function () {
+		const val = this.value;
+		if (!val || val.length === 7) {
+			fetch_vehicle_details(frm);
+		}
+	});
+}
+
 frappe.ui.form.on("Job", {
 
 	refresh(frm) {
+		_attachVehicleNumberMask(frm);
 		frm.set_query("item", "item_installed_removed", function(doc, cdt, cdn) {
 			const row = locals[cdt][cdn];
 			if (row.installed_or_removed === "Installed") {
@@ -107,6 +159,16 @@ frappe.ui.form.on("Job", {
 		const is_support = roles.includes("Support Team");
 		const is_tech    = roles.includes("Technician");
 		const status     = frm.doc.status;
+
+		if (["Completed", "Cancelled"].includes(status)) {
+			frm.disable_save();
+			Object.keys(frm.fields_dict).forEach(fn => {
+				const f = frm.fields_dict[fn];
+				if (f?.df && !f.df.read_only) {
+					frm.set_df_property(fn, "read_only", 1);
+				}
+			});
+		}
 
 		// SUPPORT TEAM + TECHNICIAN
 		if (is_support || is_tech) {
@@ -167,12 +229,9 @@ frappe.ui.form.on("Job", {
 	},
 
 	task_type(frm) {
-        fetch_vehicle_details(frm);
-    },
-
-    vehicle_number(frm) {
-        fetch_vehicle_details(frm);
-    }
+		// Re-run the vehicle check when task type changes while a number is already entered
+		fetch_vehicle_details(frm);
+	}
 
 });
 
@@ -201,34 +260,60 @@ function _job_action(frm, action, comment, comment_field) {
 	});
 }
 
-function fetch_vehicle_details(frm) {
-    const { task_type, vehicle_number } = frm.doc;
+function _clearVehicleDetails(frm) {
+    frm.set_value("make",  "");
+    frm.set_value("model", "");
+    frm.set_value("color", "");
+    frm.set_value("type",  "");
+}
 
-    // clear if conditions not met
-    if (task_type !== "Removal" || !vehicle_number) {
-        frm.set_value("make", "");
-        frm.set_value("model", "");
+function fetch_vehicle_details(frm) {
+    const vehicle_number = frm.doc.vehicle_number;
+
+    if (!vehicle_number) {
+        _clearVehicleDetails(frm);
         return;
     }
 
-    frappe.call({
-        method: "frappe.client.get_value",
-        args: {
-            doctype: "Vehicle",
-            filters: { name: vehicle_number.replace(/\s+/g, "").toUpperCase() },
-            fieldname: ["name","make", "model"],
-        },
-        callback(r) {
-            if (r.message) {
-                frm.set_value("make",  r.message.make);
-                frm.set_value("model", r.message.model);
+    const normalized = vehicle_number.replace(/\s+/g, "").toUpperCase();
+
+    frappe.db.get_value(
+        "Vehicle",
+        normalized,
+        ["name", "make", "model", "color", "custom_vehicle_type"]
+    ).then(r => {
+        // Bail if the field changed while the request was in flight
+        if (frm.doc.vehicle_number !== normalized) return;
+
+        const vehicle   = r.message;
+        const exists    = !!(vehicle && vehicle.name);
+        const task_type = frm.doc.task_type;   // read fresh from doc, not closure
+
+        if (task_type === "Installation") {
+            if (exists) {
+                frappe.msgprint({
+                    title:     __("Vehicle Already Registered"),
+                    message:   __("Vehicle <b>{0}</b> is already in the system. Installation is only for new vehicles.", [normalized]),
+                    indicator: "red",
+                });
+                frm.set_value("vehicle_number", "");
+                _clearVehicleDetails(frm);
+            }
+            // else: new vehicle — OK for Installation, nothing to fetch
+        } else {
+            if (exists) {
+                frm.set_value("make",  vehicle.make                || "");
+                frm.set_value("model", vehicle.model               || "");
+                frm.set_value("color", vehicle.color               || "");
+                frm.set_value("type",  vehicle.custom_vehicle_type || "");
             } else {
-                frappe.show_alert({
-                    message: __(`No vehicle found for ${vehicle_number}`),
-                    indicator: "orange"
-                }, 4);
-                frm.set_value("make", "");
-                frm.set_value("model", "");
+                frappe.msgprint({
+                    title:     __("Vehicle Not Found"),
+                    message:   __("Vehicle <b>{0}</b> is not registered in the system.", [normalized]),
+                    indicator: "orange",
+                });
+                frm.set_value("vehicle_number", "");
+                _clearVehicleDetails(frm);
             }
         }
     });

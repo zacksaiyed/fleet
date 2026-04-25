@@ -18,13 +18,26 @@ from frappe import _
 
 # helpers
 
+def _error(http_status: int, code: str, message: str) -> dict:
+    frappe.local.response["http_status_code"] = http_status
+    return {"status": "error", "code": code, "message": message}
+
+
 def _get_employee(user_email):
     if user_email == "Guest":
-        frappe.throw(_("You must be logged in."), frappe.AuthenticationError)
-    employee = frappe.db.get_value("Employee", {"user_id": user_email}, "name")
+        return None
+    return frappe.db.get_value("Employee", {"user_id": user_email}, "name") or None
+
+
+def _get_auth():
+    """Returns (employee, error_response). Call at the top of every auth-required endpoint."""
+    user = frappe.session.user
+    if user == "Guest":
+        return None, _error(401, "SESSION_EXPIRED", "Session expired. Please login again.")
+    employee = _get_employee(user)
     if not employee:
-        frappe.throw(_("No Employee record found for this user."))
-    return employee
+        return None, _error(404, "NO_EMPLOYEE", "No employee record linked to your account.")
+    return employee, None
 
 
 def _get_tech_warehouse(employee):
@@ -89,7 +102,9 @@ def get_my_warehouse_inventory():
         ]
     }
     """
-    employee = _get_employee(frappe.session.user)
+    employee, err = _get_auth()
+    if err:
+        return err
     warehouse = _get_tech_warehouse(employee)
 
     if not warehouse:
@@ -199,7 +214,9 @@ def get_transfer_targets():
         ]
     }
     """
-    employee  = _get_employee(frappe.session.user)
+    employee, err = _get_auth()
+    if err:
+        return err
     my_wh     = _get_tech_warehouse(employee) or ""
 
     tech_rows = frappe.db.sql("""
@@ -262,7 +279,9 @@ def get_my_transfers(workflow_state=None):
         ]
     }
     """
-    employee     = _get_employee(frappe.session.user)
+    employee, err = _get_auth()
+    if err:
+        return err
     my_warehouse = _get_tech_warehouse(employee)
     user         = frappe.session.user
 
@@ -330,11 +349,13 @@ def get_transfer(name):
     }
     """
     if not name:
-        frappe.throw(_("name is required."))
+        return _error(400, "MISSING_PARAMS", "name is required.")
 
-    employee    = _get_employee(frappe.session.user)
+    employee, err = _get_auth()
+    if err:
+        return err
     my_warehouse = _get_tech_warehouse(employee)
-    user        = frappe.session.user
+    user         = frappe.session.user
 
     doc = frappe.get_doc("Material Transfer", name)
 
@@ -345,7 +366,7 @@ def get_transfer(name):
     # Allow if user is target warehouse with restricted states
     elif my_warehouse and doc.target == my_warehouse:
         if doc.workflow_state not in ["Approval Pending", "Approved", "Rejected"]:
-            frappe.throw(_("You do not have access to this Material Transfer."), frappe.PermissionError)
+            return _error(403, "FORBIDDEN", "You do not have access to this Material Transfer.")
 
     # Allow owner (fallback)
     elif doc.owner == user:
@@ -353,7 +374,7 @@ def get_transfer(name):
 
     # Otherwise deny
     else:
-        frappe.throw(_("You do not have access to this Material Transfer."), frappe.PermissionError)
+        return _error(403, "FORBIDDEN", "You do not have access to this Material Transfer.")
 
     can_approve = (
         doc.docstatus == 0
@@ -483,25 +504,27 @@ def create_transfer(target, items):
     }
     """
     if not target:
-        frappe.throw(_("target is required."))
+        return _error(400, "MISSING_PARAMS", "target is required.")
 
     if isinstance(items, str):
         items = json.loads(items)
 
     if not items:
-        frappe.throw(_("items list is empty."))
+        return _error(400, "MISSING_PARAMS", "items list is empty.")
 
-    employee    = _get_employee(frappe.session.user)
+    employee, err = _get_auth()
+    if err:
+        return err
     my_warehouse = _get_tech_warehouse(employee)
 
     if not my_warehouse:
-        frappe.throw(_("No warehouse found for your account. Contact support."))
+        return _error(404, "NO_WAREHOUSE", "No warehouse found for your account. Contact support.")
 
     if my_warehouse == target:
-        frappe.throw(_("Source and Target warehouse cannot be the same."))
+        return _error(400, "SAME_WAREHOUSE", "Source and Target warehouse cannot be the same.")
 
     if not frappe.db.exists("Warehouse", {"name": target, "disabled": 0}):
-        frappe.throw(_("Target warehouse {0} not found or disabled.").format(target))
+        return _error(404, "NOT_FOUND", f"Target warehouse '{target}' not found or disabled.")
 
     # validate stock availability and fetch item details
     errors       = []
@@ -529,9 +552,7 @@ def create_transfer(target, items):
             })
 
     if errors:
-        frappe.throw(
-            _("Items not available in your warehouse: {0}").format(", ".join(errors))
-        )
+        return _error(422, "STOCK_UNAVAILABLE", f"Items not available in your warehouse: {', '.join(errors)}")
 
     # block if any item already has a pending transfer from the same source
     pending_items = frappe.db.sql(
@@ -549,9 +570,7 @@ def create_transfer(target, items):
     )
     if pending_items:
         blocked = ", ".join({r.item for r in pending_items})
-        frappe.throw(
-            _("A pending transfer already exists for item(s): {0}. Approve or reject it before creating a new one.").format(blocked)
-        )
+        return _error(422, "PENDING_TRANSFER", f"A pending transfer already exists for item(s): {blocked}. Approve or reject it first.")
 
     doc                = frappe.new_doc("Material Transfer")
     doc.source         = my_warehouse
@@ -562,7 +581,7 @@ def create_transfer(target, items):
         doc.append("items", item)
 
     if "Material Transfer User" not in frappe.get_roles():
-        frappe.throw(_("You do not have permission to create a Material Transfer. Contact your administrator to get the 'Material Transfer User' role."))
+        return _error(403, "FORBIDDEN", "You do not have permission to create a Material Transfer. Ask your administrator for the 'Material Transfer User' role.")
 
     doc.insert(ignore_permissions=True)
     frappe.db.commit()
@@ -594,21 +613,23 @@ def submit_transfer(name):
     }
     """
     if not name:
-        frappe.throw(_("name is required."))
+        return _error(400, "MISSING_PARAMS", "name is required.")
 
     if "Material Transfer User" not in frappe.get_roles():
-        frappe.throw(_("You do not have permission to submit a Material Transfer."))
+        return _error(403, "FORBIDDEN", "You do not have permission to submit a Material Transfer.")
 
     doc = frappe.get_doc("Material Transfer", name)
 
-    employee     = _get_employee(frappe.session.user)
+    employee, err = _get_auth()
+    if err:
+        return err
     my_warehouse = _get_tech_warehouse(employee)
 
     if doc.owner != frappe.session.user and not (my_warehouse and doc.source == my_warehouse):
-        frappe.throw(_("You can only submit your own transfers."), frappe.PermissionError)
+        return _error(403, "FORBIDDEN", "You can only submit your own transfers.")
 
     if doc.workflow_state != "Initiated":
-        frappe.throw(_("Only transfers in 'Initiated' state can be submitted for approval."))
+        return _error(422, "INVALID_STATE", "Only transfers in 'Initiated' state can be submitted for approval.")
 
     from frappe.model.workflow import apply_workflow
     apply_workflow(doc, "Transfer Material")
@@ -641,23 +662,23 @@ def cancel_transfer(name):
     }
     """
     if not name:
-        frappe.throw(_("name is required."))
+        return _error(400, "MISSING_PARAMS", "name is required.")
 
     if "Material Transfer User" not in frappe.get_roles():
-        frappe.throw(_("You do not have permission to cancel a Material Transfer."))
+        return _error(403, "FORBIDDEN", "You do not have permission to cancel a Material Transfer.")
 
     doc = frappe.get_doc("Material Transfer", name)
 
-    employee     = _get_employee(frappe.session.user)
+    employee, err = _get_auth()
+    if err:
+        return err
     my_warehouse = _get_tech_warehouse(employee)
 
     if doc.owner != frappe.session.user and not (my_warehouse and doc.source == my_warehouse):
-        frappe.throw(_("You can only cancel your own transfers."), frappe.PermissionError)
+        return _error(403, "FORBIDDEN", "You can only cancel your own transfers.")
 
     if doc.workflow_state not in ("Initiated", "Approval Pending"):
-        frappe.throw(
-            _("Only transfers in 'Initiated' or 'Approval Pending' state can be cancelled.")
-        )
+        return _error(422, "INVALID_STATE", "Only transfers in 'Initiated' or 'Approval Pending' state can be cancelled.")
 
     from frappe.model.workflow import apply_workflow
     apply_workflow(doc, "Cancel")
@@ -694,30 +715,29 @@ def respond_transfer(name, action):
     }
     """
     if not name:
-        frappe.throw(_("name is required."))
+        return _error(400, "MISSING_PARAMS", "name is required.")
 
     if action not in ("Approve", "Reject"):
-        frappe.throw(_("action must be 'Approve' or 'Reject'."))
+        return _error(400, "INVALID_PARAMS", "action must be 'Approve' or 'Reject'.")
 
+    employee, err = _get_auth()
+    if err:
+        return err
     user         = frappe.session.user
     roles        = frappe.get_roles(user)
-    employee     = _get_employee(user)
     my_warehouse = _get_tech_warehouse(employee)
 
     doc = frappe.get_doc("Material Transfer", name)
 
     if doc.workflow_state != "Approval Pending":
-        frappe.throw(_("This transfer is not pending approval."))
+        return _error(422, "INVALID_STATE", "This transfer is not pending approval.")
 
     is_tech_target  = bool(my_warehouse and doc.target == my_warehouse)
     is_store_target = _is_store_warehouse(doc.target)
     is_support      = "Support Team" in roles
 
     if not is_tech_target and not (is_store_target and is_support):
-        frappe.throw(
-            _("You are not authorized to respond to this transfer."),
-            frappe.PermissionError,
-        )
+        return _error(403, "FORBIDDEN", "You are not authorized to respond to this transfer.")
 
     from frappe.model.workflow import apply_workflow
 
@@ -777,7 +797,9 @@ def get_warehouse_items(search=None):
         ]
     }
     """
-    employee  = _get_employee(frappe.session.user)
+    employee, err = _get_auth()
+    if err:
+        return err
     warehouse = _get_tech_warehouse(employee)
 
     if not warehouse:
@@ -846,8 +868,11 @@ def check_vehicle(vehicle_number, customer=None):
         ]
     }
     """
+    if frappe.session.user == "Guest":
+        return _error(401, "SESSION_EXPIRED", "Session expired. Please login again.")
+
     if not vehicle_number:
-        frappe.throw(_("vehicle_number is required."))
+        return _error(400, "MISSING_PARAMS", "vehicle_number is required.")
 
     vehicle_number = vehicle_number.replace(" ", "").upper()
 

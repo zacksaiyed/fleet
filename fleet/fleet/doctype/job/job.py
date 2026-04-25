@@ -1,7 +1,11 @@
 # /home/umar/f/apps/fleet/fleet/fleet/doctype/job/job.py
+import re
+
 import frappe
 from frappe.model.document import Document
 from frappe.utils import now
+
+_VEH_RE = re.compile(r"^[A-Z]{3}\d{4}$")
 
 
 class Job(Document):
@@ -14,8 +18,47 @@ class Job(Document):
 		self._fetch_vehicle_details()
 
 	def validate(self):
+		before = self.get_doc_before_save()
+		if before and before.get("status") in ("Completed", "Cancelled"):
+			frappe.throw(
+				f"This job is <b>{before.get('status')}</b> and cannot be modified.",
+				title="Job Locked"
+			)
+
+		if self.vehicle_number:
+			self.vehicle_number = self.vehicle_number.replace(" ", "").upper()
+			if not _VEH_RE.match(self.vehicle_number):
+				frappe.throw(
+					"Vehicle Number must be in the format <b>ABC1234</b> "
+					"(3 letters followed by 4 digits).",
+					title="Invalid Vehicle Number"
+				)
+
+		self._validate_vehicle_existence()
+
 		if self.status == "Completed" and not self.completion_comment:
 			frappe.throw("Completion comment is mandatory before marking a Job as Completed.")
+
+	def _validate_vehicle_existence(self):
+		if not self.vehicle_number or not self.task_type:
+			return
+
+		vehicle_exists = frappe.db.exists("Vehicle", self.vehicle_number)
+
+		if self.task_type == "Installation":
+			if vehicle_exists:
+				frappe.throw(
+					f"Vehicle <b>{self.vehicle_number}</b> is already registered in the system. "
+					f"Installation is only for new vehicles.",
+					title="Vehicle Already Registered"
+				)
+		else:
+			if not vehicle_exists:
+				frappe.throw(
+					f"Vehicle <b>{self.vehicle_number}</b> is not registered in the system. "
+					f"Please enter a valid vehicle number.",
+					title="Vehicle Not Found"
+				)
 
 	def on_update(self):
 		self._sync_task_child_row()
@@ -45,17 +88,20 @@ class Job(Document):
 			self.vehicle_number = self.vehicle_number.replace(" ", "").upper()
 	
 	def _fetch_vehicle_details(self):
-		if self.task_type == "Removal" and self.vehicle_number:
-			vehicle = frappe.db.get_value(
-				"Vehicle",
-				{"name": self.vehicle_number},
-				["make", "model", "color"],
-				as_dict=True
-			)
-			if vehicle:
-				self.make  = vehicle.make
-				self.model = vehicle.model
-				self.color = vehicle.color
+		if not self.vehicle_number or self.task_type == "Installation":
+			return
+
+		vehicle = frappe.db.get_value(
+			"Vehicle",
+			self.vehicle_number,
+			["make", "model", "color", "custom_vehicle_type"],
+			as_dict=True
+		)
+		if vehicle:
+			self.make  = vehicle.make
+			self.model = vehicle.model
+			self.color = vehicle.color
+			self.type  = vehicle.custom_vehicle_type
 			
 	def _set_date_from_task(self):
 		if not self.date and self.task:
@@ -119,13 +165,16 @@ class Job(Document):
 		if not self.item_installed_removed:
 			return
 
-		self._create_stock_entries()
-		self._update_vehicle_items()
+		# Only update vehicle records when stock was actually moved.
+		# If the guard fires (stock entry already exists) we must not touch the
+		# vehicle items either — otherwise the two get out of sync.
+		if self._create_stock_entries():
+			self._update_vehicle_items()
 
 	def _create_stock_entries(self):
 		# Idempotent guard — skip if already submitted for this job
 		if frappe.db.exists("Stock Entry", {"custom_job": self.name, "docstatus": 1}):
-			return
+			return False
 		if not self.technician_warehouse:
 			frappe.throw("Technician warehouse not set. Cannot create stock movement.")
 		if not self.customer_warehouse:
@@ -174,6 +223,8 @@ class Job(Document):
 			se.insert(ignore_permissions=True)
 			se.submit()
 			frappe.msgprint(f"Stock moved: {len(items)} item(s) → {tgt}", alert=True)
+
+		return True
 
 	def _update_vehicle_items(self):
 		if not self.vehicle_number:
