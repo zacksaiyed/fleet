@@ -1,3 +1,45 @@
+function _attachNrcMask(frm) {
+    const nrcField = frm.get_field("custom_national_registration_card_no");
+    if (!nrcField || !nrcField.$input) return;
+
+    nrcField.$input.off("keydown.nrc input.nrc");
+
+    nrcField.$input.on("keydown.nrc", function (e) {
+        const isNav = [8, 9, 13, 27, 35, 36, 37, 38, 39, 40, 46].includes(e.keyCode);
+        const isCtrl = (e.ctrlKey || e.metaKey) && [65, 67, 86, 88, 90].includes(e.keyCode);
+        if (isNav || isCtrl) return;
+        if (!/^\d$/.test(e.key)) { e.preventDefault(); return; }
+        // block input when 9 digits already with no selection
+        const digits = this.value.replace(/\D/g, "");
+        if (digits.length >= 9 && this.selectionStart === this.selectionEnd) {
+            e.preventDefault();
+        }
+    });
+
+    nrcField.$input.on("input.nrc", function () {
+        const cursor = this.selectionStart;
+        const old = this.value;
+        const digits = old.replace(/\D/g, "").slice(0, 9);
+        let fmt = digits;
+        if (digits.length > 6) fmt = digits.slice(0, 6) + "/" + digits.slice(6);
+        if (digits.length > 8) fmt = digits.slice(0, 6) + "/" + digits.slice(6, 8) + "/" + digits.slice(8);
+
+        if (old !== fmt) {
+            const digitsBeforeCursor = old.slice(0, cursor).replace(/\D/g, "").length;
+            this.value = fmt;
+            let newCursor = 0, dc = 0;
+            for (let i = 0; i < fmt.length && dc < digitsBeforeCursor; i++) {
+                if (/\d/.test(fmt[i])) dc++;
+                newCursor = i + 1;
+            }
+            this.setSelectionRange(newCursor, newCursor);
+        }
+
+        frm.doc.custom_national_registration_card_no = this.value;
+        frm.dirty();
+    });
+}
+
 frappe.ui.form.on("Employee", {
     onload(frm) {
         frm.set_query("designation", () => ({
@@ -6,6 +48,8 @@ frappe.ui.form.on("Employee", {
     },
 
     refresh(frm) {
+        _attachNrcMask(frm);
+
         if (!frm.doc.user_id || frm.doc.status !== "Active") return;
 
         frm.add_custom_button(__("Change Password"), () => {
