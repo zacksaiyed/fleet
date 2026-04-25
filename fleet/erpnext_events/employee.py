@@ -1,5 +1,9 @@
+import re
+
 import frappe
 from frappe.utils.password import update_password
+
+_NRC_RE = re.compile(r"^\d{6}/\d{2}/\d$")
 
 ROLE_MAP = {
     "Technician":    ["Technician",        "Workspace Manager", "Material Transfer User"],
@@ -27,6 +31,13 @@ def validate_employee(doc, method):
             )
 
     if doc.custom_national_registration_card_no:
+        if not _NRC_RE.match(doc.custom_national_registration_card_no):
+            frappe.throw(
+                "National Registration Card No. must be in the format <b>######/##/#</b> "
+                "(e.g., 123456/78/9).",
+                title="Invalid NRC Format"
+            )
+
         duplicate = frappe.db.get_value(
             "Employee",
             {
@@ -75,7 +86,7 @@ def _create_user(doc):
     user_doc.gender = doc.gender
     user_doc.birth_date = doc.date_of_birth
     user_doc.mobile_no = doc.cell_number
-    user_doc.username = doc.custom_national_registration_card_no
+    user_doc.username = (doc.custom_national_registration_card_no or "").replace("/", "")
     user_doc.enabled = 1 if doc.status == "Active" else 0
     user_doc.send_welcome_email = 0
     user_doc.module_profile = "Fleet"
@@ -142,7 +153,7 @@ def _update_user(doc, current_user_name):
     user_doc.gender = doc.gender
     user_doc.birth_date = doc.date_of_birth
     user_doc.mobile_no = doc.cell_number
-    user_doc.username = doc.custom_national_registration_card_no
+    user_doc.username = (doc.custom_national_registration_card_no or "").replace("/", "")
     user_doc.enabled = 1 if doc.status == "Active" else 0
 
     # Update roles inline — avoids a second save from update_roles()
