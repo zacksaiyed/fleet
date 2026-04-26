@@ -1118,6 +1118,20 @@ def update_job(
             })
 
     job_doc.save(ignore_permissions=True)
+
+    frappe.publish_realtime(
+        event="job_details_updated",
+        message={
+            "job":            job_doc.name,
+            "vehicle_number": job_doc.vehicle_number,
+            "make":           job_doc.make,
+            "model":          job_doc.model,
+            "color":          job_doc.color,
+            "type":           job_doc.type,
+        },
+        after_commit=True,
+    )
+
     return {"status": "success", "msg": "Job updated."}
 
 
