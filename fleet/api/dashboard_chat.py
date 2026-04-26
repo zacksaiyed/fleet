@@ -130,11 +130,17 @@ def publish_job_chat(job=None, message=None, sender_name=None, role=None):
         # Push notification to technician when support sends a message
         try:
             from fleet.firebase import send_push
+            task_name = frappe.db.get_value("Job", job, "task") or ""
             send_push(
                 user=tech_user,
                 title=f"New message from {sender_name}",
                 body=message[:100] if message else "",
-                data={"doctype": "Job", "name": job, "type": "chat_message"},
+                data={
+                    "doctype": "Job",
+                    "name":    job,
+                    "task":    task_name,
+                    "type":    "chat_message",
+                },
             )
         except Exception:
             frappe.log_error(frappe.get_traceback(), "FCM: chat message notification failed")
