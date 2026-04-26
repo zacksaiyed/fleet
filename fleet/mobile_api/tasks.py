@@ -909,12 +909,12 @@ def get_vehicle_details(vehicle_number: str, task: str, task_type: str) -> dict:
 def create_job_for_task(
     task: str,
     task_type: str,
-    vehicle_number: str = None,
-    make: str = None,
-    model: str = None,
-    type: str = None,
-    color: str = None,
-    items: str = None,
+    vehicle_number: str | None = None,
+    make: str | None = None,
+    model: str | None = None,
+    type: str | None = None,
+    color: str | None = None,
+    items: str | None = None,
 ) -> dict:
     """
     POST /api/method/fleet.mobile_api.tasks.create_job_for_task
@@ -1028,11 +1028,11 @@ def create_job_for_task(
 @frappe.whitelist()
 def update_job(
     job: str,
-    vehicle_number: str = None,
-    make: str = None,
-    model: str = None,
-    color: str = None,
-    type: str = None,
+    vehicle_number: str | None = None,
+    make: str | None = None,
+    model: str | None = None,
+    color: str | None = None,
+    type: str | None = None,
     set_items=None,
 ) -> dict:
     """

@@ -69,15 +69,17 @@ def _error(http_status: int, code: str, message: str) -> dict:
 
 
 @frappe.whitelist(allow_guest=True)
-def login(usr: str, pwd: str) -> dict:
+def login(usr: str, pwd: str, token: str | None = None, device_id: str = "") -> dict:
     """
     Accepts username (or email) + password.
     Returns session token (sid) + user profile.
 
     POST /api/method/fleet.mobile_api.auth.login
     Body (form-data or JSON):
-        usr  = "786876756"          <- username  OR  "chanda@company.com"
-        pwd  = "their_password"
+        usr       = "786876756"          <- username  OR  "chanda@company.com"
+        pwd       = "their_password"
+        token     = "<firebase_token>"   <- optional, registers push notification token
+        device_id = "<device_id>"        <- optional
 
     Error responses (always clean JSON, no stacktraces):
         400  MISSING_CREDENTIALS   — usr or pwd not provided
@@ -111,6 +113,14 @@ def login(usr: str, pwd: str) -> dict:
     # Enforce simultaneous sessions limit
     # (also fires via on_session_creation hook for web logins)
     enforce_simultaneous_sessions(user_email=user_email)
+
+    # save FCM token if provided
+    if token:
+        try:
+            from fleet.firebase import save_fcm_token
+            save_fcm_token(user_email, token.strip(), device_id)
+        except Exception:
+            pass
 
     user_doc = frappe.get_doc("User", user_email)
 

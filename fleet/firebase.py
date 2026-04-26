@@ -90,10 +90,19 @@ def send_push(user: str, title: str, body: str, data: dict | None = None) -> Non
     """
     token = get_fcm_token(user)
     if not token:
+        frappe.log_error(
+            f"User: {user}\nTitle: {title}\nReason: No FCM token registered for this user.",
+            "FCM: No Token"
+        )
         return
 
     app = _get_firebase_app()
     if not app:
+        frappe.log_error(
+            f"User: {user}\nTitle: {title}\nReason: Firebase app could not be initialised. "
+            "Check Firebase Settings — service_account_json may be missing or invalid.",
+            "FCM: App Init Failed"
+        )
         return
 
     from firebase_admin import messaging
@@ -113,4 +122,7 @@ def send_push(user: str, title: str, body: str, data: dict | None = None) -> Non
     try:
         messaging.send(message, app=app)
     except Exception:
-        frappe.log_error(frappe.get_traceback(), f"FCM: Send failed for {user}")
+        frappe.log_error(
+            frappe.get_traceback() + f"\n\nUser: {user}\nToken: {token[:20]}...\nTitle: {title}",
+            f"FCM: Send Failed — {user}"
+        )
