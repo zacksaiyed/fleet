@@ -327,7 +327,7 @@ class SupportDashboardChat {
 							<span style="color:${dot};font-weight:600">${frappe.utils.escape_html(job.status)}</span>
 							<span class="sd-meta-sep">·</span>
 							<span>${frappe.utils.escape_html(job.task_subject || job.task || '')}</span>
-							${job.vehicle_number ? `<span class="sd-meta-sep">·</span><span>🚗 ${frappe.utils.escape_html(job.vehicle_number)}</span>` : ''}
+							${job.vehicle_number ? `<span class="sd-meta-sep">·</span><span class="sd-vehicle-tag">🚗 ${frappe.utils.escape_html(job.vehicle_number)}</span>` : ''}
 							${job.task_type && job.task_type !== 'None' ? `<span class="sd-meta-sep">·</span><span>${frappe.utils.escape_html(job.task_type)}</span>` : ''}
 							${job.task_job_count > 1 ? `<span class="sd-meta-sep">·</span><span class="sd-chat-pos">${job.job_position}/${job.task_job_count}</span>` : ''}
 						</div>
@@ -481,6 +481,38 @@ class SupportDashboardChat {
 		});
 		frappe.realtime.on('support_dashboard_read', (data) => {
 			$(`.sd-job-unread[data-job-unread="${data.job}"]`).text('0').addClass('sd-hidden');
+		});
+
+		frappe.realtime.on('job_details_updated', (data) => {
+			// Update the cached job object
+			const job = this.jobs.find(j => j.name === data.job);
+			if (!job) return;
+
+			if (data.vehicle_number !== undefined) job.vehicle_number = data.vehicle_number;
+			if (data.make  !== undefined) job.make  = data.make;
+			if (data.model !== undefined) job.model = data.model;
+			if (data.color !== undefined) job.color = data.color;
+			if (data.type  !== undefined) job.type  = data.type;
+
+			// Update vehicle number badge in the job list item
+			const $item   = $(`.sd-job-item[data-job="${data.job}"]`);
+			const $footer = $item.find('.sd-job-footer');
+			if ($item.length) {
+				$item.find('.sd-job-action').remove();
+				if (job.vehicle_number) {
+					$footer.append(`<span class="sd-job-action">${frappe.utils.escape_html(job.vehicle_number)}</span>`);
+				}
+			}
+
+			// Update chat header if this job is currently open
+			if (this.selected_job && this.selected_job.name === data.job) {
+				Object.assign(this.selected_job, job);
+				const $veh = $('#sd-chat-panel .sd-chat-job-meta');
+				$veh.find('.sd-vehicle-tag').remove();
+				if (job.vehicle_number) {
+					$veh.append(`<span class="sd-meta-sep">·</span><span class="sd-vehicle-tag">🚗 ${frappe.utils.escape_html(job.vehicle_number)}</span>`);
+				}
+			}
 		});
 	}
 
