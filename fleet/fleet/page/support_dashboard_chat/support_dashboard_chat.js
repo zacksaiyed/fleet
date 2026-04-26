@@ -281,7 +281,7 @@ class SupportDashboardChat {
 							<div class="sd-job-footer">
 								${pos_label}
 								<span class="sd-job-status-tag" style="color:${dot_color}">${frappe.utils.escape_html(job.status)}</span>
-								${job.vehicle_number ? `<span class="sd-job-action">${frappe.utils.escape_html(job.vehicle_number)}</span>` : ''}
+								<span class="sd-vehicle-section">${job.vehicle_number ? `<span class="sd-job-action">${frappe.utils.escape_html(job.vehicle_number)}</span>` : ''}</span>
 							</div>
 						</div>
 						<div class="sd-job-unread ${unread ? '' : 'sd-hidden'}" data-job-unread="${job.name}">${unread}</div>
@@ -327,7 +327,7 @@ class SupportDashboardChat {
 							<span style="color:${dot};font-weight:600">${frappe.utils.escape_html(job.status)}</span>
 							<span class="sd-meta-sep">·</span>
 							<span>${frappe.utils.escape_html(job.task_subject || job.task || '')}</span>
-							${job.vehicle_number ? `<span class="sd-meta-sep">·</span><span class="sd-vehicle-tag">🚗 ${frappe.utils.escape_html(job.vehicle_number)}</span>` : ''}
+							<span class="sd-vehicle-section">${job.vehicle_number ? `<span class="sd-meta-sep">·</span><span class="sd-vehicle-tag">🚗 ${frappe.utils.escape_html(job.vehicle_number)}</span>` : ''}</span>
 							${job.task_type && job.task_type !== 'None' ? `<span class="sd-meta-sep">·</span><span>${frappe.utils.escape_html(job.task_type)}</span>` : ''}
 							${job.task_job_count > 1 ? `<span class="sd-meta-sep">·</span><span class="sd-chat-pos">${job.job_position}/${job.task_job_count}</span>` : ''}
 						</div>
