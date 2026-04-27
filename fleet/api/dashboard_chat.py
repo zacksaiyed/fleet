@@ -130,16 +130,28 @@ def publish_job_chat(job=None, message=None, sender_name=None, role=None):
         # Push notification to technician when support sends a message
         try:
             from fleet.firebase import send_push
-            task_name = frappe.db.get_value("Job", job, "task") or ""
+            job_row = frappe.db.get_value("Job", job, ["task", "title"], as_dict=True) or {}
+            task_name = job_row.get("task") or ""
+            job_title = job_row.get("title") or ""
+            task_desc = task_status = ""
+            if task_name:
+                t = frappe.db.get_value("Task", task_name, ["subject", "status"], as_dict=True)
+                if t:
+                    task_desc   = t.subject or ""
+                    task_status = t.status or ""
             send_push(
                 user=tech_user,
                 title=f"New message from {sender_name}",
                 body=message[:100] if message else "",
                 data={
-                    "doctype": "Job",
-                    "name":    job,
-                    "task":    task_name,
-                    "type":    "chat_message",
+                    "doctype":          "Job",
+                    "name":             job,
+                    "task":             task_name,
+                    "type":             "chat_message",
+                    "job_name":         job,
+                    "job_title":        job_title,
+                    "task_description": task_desc,
+                    "task_status":      task_status,
                 },
             )
         except Exception:
