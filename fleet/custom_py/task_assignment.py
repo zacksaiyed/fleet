@@ -94,7 +94,23 @@ def handle_assignment(doc, method=None):
             user=user,
             title="New Task Assigned",
             body=doc.subject or doc.name,
-            data={"doctype": "Task", "name": doc.name, "type": "task_assigned"},
+            data={
+                "doctype":                 "Task",
+                "type":                    "task_assigned",
+                "name":                    doc.name or "",
+                "subject":                 doc.subject or "",
+                "status":                  doc.status or "",
+                "custom_assign_to":        doc.custom_assign_to or "",
+                "custom_employee_name":    doc.custom_employee_name or "",
+                "custom_customer":         doc.custom_customer or "",
+                "custom_date":             str(doc.custom_date) if doc.custom_date else "",
+                "custom_complete_address": doc.custom_complete_address or "",
+                "custom_latitude":         str(doc.custom_latitude) if doc.custom_latitude else "",
+                "custom_longitude":        str(doc.custom_longitude) if doc.custom_longitude else "",
+                "custom_mobile_no":        doc.custom_mobile_no or "",
+                "custom_assigned_at":      str(doc.custom_assigned_at) if doc.custom_assigned_at else "",
+                "workflow_state":          doc.workflow_state or "",
+            },
         )
     except Exception:
         frappe.log_error(frappe.get_traceback(), "FCM: task assignment notification failed")

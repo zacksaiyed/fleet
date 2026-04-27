@@ -165,6 +165,26 @@ def notify_target_warehouse(doc_name):
 
 	from fleet.firebase import send_push
 
+	# Resolve source warehouse user info once
+	src_employee = frappe.db.get_value("Warehouse", doc.source, "custom_employee")
+	src_user_id  = frappe.db.get_value("Employee", src_employee, "user_id") if src_employee else None
+	src_name = src_image = ""
+	if src_user_id:
+		u = frappe.db.get_value("User", src_user_id, ["full_name", "user_image"], as_dict=True)
+		if u:
+			src_name  = u.full_name or ""
+			src_image = u.user_image or ""
+
+	# Resolve target warehouse user info once
+	tgt_employee = frappe.db.get_value("Warehouse", doc.target, "custom_employee")
+	tgt_user_id  = frappe.db.get_value("Employee", tgt_employee, "user_id") if tgt_employee else None
+	tgt_name = tgt_image = ""
+	if tgt_user_id:
+		u = frappe.db.get_value("User", tgt_user_id, ["full_name", "user_image"], as_dict=True)
+		if u:
+			tgt_name  = u.full_name or ""
+			tgt_image = u.user_image or ""
+
 	for user in users_to_notify:
 		try:
 			frappe.get_doc({
@@ -184,7 +204,20 @@ def notify_target_warehouse(doc_name):
 				user=user,
 				title="Material Transfer Requires Approval",
 				body=f"{doc_name} — {len(doc.items or [])} item(s) from {doc.source}",
-				data={"doctype": "Material Transfer", "name": doc_name, "type": "mt_approval"},
+				data={
+					"doctype":           "Material Transfer",
+					"name":              doc_name,
+					"type":              "mt_approval",
+					"source":            doc.source or "",
+					"target":            doc.target or "",
+					"date":              str(doc.date) if doc.date else "",
+					"status":            doc.workflow_state or "",
+					"item_count":        str(len(doc.items or [])),
+					"source_user_name":  src_name,
+					"source_user_image": src_image,
+					"target_user_name":  tgt_name,
+					"target_user_image": tgt_image,
+				},
 			)
 		except Exception:
 			frappe.log_error(frappe.get_traceback(), "FCM: mt notification failed")
