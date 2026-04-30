@@ -4,8 +4,14 @@ from frappe.utils import now_datetime
 
 
 def validate(doc, method=None):
-	"""Stamp custom_assigned_at whenever custom_assign_to changes so the
-	1-hour auto-reject countdown resets correctly and the form sees the value."""
+	# Always rebuild subject from customer + address title
+	address_title = ""
+	if doc.custom_address:
+		address_title = frappe.db.get_value("Address", doc.custom_address, "address_title") or ""
+	doc.subject = " - ".join(filter(None, [doc.custom_customer, address_title]))
+
+	# Stamp custom_assigned_at whenever custom_assign_to changes so the
+	# 1-hour auto-reject countdown resets correctly and the form sees the value.
 	before = doc.get_doc_before_save()
 	prev_assignee = before.get("custom_assign_to") if before else None
 	curr_assignee = doc.custom_assign_to
@@ -60,7 +66,8 @@ def task_action(task, action, technician=None, reject_comment=None):
 		msg = "Task started."
 
 	elif action == "reassign":
-		_assert_status(doc, "Rejected", "Task must be Rejected to Reassign.")
+		if doc.status not in ("Rejected", "Open"):
+			frappe.throw("Task must be Open or Rejected to assign/reassign.")
 		if not is_support:
 			frappe.throw("Only Support Team can reassign a task.")
 		if not technician:

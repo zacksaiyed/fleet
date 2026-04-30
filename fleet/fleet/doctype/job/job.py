@@ -5,7 +5,7 @@ import frappe
 from frappe.model.document import Document
 from frappe.utils import now
 
-_VEH_RE = re.compile(r"^[A-Z]{3}\d{4}$")
+_VEH_RE = re.compile(r"^[A-Z]{3}\d{3,4}$")
 
 
 class Job(Document):
@@ -25,12 +25,21 @@ class Job(Document):
 				title="Job Locked"
 			)
 
+		if before and before.get("status") == "In Review":
+			allowed = {"Support Team", "Fleet Administrator", "Fleet Manager",
+			           "Administrator", "System Manager"}
+			if not allowed & set(frappe.get_roles()):
+				frappe.throw(
+					"This job is <b>In Review</b> and can only be edited by support staff.",
+					title="Job Locked"
+				)
+
 		if self.vehicle_number:
 			self.vehicle_number = self.vehicle_number.replace(" ", "").upper()
 			if not _VEH_RE.match(self.vehicle_number):
 				frappe.throw(
-					"Vehicle Number must be in the format <b>ABC1234</b> "
-					"(3 letters followed by 4 digits).",
+					"Vehicle Number must be in the format <b>ABC123</b> or <b>ABC1234</b> "
+					"(3 letters followed by 3 or 4 digits).",
 					title="Invalid Vehicle Number"
 				)
 
@@ -535,6 +544,14 @@ def job_action(job, action, comment=None, comment_field=None):
 		doc.completion_comment = comment
 		doc.status = "Completed"
 		msg = "Job completed."
+
+	elif action == "mark_pending":
+		if doc.status != "In Review":
+			frappe.throw("Job must be In Review to mark as Pending.")
+		if not is_support:
+			frappe.throw("Only Support Team can send a job back to Pending.")
+		doc.status = "Pending"
+		msg = "Job marked as Pending."
 
 	elif action == "cancel":
 		if doc.status in ("Completed", "Cancelled"):
