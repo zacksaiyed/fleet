@@ -257,12 +257,11 @@ function set_warehouse_filters(frm) {
 // item query — only shows items with actual stock in source warehouse
 function set_item_query(frm) {
 	frm.set_query("item", "items", function () {
-		if (!frm.doc.source) {
-			return { filters: { is_stock_item: 1, disabled: 0 } };
-		}
 		return {
 			query: "fleet.fleet.doctype.material_transfer.material_transfer.get_items_in_warehouse",
-			filters: { warehouse: frm.doc.source },
+			filters: {
+				warehouse: frm.doc.source || ""
+			},
 		};
 	});
 }

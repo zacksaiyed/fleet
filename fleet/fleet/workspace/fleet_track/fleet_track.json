@@ -1,6 +1,6 @@
 {
  "charts": [],
- "content": "[{\"id\":\"woV7OuaXc2\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Support Dashboard\",\"col\":3}},{\"id\":\"0i3GTaSJH5\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Support Dashboard Chat\",\"col\":3}},{\"id\":\"X3jvVVW4Lo\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"X8AwMHDBDH\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Task\",\"col\":3}},{\"id\":\"_1ggMZ0nQt\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Job\",\"col\":3}},{\"id\":\"eV82TDn-Ts\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Employee\",\"col\":3}},{\"id\":\"y1vqbjMOu-\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Customer\",\"col\":3}},{\"id\":\"Cvvvs8YqUe\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Material Transfer\",\"col\":3}},{\"id\":\"4iD5_xlAP-\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Vehicle\",\"col\":3}}]",
+ "content": "[{\"id\":\"woV7OuaXc2\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Support Dashboard\",\"col\":3}},{\"id\":\"0i3GTaSJH5\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Support Dashboard Chat\",\"col\":3}},{\"id\":\"X3jvVVW4Lo\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"X8AwMHDBDH\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Task\",\"col\":3}},{\"id\":\"_1ggMZ0nQt\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Job\",\"col\":3}},{\"id\":\"eV82TDn-Ts\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Employee\",\"col\":3}},{\"id\":\"y1vqbjMOu-\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Customer\",\"col\":3}},{\"id\":\"Cvvvs8YqUe\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Material Transfer\",\"col\":3}},{\"id\":\"4iD5_xlAP-\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Vehicle\",\"col\":3}},{\"id\":\"5IK5lkxpnU\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Item\",\"col\":3}}]",
  "creation": "2026-02-04 21:12:06.638702",
  "custom_blocks": [],
  "docstatus": 0,
@@ -8,12 +8,12 @@
  "for_user": "",
  "hide_custom": 0,
  "icon": "heart-active",
- "idx": 6,
+ "idx": 9,
  "indicator_color": "green",
  "is_hidden": 0,
  "label": "Fleet Track",
  "links": [],
- "modified": "2026-03-13 23:10:20.595417",
+ "modified": "2026-04-28 22:07:11.959062",
  "modified_by": "Administrator",
  "module": "Fleet",
  "name": "Fleet Track",
@@ -40,6 +40,15 @@
    "format": "{}",
    "label": "Task",
    "link_to": "Task",
+   "stats_filter": "[]",
+   "type": "DocType"
+  },
+  {
+   "color": "Blue",
+   "doc_view": "List",
+   "format": "{}",
+   "label": "Item",
+   "link_to": "Item",
    "stats_filter": "[]",
    "type": "DocType"
   },
