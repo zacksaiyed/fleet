@@ -18,6 +18,17 @@ class MaterialTransfer(Document):
 	def validate(self):
 		self.validate_source_target()
 		self.validate_items()
+		self.validate_item_not_reserved()
+
+	# def validate_items(self):
+	# 	if not self.items:
+	# 		frappe.throw(_("Please add at least one item before saving."))
+
+	# 	seen = set()
+	# 	for row in self.items:
+	# 		if row.item in seen:
+	# 			frappe.throw(_("Item {0} is added more than once. Please remove the duplicate row.").format(row.item))
+	# 		seen.add(row.item)
 
 	def validate_items(self):
 		if not self.items:
@@ -26,12 +37,59 @@ class MaterialTransfer(Document):
 		seen = set()
 		for row in self.items:
 			if row.item in seen:
-				frappe.throw(_("Item {0} is added more than once. Please remove the duplicate row.").format(row.item))
+				frappe.throw(_("Item {0} is duplicated.").format(row.item))
 			seen.add(row.item)
+
+			disabled = frappe.db.get_value("Item", row.item, "disabled")
+			if disabled:
+				frappe.throw(_("Item {0} is disabled and cannot be used.").format(row.item))
 
 	def validate_source_target(self):
 		if self.source and self.target and self.source == self.target:
 			frappe.throw(_("Source and Target Warehouse cannot be the same."))
+
+	def validate_item_not_reserved(self):
+		# only block when moving towards Approval Pending
+		if self.workflow_state != "Approval Pending":
+			return
+
+		if not self.items:
+			return
+
+		item_codes = [row.item for row in self.items]
+
+		conflicts = frappe.db.sql("""
+			SELECT 
+				mt.name,
+				mti.item
+			FROM 
+				`tabMaterial Transfer` mt
+			JOIN 
+				`tabMaterial Transfer Item` mti ON mti.parent = mt.name
+			WHERE 
+				mt.name != %s
+				AND mt.docstatus = 0
+				AND mt.workflow_state = 'Approval Pending'
+				AND mti.item IN %s
+		""", (self.name, item_codes), as_dict=True)
+
+		if conflicts:
+			items = set([c["item"] for c in conflicts])
+
+			# Fetch item names
+			item_names = frappe.get_all(
+				"Item",
+				filters={"name": ["in", list(items)]},
+				fields=["name", "item_name"]
+			)
+
+			formatted = "<br>".join([
+				f"{i.name} - {i.item_name}" for i in item_names
+			])
+
+			frappe.throw(_(
+				"Following items are already used in another Material Transfer (Approval Pending):<br><br>{0}<br><br>Please remove them."
+			).format(formatted))
 
 	def on_submit(self):
 		# workflow has doc_status=1 on Approved state
@@ -232,36 +290,58 @@ def notify_target_warehouse(doc_name):
 def get_items_in_warehouse(doctype, txt, searchfield, start, page_len, filters):
 	warehouse = filters.get("warehouse") if filters else None
 
-	if not warehouse:
-		return []
+	conditions = """
+		i.disabled = 0
+		and i.is_stock_item = 1
+		and (
+			i.name like %(txt)s
+			or i.item_name like %(txt)s
+		)
+	"""
 
-	return frappe.db.sql("""
-		select
-			i.name,
-			i.item_name,
-			i.item_group
-		from
-			`tabItem` i
-		inner join
-			`tabBin` b on b.item_code = i.name
-		where
-			b.warehouse = %(warehouse)s
-			and b.actual_qty > 0
-			and i.disabled = 0
-			and i.is_stock_item = 1
-			and (
-				i.name like %(txt)s
-				or i.item_name like %(txt)s
-			)
-		order by
-			i.name asc
-		limit %(start)s, %(page_len)s
-	""", {
-		"warehouse" : warehouse,
-		"txt"       : "%%%s%%" % txt,
-		"start"     : start,
-		"page_len"  : page_len,
-	})
+	params = {
+		"txt": "%%%s%%" % txt,
+		"start": start,
+		"page_len": page_len,
+	}
+
+	# if warehouse selected → enforce stock check
+	if warehouse:
+		conditions += " and b.warehouse = %(warehouse)s and b.actual_qty > 0"
+		params["warehouse"] = warehouse
+
+		query = f"""
+			select
+				i.name,
+				i.item_name,
+				i.item_group
+			from
+				`tabItem` i
+			inner join
+				`tabBin` b on b.item_code = i.name
+			where
+				{conditions}
+			order by
+				i.name asc
+			limit %(start)s, %(page_len)s
+		"""
+	else:
+		# no warehouse → don't join Bin
+		query = f"""
+			select
+				i.name,
+				i.item_name,
+				i.item_group
+			from
+				`tabItem` i
+			where
+				{conditions}
+			order by
+				i.name asc
+			limit %(start)s, %(page_len)s
+		"""
+
+	return frappe.db.sql(query, params)
 
 
 # private — creates and submits the stock entry
