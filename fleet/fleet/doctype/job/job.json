@@ -320,7 +320,7 @@
  "in_create": 1,
  "links": [],
  "make_attachments_public": 1,
- "modified": "2026-04-25 19:49:02.849959",
+ "modified": "2026-04-30 23:36:26.545154",
  "modified_by": "Administrator",
  "module": "Fleet",
  "name": "Job",
@@ -382,6 +382,27 @@
  "row_format": "Dynamic",
  "sort_field": "modified",
  "sort_order": "DESC",
- "states": [],
+ "states": [
+  {
+   "color": "Orange",
+   "title": "Pending"
+  },
+  {
+   "color": "Cyan",
+   "title": "In Review"
+  },
+  {
+   "color": "Purple",
+   "title": "On Hold"
+  },
+  {
+   "color": "Green",
+   "title": "Completed"
+  },
+  {
+   "color": "Red",
+   "title": "Cancelled"
+  }
+ ],
  "track_changes": 1
 }

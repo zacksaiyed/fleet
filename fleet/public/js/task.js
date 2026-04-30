@@ -1,12 +1,13 @@
 frappe.ui.form.on('Task', {
-	custom_customer: function(frm) {
-        frm.set_value("custom_address", null);
-        frm.set_value("custom_complete_address", null);
-        if (frm.doc.custom_customer) {
-            frm.refresh_field("custom_address");
-            frm.refresh_field("custom_complete_address");
-        }
-    },
+	custom_customer(frm) {
+		frm.set_value("custom_address", null);
+		frm.set_value("custom_complete_address", null);
+		if (frm.doc.custom_customer) {
+			frm.refresh_field("custom_address");
+			frm.refresh_field("custom_complete_address");
+		}
+		_auto_set_subject(frm);
+	},
 
 	setup(frm) {
 		frm.set_query("custom_address", function (doc) {
@@ -29,10 +30,18 @@ frappe.ui.form.on('Task', {
 
 		// SUPPORT TEAM
 		if (is_support) {
-			if (status === "Rejected") {
+			const is_assigned = !!frm.doc.custom_assign_to;
+
+			if (status === "Open" && !is_assigned) {
+				frm.add_custom_button(__("Assign"), () =>
+					_show_assign_dialog(frm, false)
+				).addClass("btn-primary");
+			}
+
+			if ((status === "Open" && is_assigned) || status === "Rejected") {
 				frm.add_custom_button(__("Reassign"), () =>
-					_show_reassign_dialog(frm)
-				).addClass("btn-warning");
+					_show_assign_dialog(frm, true)
+				).removeClass("btn-default").addClass("btn-warning");
 			}
 
 			if (status === "Accepted") {
@@ -88,6 +97,24 @@ frappe.ui.form.on('Task', {
 			}
 		}
 
+		// When Open: ensure editable fields are unlocked (read_only persists across reload_doc)
+		if (status === "Open") {
+			["subject", "custom_customer", "custom_address", "priority", "description"].forEach(fn => {
+				frm.set_df_property(fn, "read_only", 0);
+			});
+		}
+
+		// Lock all fields except description once task moves past Open
+		if (status !== "Open") {
+			frm.fields.forEach(f => {
+				if (f.df.fieldname !== "description") {
+					frm.set_df_property(f.df.fieldname, "read_only", 1);
+				}
+			});
+		}
+
+		frm.refresh_fields();
+
 		// Hide Timesheet from connections panel (keep Job)
 		setTimeout(() => {
 			frm.$wrapper.find('.col-md-4').has('[data-doctype="Timesheet"]').hide();
@@ -108,6 +135,7 @@ frappe.ui.form.on('Task', {
 	},
 
 	custom_address(frm) {
+		_auto_set_subject(frm);
 		if (frm.doc.custom_address) {
 			frappe.call({
 				method: "frappe.contacts.doctype.address.address.get_address_display",
@@ -116,8 +144,7 @@ frappe.ui.form.on('Task', {
 					frm.set_value("custom_complete_address", r.message);
 				},
 			});
-		}
-		if (!frm.doc.custom_address) {
+		} else {
 			frm.set_value("custom_complete_address", "");
 		}
 	},
@@ -126,6 +153,21 @@ frappe.ui.form.on('Task', {
 
 
 // Helpers
+
+function _auto_set_subject(frm) {
+	const customer = frm.doc.custom_customer || "";
+	const address  = frm.doc.custom_address  || "";
+
+	if (!address) {
+		frm.set_value("subject", customer);
+		return;
+	}
+
+	frappe.db.get_value("Address", address, "address_title").then(r => {
+		const title = (r && r.message && r.message.address_title) || "";
+		frm.set_value("subject", [customer, title].filter(Boolean).join(" - "));
+	});
+}
 
 function _task_action(frm, action, extra_args = {}) {
 	frappe.call({
@@ -163,25 +205,29 @@ function _show_reject_dialog(frm) {
 	d.show();
 }
 
-function _show_reassign_dialog(frm) {
+function _show_assign_dialog(frm, is_reassign) {
 	const d = new frappe.ui.Dialog({
-		title: __("Reassign Task"),
+		title: is_reassign ? __("Reassign Task") : __("Assign Task"),
 		fields: [
 			{
 				fieldtype: "Link",
 				fieldname: "technician",
-				label: __("New Technician"),
+				label: __("Technician"),
 				options: "Employee",
 				reqd: 1,
-				description: __("Task will be set back to Open for the new technician to accept."),
+				get_query: () => ({
+					query: "fleet.custom_py.task_assignment.get_technician_employees",
+				}),
 			},
 		],
-		primary_action_label: __("Reassign"),
+		primary_action_label: is_reassign ? __("Reassign") : __("Assign"),
 		primary_action(values) {
 			d.hide();
 			_task_action(frm, "reassign", { technician: values.technician });
 		},
 	});
+	if (is_reassign) d.get_primary_btn().addClass("btn-warning");
+	else d.get_primary_btn().addClass("btn-primary");
 	d.show();
 }
 

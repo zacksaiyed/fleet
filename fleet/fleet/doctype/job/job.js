@@ -170,6 +170,32 @@ frappe.ui.form.on("Job", {
 			});
 		}
 
+		if (status === "In Review") {
+			const can_edit = is_support
+				|| roles.includes("Fleet Administrator")
+				|| roles.includes("Fleet Manager");
+
+			if (!can_edit) {
+				// Technician: full lock, no save
+				frm.disable_save();
+				frm.fields.forEach(f => {
+					frm.set_df_property(f.df.fieldname, "read_only", 1);
+				});
+			} else {
+				// Support / Fleet Admin / Fleet Manager: lock everything except specific fields
+				const editable = new Set([
+					"vehicle_number", "make", "model", "color", "type",
+					"item_installed_removed", "job_images",
+				]);
+				frm.fields.forEach(f => {
+					if (!editable.has(f.df.fieldname)) {
+						frm.set_df_property(f.df.fieldname, "read_only", 1);
+					}
+				});
+			}
+			frm.refresh_fields();
+		}
+
 		// SUPPORT TEAM + TECHNICIAN
 		if (is_support || is_tech) {
 			if (status === "Pending") {
@@ -191,6 +217,10 @@ frappe.ui.form.on("Job", {
 				frm.add_custom_button(__("Complete"), () =>
 					_job_action_with_comment(frm, "complete", __("Completion Comment"), "completion_comment")
 				).addClass("btn-success");
+
+				frm.add_custom_button(__("Mark as Pending"), () =>
+					_job_action(frm, "mark_pending")
+				).removeClass("btn-default").addClass("btn-warning");
 			}
 
 			if (status === "Pending") {

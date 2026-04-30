@@ -8,12 +8,12 @@
  "for_user": "",
  "hide_custom": 0,
  "icon": "heart-active",
- "idx": 9,
+ "idx": 10,
  "indicator_color": "green",
  "is_hidden": 0,
  "label": "Fleet Track",
  "links": [],
- "modified": "2026-04-28 22:07:11.959062",
+ "modified": "2026-04-30 23:33:19.341518",
  "modified_by": "Administrator",
  "module": "Fleet",
  "name": "Fleet Track",
@@ -25,15 +25,6 @@
  "roles": [],
  "sequence_id": 1.0,
  "shortcuts": [
-  {
-   "color": "Grey",
-   "doc_view": "List",
-   "format": "{}",
-   "label": "Material Transfer",
-   "link_to": "Material Transfer",
-   "stats_filter": "[]",
-   "type": "DocType"
-  },
   {
    "color": "Green",
    "doc_view": "List",
@@ -53,26 +44,37 @@
    "type": "DocType"
   },
   {
-   "color": "Grey",
+   "color": "Pink",
    "doc_view": "List",
-   "label": "Employee",
-   "link_to": "Employee",
-   "stats_filter": "[]",
-   "type": "DocType"
-  },
-  {
-   "color": "Grey",
-   "doc_view": "List",
+   "format": "{}",
    "label": "Job",
    "link_to": "Job",
    "stats_filter": "[]",
    "type": "DocType"
   },
   {
-   "color": "Grey",
+   "color": "Yellow",
+   "doc_view": "List",
+   "format": "{}",
+   "label": "Employee",
+   "link_to": "Employee",
+   "stats_filter": "[]",
+   "type": "DocType"
+  },
+  {
+   "color": "Cyan",
    "doc_view": "List",
    "label": "Customer",
    "link_to": "Customer",
+   "stats_filter": "[]",
+   "type": "DocType"
+  },
+  {
+   "color": "Orange",
+   "doc_view": "List",
+   "format": "{}",
+   "label": "Material Transfer",
+   "link_to": "Material Transfer",
    "stats_filter": "[]",
    "type": "DocType"
   },

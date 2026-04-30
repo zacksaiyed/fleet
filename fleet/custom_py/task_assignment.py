@@ -5,14 +5,30 @@ import frappe
 import json
 
 
+@frappe.whitelist()
+@frappe.validate_and_sanitize_search_inputs
+def get_technician_employees(doctype, txt, searchfield, start, page_len, filters):
+    return frappe.db.sql("""
+        SELECT e.name, e.employee_name
+        FROM `tabEmployee` e
+        INNER JOIN `tabHas Role` hr ON hr.parent = e.user_id AND hr.role = 'Technician'
+        WHERE e.status = 'Active'
+          AND e.user_id IS NOT NULL
+          AND (e.name LIKE %(txt)s OR e.employee_name LIKE %(txt)s)
+        ORDER BY e.employee_name
+        LIMIT %(start)s, %(page_len)s
+    """, {"txt": f"%{txt}%", "start": start, "page_len": page_len})
+
+
 def handle_assignment(doc, method=None):
 
     before = doc.get_doc_before_save()
-    prev_assignee = before.get("custom_assign_to") if before else None
-    curr_assignee = doc.custom_assign_to
+    prev_assignee    = before.get("custom_assign_to")   if before else None
+    prev_assigned_at = before.get("custom_assigned_at") if before else None
+    curr_assignee    = doc.custom_assign_to
 
-    # nothing changed
-    if prev_assignee == curr_assignee:
+    # nothing changed — same technician AND assigned_at timestamp is also unchanged
+    if prev_assignee == curr_assignee and prev_assigned_at == doc.custom_assigned_at:
         return
 
     # handle removal (field cleared)
