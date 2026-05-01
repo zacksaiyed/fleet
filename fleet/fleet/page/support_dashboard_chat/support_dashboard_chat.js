@@ -29,6 +29,15 @@ fleet.support_dashboard_chat.init = function (wrapper) {
 	fleet.support_dashboard_chat.instance = new SupportDashboardChat(wrapper);
 };
 
+const STATUS_COLORS = {
+	'Pending':     '#e67e22',
+	'In Progress': '#2566cd',
+	'In Review':   '#00bcd4',
+	'On Hold':     '#9b59b6',
+	'Completed':   '#037a2f',
+	'Cancelled':   '#e01f1f',
+};
+
 class SupportDashboardChat {
 	constructor(wrapper) {
 		this.wrapper = wrapper;
@@ -42,6 +51,7 @@ class SupportDashboardChat {
 		this._render_shell();
 		this._load_technicians_then();
 		this._bind_realtime();
+		this._bind_copy();
 	}
 
 	_render_shell() {
@@ -189,14 +199,6 @@ class SupportDashboardChat {
 			return;
 		}
 
-		const STATUS_COLORS = {
-			'Pending':     '#e66b2d',
-			'In Progress': '#2566cd',
-			'Hold':        '#e6b31c',
-			'Completed':   '#037a2f',
-			'Cancelled':   '#e01f1f',
-		};
-
 		// Group jobs by task, preserving order
 		const task_order = [];
 		const task_groups = {};
@@ -309,13 +311,6 @@ class SupportDashboardChat {
 	}
 
 	_render_chat_panel(job) {
-		const STATUS_COLORS = {
-			'Pending':     '#e66b2d',
-			'In Progress': '#2566cd',
-			'Hold':        '#e6b31c',
-			'Completed':   '#037a2f',
-			'Cancelled':   '#e01f1f',
-		};
 		const dot = STATUS_COLORS[job.status] || '#94a3b8';
 		$('#sd-chat-panel').html(`
 			<div class="sd-chat-wrapper">
@@ -324,7 +319,7 @@ class SupportDashboardChat {
 						<div class="sd-chat-job-title">${frappe.utils.escape_html(job.title || job.name)}</div>
 						<div class="sd-chat-job-meta">
 							<span class="sd-chat-status-dot" style="background:${dot}"></span>
-							<span style="color:${dot};font-weight:600">${frappe.utils.escape_html(job.status)}</span>
+							<span class="sd-chat-status-text" style="color:${dot};font-weight:600">${frappe.utils.escape_html(job.status)}</span>
 							<span class="sd-meta-sep">·</span>
 							<span>${frappe.utils.escape_html(job.task_subject || job.task || '')}</span>
 							<span class="sd-vehicle-section">${job.vehicle_number ? `<span class="sd-meta-sep">·</span><span class="sd-vehicle-tag">🚗 ${frappe.utils.escape_html(job.vehicle_number)}</span>` : ''}</span>
@@ -428,12 +423,33 @@ class SupportDashboardChat {
 		const name       = msg.sender_name || msg.sender || '?';
 		const content    = msg.message    || msg.content || '';
 		const time       = msg.creation ? frappe.datetime.str_to_user(msg.creation, true) : 'Just now';
+		const _NO_COPY = new Set(['Make', 'Model', 'Color', 'Type']);
+		const _COPY_ICON = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 3H14.6C16.84 3 17.96 3 18.816 3.436C19.569 3.819 20.18 4.431 20.564 5.184C21 6.04 21 7.16 21 9.4V16.5M6.2 21H14.3C15.42 21 15.98 21 16.408 20.782C16.784 20.59 17.09 20.284 17.282 19.908C17.5 19.48 17.5 18.92 17.5 17.8V9.7C17.5 8.58 17.5 8.02 17.282 7.592C17.09 7.216 16.784 6.91 16.408 6.718C15.98 6.5 15.42 6.5 14.3 6.5H6.2C5.08 6.5 4.52 6.5 4.092 6.718C3.716 6.91 3.41 7.216 3.218 7.592C3 8.02 3 8.58 3 9.7V17.8C3 18.92 3 19.48 3.218 19.908C3.41 20.284 3.716 20.59 4.092 20.782C4.52 21 5.08 21 6.2 21Z"/></svg>`;
+		const rendered = content.split('\n').map(line => {
+			const escaped = frappe.utils.escape_html(line).replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
+			const m = line.match(/^([^:]+): (.+)$/);
+			if (m) {
+				const rawKey  = m[1];
+				const rawVal  = m[2];
+				const safeKey = frappe.utils.escape_html(rawKey);
+				const safeVal = frappe.utils.escape_html(rawVal);
+
+				if (_NO_COPY.has(rawKey)) return `${safeKey}: ${safeVal}`;
+
+				// Item lines are "CODE - BRAND" — copy only the code
+				const dashIdx = rawVal.indexOf(' - ');
+				const copyVal = dashIdx !== -1 ? rawVal.slice(0, dashIdx) : rawVal;
+
+				return `${safeKey}: <span class="sd-copy-wrap">${safeVal}<button class="sd-copy-btn" data-copy="${frappe.utils.escape_html(copyVal)}" title="Copy">${_COPY_ICON}</button></span>`;
+			}
+			return escaped;
+		}).join('<br>');
 		$list.append(`
 			<div class="sd-bubble-row ${is_support ? 'mine' : 'theirs'}">
 				<div class="sd-bubble-wrap">
 					<div class="sd-bubble-name ${is_support ? 'sd-name-right' : ''}">${frappe.utils.escape_html(name)}</div>
 					<div class="sd-bubble ${is_support ? 'sd-bubble-mine' : 'sd-bubble-theirs'}">
-						${frappe.utils.escape_html(content)}
+						${rendered}
 					</div>
 					<div class="sd-bubble-time ${is_support ? 'sd-time-right' : ''}">${time}</div>
 				</div>
@@ -461,12 +477,17 @@ class SupportDashboardChat {
 				}
 			} else {
 				if ((data.sender_role || data.role) === 'Technician') {
-					// Local +1 on job badge — no DB query, instant feedback
+					// Update cached job unread count (persists across re-renders)
+					const cachedJob = this.jobs.find(j => j.name === data.job);
+					if (cachedJob) cachedJob.unread_count_support = (cachedJob.unread_count_support || 0) + 1;
+
+					// Local +1 on job badge if element is currently in the DOM
 					const $job_badge = $(`.sd-job-unread[data-job-unread="${data.job}"]`);
 					if ($job_badge.length) {
 						$job_badge.text((parseInt($job_badge.text()) || 0) + 1).removeClass('sd-hidden');
 					}
-					// Local +1 on tech card badge
+
+					// Local +1 on tech card badge (data-tech = user email, same as tech_user)
 					const tech_name = data.tech_user || data.sent_by || (this.selected_tech && this.selected_tech.name);
 					if (tech_name) {
 						const $tech_badge = $(`.sd-tech-unread[data-tech="${tech_name}"]`);
@@ -493,25 +514,43 @@ class SupportDashboardChat {
 			if (data.model !== undefined) job.model = data.model;
 			if (data.color !== undefined) job.color = data.color;
 			if (data.type  !== undefined) job.type  = data.type;
+			if (data.status !== undefined) job.status = data.status;
 
-			// Update vehicle number badge in the job list item
 			const $item   = $(`.sd-job-item[data-job="${data.job}"]`);
 			const $footer = $item.find('.sd-job-footer');
+
+			// Update status dot + tag in job list
+			if ($item.length && data.status !== undefined) {
+				const dot_color = STATUS_COLORS[data.status] || '#94a3b8';
+				$item.find('.sd-job-status-dot').css('background', dot_color);
+				$item.find('.sd-job-status-tag').css('color', dot_color).text(data.status);
+			}
+
+			// Update vehicle number badge in the job list item
 			if ($item.length) {
-				$item.find('.sd-job-action').remove();
-				if (job.vehicle_number) {
-					$footer.append(`<span class="sd-job-action">${frappe.utils.escape_html(job.vehicle_number)}</span>`);
-				}
+				$footer.find('.sd-vehicle-section').html(
+					job.vehicle_number
+						? `<span class="sd-job-action">${frappe.utils.escape_html(job.vehicle_number)}</span>`
+						: ''
+				);
 			}
 
 			// Update chat header if this job is currently open
 			if (this.selected_job && this.selected_job.name === data.job) {
 				Object.assign(this.selected_job, job);
-				const $veh = $('#sd-chat-panel .sd-chat-job-meta');
-				$veh.find('.sd-vehicle-tag').remove();
-				if (job.vehicle_number) {
-					$veh.append(`<span class="sd-meta-sep">·</span><span class="sd-vehicle-tag">🚗 ${frappe.utils.escape_html(job.vehicle_number)}</span>`);
+				const $meta = $('#sd-chat-panel .sd-chat-job-meta');
+
+				if (data.status !== undefined) {
+					const dot_color = STATUS_COLORS[data.status] || '#94a3b8';
+					$meta.find('.sd-chat-status-dot').css('background', dot_color);
+					$meta.find('.sd-chat-status-text').css('color', dot_color).text(data.status);
 				}
+
+				$meta.find('.sd-vehicle-section').html(
+					job.vehicle_number
+						? `<span class="sd-meta-sep">·</span><span class="sd-vehicle-tag">🚗 ${frappe.utils.escape_html(job.vehicle_number)}</span>`
+						: ''
+				);
 			}
 		});
 	}
@@ -526,6 +565,18 @@ class SupportDashboardChat {
 				$badge.text(total);
 				total > 0 ? $badge.removeClass('sd-hidden') : $badge.addClass('sd-hidden');
 			},
+		});
+	}
+
+	_bind_copy() {
+		$(this.$main).on('click', '.sd-copy-btn', function () {
+			const $btn  = $(this);
+			const val   = $btn.attr('data-copy');
+			const orig  = $btn.html();
+			navigator.clipboard.writeText(val).then(() => {
+				$btn.html('<span style="font-size:11px;font-weight:600;color:#28a745">✓</span>');
+				setTimeout(() => $btn.html(orig), 1200);
+			});
 		});
 	}
 
@@ -789,6 +840,19 @@ class SupportDashboardChat {
 			.sd-messages-wrap { padding: 10px 12px; }
 			.sd-bubble { font-size: 12px; padding: 7px 11px; }
 		}
+
+		.sd-copy-wrap {
+			display: inline-flex; align-items: center; gap: 4px;
+		}
+		.sd-copy-btn {
+			background: none; border: none; cursor: pointer;
+			padding: 0 2px; line-height: 1;
+			color: #94a3b8; opacity: 0.6;
+			transition: opacity 0.15s, color 0.15s;
+			vertical-align: middle;
+		}
+		.sd-copy-btn:hover { opacity: 1; color: #2566cd; }
+		.sd-copy-btn svg { display: inline-block; vertical-align: middle; }
 
 		</style>`).appendTo('head');
 	}

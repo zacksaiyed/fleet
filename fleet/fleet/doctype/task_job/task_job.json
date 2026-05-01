@@ -27,7 +27,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Status",
-   "options": "Pending\nIn Review\nOn Hold\nCompleted\nCancelled"
+   "options": "Pending\nIn Progress\nIn Review\nOn Hold\nCompleted\nCancelled"
   },
   {
    "columns": 2,

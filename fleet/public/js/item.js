@@ -1,6 +1,17 @@
 frappe.ui.form.on('Item', {
 
-    custom_item_type: frm => generate_item_details(frm),
+    custom_item_type(frm) {
+        frm.set_value("brand", "");
+        frm.set_value("custom_serial_no", "");
+        frm.set_value("custom_imei_no", "");
+        frm.set_value("custom_sensor_unique_number", "");
+        frm.set_value("custom_temperature_serial_number", "");
+        frm.set_value("custom_mobile_number", "");
+        frm.set_value("custom_sim_type", "");
+        frm.set_value("item_code", "");
+        frm.set_value("item_name", "");
+        generate_item_details(frm);
+    },
 
     custom_serial_no: frm => generate_item_details(frm),
     custom_mobile_number: frm => generate_item_details(frm),

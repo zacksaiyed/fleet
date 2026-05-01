@@ -1068,23 +1068,36 @@ def update_job(
 
     job_doc = frappe.get_doc("Job", job)
 
-    if job_doc.status not in ("Pending", "On Hold"):
-        return _error(422, "INVALID_STATE", "Job can only be updated when Pending or On Hold.")
+    if job_doc.status not in ("Pending", "In Progress", "On Hold"):
+        return _error(422, "INVALID_STATE", "Job can only be updated when Pending, In Progress, or On Hold.")
 
     if type is not None and type not in _VALID_VEHICLE_TYPES:
         return _error(400, "INVALID_PARAMS", f"type must be one of: {', '.join(sorted(_VALID_VEHICLE_TYPES))}")
 
-    # scalar fields — only update if explicitly passed
+    # scalar fields — only update if explicitly passed; track for auto-message
+    changed_scalars = {}
     if vehicle_number is not None:
+        if vehicle_number and job_doc.task_type != "Installation":
+            vehicle_customer = frappe.db.get_value("Vehicle", vehicle_number, "custom_customer")
+            if vehicle_customer and vehicle_customer != job_doc.customer:
+                return _error(
+                    422, "CUSTOMER_MISMATCH",
+                    f"Vehicle {vehicle_number} belongs to {vehicle_customer}, not {job_doc.customer}."
+                )
         job_doc.vehicle_number = vehicle_number
+        changed_scalars["vehicle_number"] = vehicle_number
     if make is not None:
         job_doc.make = make
+        changed_scalars["make"] = make
     if model is not None:
         job_doc.model = model
+        changed_scalars["model"] = model
     if color is not None:
         job_doc.color = color
+        changed_scalars["color"] = color
     if type is not None:
         job_doc.type = type
+        changed_scalars["type"] = type
 
     # ── items ─────────────────────────────────────────────────────────────
     if set_items is not None:
@@ -1096,10 +1109,15 @@ def update_job(
                 return _error(400, "INVALID_PARAMS", "set_items must be a valid JSON array.")
 
         job_doc.item_installed_removed = []
+        seen_items = set()
         for r in set_items:
             item_code = r.get("item")
             if not item_code:
                 return _error(400, "MISSING_PARAMS", "Each item row must have an 'item' (item code).")
+
+            if item_code in seen_items:
+                return _error(400, "DUPLICATE_ITEM", f"Item {item_code} appears more than once.")
+            seen_items.add(item_code)
 
             fetched = frappe.db.get_value(
                 "Item", item_code,
@@ -1109,6 +1127,12 @@ def update_job(
             if not fetched:
                 return _error(404, "NOT_FOUND", f"Item {item_code} not found.")
 
+            # Block installing an item already active in another job
+            if r.get("installed_or_removed", "Installed") == "Installed":
+                conflict = _check_item_available(item_code, current_job=job)
+                if conflict:
+                    return _error(409, "ITEM_IN_USE", f"Item {item_code} is already installed in job {conflict}.")
+
             job_doc.append("item_installed_removed", {
                 "item":                 item_code,
                 "item_name":            fetched.item_name,
@@ -1117,12 +1141,20 @@ def update_job(
                 "installed_or_removed": r.get("installed_or_removed", "Installed"),
             })
 
-    job_doc.save(ignore_permissions=True)
+        # First item update advances job from Pending → In Progress
+        if job_doc.status == "Pending":
+            job_doc.status = "In Progress"
+
+    try:
+        job_doc.save(ignore_permissions=True)
+    except frappe.ValidationError as e:
+        return _error(422, "VALIDATION_ERROR", str(e))
 
     frappe.publish_realtime(
         event="job_details_updated",
         message={
             "job":            job_doc.name,
+            "status":         job_doc.status,
             "vehicle_number": job_doc.vehicle_number,
             "make":           job_doc.make,
             "model":          job_doc.model,
@@ -1132,7 +1164,9 @@ def update_job(
         after_commit=True,
     )
 
-    return {"status": "success", "msg": "Job updated."}
+    _post_job_update_message(job_doc, employee, changed_scalars, set_items)
+
+    return {"status": "success", "msg": "Job updated.", "job_status": job_doc.status}
 
 
 @frappe.whitelist()
@@ -1168,8 +1202,8 @@ def upload_job_image(job: str, image_data: str = None, filename: str = None, com
 
     job_doc = frappe.get_doc("Job", job)
 
-    if job_doc.status not in ("Pending", "On Hold"):
-        return _error(422, "INVALID_STATE", "Job can only be updated when Pending or On Hold.")
+    if job_doc.status not in ("Pending", "In Progress", "On Hold"):
+        return _error(422, "INVALID_STATE", "Job can only be updated when Pending, In Progress, or On Hold.")
 
     uploaded_files = frappe.request.files.getlist("images")  # list of FileStorage objects
     files_to_save = []
@@ -1331,7 +1365,96 @@ def _job_available_actions(status: str) -> list:
     # actions a technician can perform on a job in the given status
     # complete / cancel are support-only — never exposed here
     return {
-        "Pending":   ["done", "hold"],
-        "On Hold":   ["reopen"],
+        "Pending":     ["hold"],
+        "In Progress": ["done"],
+        "On Hold":     ["reopen"],
         # In Review → technician has no actions; support completes it
     }.get(status, [])
+
+
+def _check_item_available(item: str, current_job: str = None) -> str | None:
+    """Return the conflicting job name if the item is already installed in another active job."""
+    installed_in = frappe.get_all(
+        "Job Item",
+        filters={"item": item, "installed_or_removed": "Installed"},
+        pluck="parent",
+    )
+    for job_name in installed_in:
+        if job_name == current_job:
+            continue
+        if frappe.db.get_value("Job", job_name, "status") == "Cancelled":
+            continue
+        return job_name
+    return None
+
+
+def _post_job_update_message(job_doc, employee, changed_scalars: dict, set_items):
+    """Auto-post a Technician chat message summarising what was updated in the job."""
+    if not changed_scalars and set_items is None:
+        return
+
+    _SCALAR_LABELS = {
+        "vehicle_number": "Vehicle",
+        "make":           "Make",
+        "model":          "Model",
+        "color":          "Color",
+        "type":           "Type",
+    }
+
+    lines = ["**Updated**"]
+
+    for field, label in _SCALAR_LABELS.items():
+        if field in changed_scalars:
+            val = changed_scalars[field] or "—"
+            lines.append(f"{label}: {val}")
+
+    if set_items is not None:
+        for row in job_doc.item_installed_removed:
+            item_type = row.item_type or "Item"
+            item_code = row.item or "—"
+            brand     = row.brand or "—"
+            lines.append(f"{item_type}: {item_code} - {brand}")
+
+    if len(lines) == 1:   # only "Updated" header, nothing to report
+        return
+
+    message = "\n".join(lines)
+
+    tech_user   = frappe.db.get_value("Employee", employee, "user_id")
+    sender_name = frappe.db.get_value("User", tech_user, "full_name") if tech_user else "Technician"
+
+    msg = frappe.get_doc({
+        "doctype":      "Job Message",
+        "job":          job_doc.name,
+        "sender":       tech_user or frappe.session.user,
+        "sender_name":  sender_name,
+        "sender_role":  "Technician",
+        "message":      message,
+        "message_type": "Text",
+        "is_read":      0,
+    })
+    frappe.flags.skip_chat_after_insert = True
+    msg.insert(ignore_permissions=True)
+    frappe.flags.skip_chat_after_insert = False
+
+    frappe.db.set_value(
+        "Job", job_doc.name, "unread_count_support",
+        (frappe.db.get_value("Job", job_doc.name, "unread_count_support") or 0) + 1,
+    )
+
+    payload = {
+        "task_name":   job_doc.task,
+        "job":         job_doc.name,
+        "name":        msg.name,
+        "content":     message,
+        "message":     message,
+        "sent_by":     tech_user or frappe.session.user,
+        "sender_name": sender_name,
+        "sender_role": "Technician",
+        "role":        "Technician",
+        "tech_user":   tech_user,
+        "creation":    str(msg.creation),
+    }
+
+    frappe.publish_realtime(event="support_dashboard_new_message", message=payload, after_commit=True)
+    frappe.publish_realtime(event="task_job_chat_list_update",    message=payload, after_commit=True)
