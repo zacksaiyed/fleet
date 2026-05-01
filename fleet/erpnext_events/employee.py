@@ -6,10 +6,10 @@ from frappe.utils.password import update_password
 _NRC_RE = re.compile(r"^\d{6}/\d{2}/\d$")
 
 ROLE_MAP = {
-    "Technician":    ["Technician",        "Workspace Manager", "Material Transfer User"],
-    "Support":       ["Support Team",      "Workspace Manager", "Material Transfer User"],
-    "Administrator": ["Fleet Administrator", "Workspace Manager"],
-    "Manager":       ["Fleet Manager",      "Workspace Manager"],
+    "Technician":    ["Technician",          "Material Transfer User"],
+    "Support":       ["Support Team",        "Material Transfer User"],
+    "Administrator": ["Fleet Administrator"],
+    "Manager":       ["Fleet Manager"],
 }
 
 # Designations that don't need a physical warehouse (office/admin roles)
