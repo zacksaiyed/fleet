@@ -1,4 +1,37 @@
 frappe.ui.form.on("Job Item", {
+	item(frm, cdt, cdn) {
+		const row = locals[cdt][cdn];
+		if (!row.item) return;
+
+		const duplicate = (frm.doc.item_installed_removed || []).find(
+			r => r.item === row.item && r.name !== cdn
+		);
+		if (duplicate) {
+			frappe.show_alert({ message: __("{0} is already added.", [row.item_name || row.item]), indicator: "red" }, 5);
+			frappe.model.remove_from_locals(cdt, cdn);
+			frm.refresh_field("item_installed_removed");
+			return;
+		}
+
+		// Cross-job check: only for items being installed
+		if (row.installed_or_removed !== "Removed") {
+			frappe.call({
+				method: "fleet.fleet.doctype.job.job.check_item_available",
+				args: { item: row.item, current_job: frm.doc.name },
+				callback(r) {
+					if (r.message) {
+						frappe.show_alert({
+							message: __("{0} is already installed in {1}.", [row.item_name || row.item, r.message]),
+							indicator: "red",
+						}, 6);
+						frappe.model.remove_from_locals(cdt, cdn);
+						frm.refresh_field("item_installed_removed");
+					}
+				},
+			});
+		}
+	},
+
 	installed_or_removed(frm, cdt, cdn) {
 		const row = locals[cdt][cdn];
 		const val = row.installed_or_removed;
@@ -198,7 +231,7 @@ frappe.ui.form.on("Job", {
 
 		// SUPPORT TEAM + TECHNICIAN
 		if (is_support || is_tech) {
-			if (status === "Pending") {
+			if (status === "In Progress") {
 				frm.add_custom_button(__("Mark as Done"), () =>
 					_job_action_with_comment(frm, "done", __("Done Comment"), "done_comment")
 				).addClass("btn-primary");
@@ -216,14 +249,14 @@ frappe.ui.form.on("Job", {
 			if (status === "In Review") {
 				frm.add_custom_button(__("Complete"), () =>
 					_job_action_with_comment(frm, "complete", __("Completion Comment"), "completion_comment")
-				).addClass("btn-success");
+				).removeClass("btn-default btn-secondary").addClass("btn-success").css("background-color", "#28a745").css("border-color", "#28a745").css("color", "#fff");
 
 				frm.add_custom_button(__("Mark as Pending"), () =>
 					_job_action(frm, "mark_pending")
 				).removeClass("btn-default").addClass("btn-warning");
 			}
 
-			if (status === "Pending") {
+			if (["Pending", "In Progress"].includes(status)) {
 				frm.add_custom_button(__("Hold"), () =>
 					_job_action_with_comment(frm, "hold", __("Hold Comment"), "hold_comment")
 				);
@@ -238,15 +271,6 @@ frappe.ui.form.on("Job", {
 			}
 		}
 
-		// STATUS INDICATOR
-		const color_map = {
-			"Pending":   "gray",
-			"In Review": "purple",
-			"On Hold":   "orange",
-			"Completed": "green",
-			"Cancelled": "red",
-		};
-		frm.page.set_indicator(__(status), color_map[status] || "gray");
 	},
 
 	assigned_technician(frm) {
@@ -258,10 +282,30 @@ frappe.ui.form.on("Job", {
 		}
 	},
 
+	vehicle_number(frm) {
+		fetch_vehicle_details(frm);
+	},
+
 	task_type(frm) {
 		// Re-run the vehicle check when task type changes while a number is already entered
 		fetch_vehicle_details(frm);
-	}
+	},
+
+	async validate(frm) {
+		if (!frm.doc.vehicle_number || !frm.doc.customer || frm.doc.task_type === "Installation") return;
+		const vnum = frm.doc.vehicle_number.replace(/\s+/g, "").toUpperCase();
+		const r = await frappe.db.get_value("Vehicle", vnum, "custom_customer");
+		const vc = r?.message?.custom_customer;
+		if (vc && vc !== frm.doc.customer) {
+			frappe.show_alert({
+				message: __("Vehicle {0} belongs to {1}, not {2}.", [vnum, vc, frm.doc.customer]),
+				indicator: "red",
+			}, 6);
+			frm.set_value("vehicle_number", "");
+			_clearVehicleDetails(frm);
+			frappe.validated = false;
+		}
+	},
 
 });
 
@@ -310,7 +354,7 @@ function fetch_vehicle_details(frm) {
     frappe.db.get_value(
         "Vehicle",
         normalized,
-        ["name", "make", "model", "color", "custom_vehicle_type"]
+        ["name", "make", "model", "color", "custom_vehicle_type", "custom_customer"]
     ).then(r => {
         // Bail if the field changed while the request was in flight
         if (frm.doc.vehicle_number !== normalized) return;
@@ -332,6 +376,16 @@ function fetch_vehicle_details(frm) {
             // else: new vehicle — OK for Installation, nothing to fetch
         } else {
             if (exists) {
+                if (vehicle.custom_customer && frm.doc.customer && vehicle.custom_customer !== frm.doc.customer) {
+                    frappe.msgprint({
+                        title:     __("Customer Mismatch"),
+                        message:   __("Vehicle <b>{0}</b> belongs to <b>{1}</b>, not <b>{2}</b>.", [normalized, vehicle.custom_customer, frm.doc.customer]),
+                        indicator: "red",
+                    });
+                    frm.set_value("vehicle_number", "");
+                    _clearVehicleDetails(frm);
+                    return;
+                }
                 frm.set_value("make",  vehicle.make                || "");
                 frm.set_value("model", vehicle.model               || "");
                 frm.set_value("color", vehicle.color               || "");

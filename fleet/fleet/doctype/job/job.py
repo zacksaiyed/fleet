@@ -69,6 +69,14 @@ class Job(Document):
 					title="Vehicle Not Found"
 				)
 
+			vehicle_customer = frappe.db.get_value("Vehicle", self.vehicle_number, "custom_customer")
+			if vehicle_customer and self.customer and vehicle_customer != self.customer:
+				frappe.throw(
+					f"Vehicle <b>{self.vehicle_number}</b> belongs to <b>{vehicle_customer}</b>, "
+					f"not <b>{self.customer}</b>.",
+					title="Customer Mismatch"
+				)
+
 	def on_update(self):
 		self._sync_task_child_row()
 		self._recompute_task_status()
@@ -492,6 +500,23 @@ def get_removable_items(doctype, txt, searchfield, start, page_len, filters):
 	)
 
 
+@frappe.whitelist()
+def check_item_available(item, current_job=None):
+	"""Return the job name if the item is already installed in another active job, else None."""
+	installed_in = frappe.get_all(
+		"Job Item",
+		filters={"item": item, "installed_or_removed": "Installed"},
+		pluck="parent",
+	)
+	for job_name in installed_in:
+		if job_name == current_job:
+			continue
+		if frappe.db.get_value("Job", job_name, "status") == "Cancelled":
+			continue
+		return job_name
+	return None
+
+
 # Job Actions
 
 @frappe.whitelist()
@@ -503,8 +528,8 @@ def job_action(job, action, comment=None, comment_field=None):
 	is_tech    = "Technician"   in roles
 
 	if action == "done":
-		if doc.status != "Pending":
-			frappe.throw("Job must be Pending to mark as Done.")
+		if doc.status != "In Progress":
+			frappe.throw("Job must be In Progress to mark as Done.")
 		if not (is_support or is_tech):
 			frappe.throw("Permission denied.")
 		if not comment:
@@ -516,8 +541,8 @@ def job_action(job, action, comment=None, comment_field=None):
 		msg = "Job marked as In Review."
 
 	elif action == "hold":
-		if doc.status != "Pending":
-			frappe.throw("Job must be Pending to put On Hold.")
+		if doc.status not in ("Pending", "In Progress"):
+			frappe.throw("Job must be Pending or In Progress to put On Hold.")
 		if not (is_support or is_tech):
 			frappe.throw("Permission denied.")
 		if not comment:
@@ -541,8 +566,10 @@ def job_action(job, action, comment=None, comment_field=None):
 			frappe.throw("Only Support Team can complete a job.")
 		if not comment:
 			frappe.throw("Completion comment is required.")
-		doc.completion_comment = comment
-		doc.status = "Completed"
+		doc.completion_comment      = comment
+		doc.status                  = "Completed"
+		doc.completed_by_support    = frappe.session.user
+		doc.completed_on_support    = now()
 		msg = "Job completed."
 
 	elif action == "mark_pending":
