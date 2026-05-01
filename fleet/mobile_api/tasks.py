@@ -1294,11 +1294,65 @@ def get_job_images(job: str) -> dict:
         order_by="idx asc",
     )
 
+    base_url = frappe.utils.get_url()
+    for img in images:
+        path = img.get("image") or ""
+        if path and path.startswith("/"):
+            img["image"] = f"{base_url}{path}"
+
     return {
         "status": "success",
         "job":    job,
         "images": images,
     }
+
+
+@frappe.whitelist()
+def delete_job_image(job: str, row_name: str) -> dict:
+    """
+    DELETE /api/method/fleet.mobile_api.tasks.delete_job_image
+    Headers:
+        Cookie: sid=<logged_in_user_sid>
+    Body:
+        job      — job name (required)
+        row_name — Job Image child row name (required)
+
+    Removes the image row from job_images and deletes the underlying File.
+    Job must be Pending, In Progress, or On Hold and assigned to the logged-in technician.
+    """
+    if not job or not row_name:
+        return _error(400, "MISSING_PARAMS", "job and row_name are required.")
+
+    employee, err = _get_auth()
+    if err:
+        return err
+
+    if not frappe.db.exists("Job", {"name": job, "assigned_technician": employee}):
+        return _error(404, "NOT_FOUND", "Job not found or you are not assigned to it.")
+
+    job_doc = frappe.get_doc("Job", job)
+
+    if job_doc.status not in ("Pending", "In Progress", "On Hold"):
+        return _error(422, "INVALID_STATE", "Job can only be updated when Pending, In Progress, or On Hold.")
+
+    # Find the row in the child table
+    row = next((r for r in job_doc.job_images if r.name == row_name), None)
+    if not row:
+        return _error(404, "NOT_FOUND", f"Image row {row_name} not found in job {job}.")
+
+    file_url = row.image
+
+    # Remove the child row and save
+    job_doc.remove(row)
+    job_doc.save(ignore_permissions=True)
+
+    # Delete the underlying Frappe File document if it exists
+    if file_url:
+        file_doc = frappe.db.get_value("File", {"file_url": file_url}, "name")
+        if file_doc:
+            frappe.delete_doc("File", file_doc, ignore_permissions=True)
+
+    return {"status": "success", "msg": "Image deleted."}
 
 
 @frappe.whitelist()
