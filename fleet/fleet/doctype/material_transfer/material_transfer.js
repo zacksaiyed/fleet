@@ -19,10 +19,8 @@ frappe.ui.form.on("Material Transfer", {
 	refresh: function (frm) {
 		// submitted docs are locked by frappe automatically — docstatus=1
 		if (frm.doc.docstatus === 1) {
-			if (frm.doc.stock_entry) {
-				frm.add_custom_button(__("View Stock Entry"), function () {
-					frappe.set_route("Form", "Stock Entry", frm.doc.stock_entry);
-				}).addClass("btn-success");
+			if (frm.doc.workflow_state === "Approved") {
+				frm.page.btn_secondary.hide();
 			}
 			return;
 		}
@@ -254,13 +252,14 @@ function set_warehouse_filters(frm) {
 }
 
 
-// item query — only shows items with actual stock in source warehouse
+// item query — only shows items with actual stock in source warehouse,
+// and excludes items already pending approval in another MT
 function set_item_query(frm) {
 	frm.set_query("item", "items", function () {
 		return {
 			query: "fleet.fleet.doctype.material_transfer.material_transfer.get_items_in_warehouse",
 			filters: {
-				warehouse: frm.doc.source || ""
+				warehouse: frm.doc.source || "",
 			},
 		};
 	});
@@ -294,26 +293,41 @@ function check_stock_and_add(frm, item_code) {
 		return;
 	}
 
+	// check if item is already pending approval in another MT
 	frappe.call({
-		method: "frappe.client.get_list",
-		args: {
-			doctype: "Bin",
-			filters: { item_code: item_code, warehouse: frm.doc.source },
-			fields: ["actual_qty"],
-			limit: 1,
-		},
+		method: "fleet.fleet.doctype.material_transfer.material_transfer.is_item_pending_approval",
+		args: { item_code: item_code, current_doc: frm.doc.name },
 		callback: function (r) {
-			const actual_qty = (r.message && r.message.length) ? flt(r.message[0].actual_qty) : 0;
-
-			if (actual_qty <= 0) {
+			if (r.message) {
 				frappe.show_alert({
-					message: __("Item {0} is not available in {1}", [item_code, frm.doc.source]),
+					message: __("Item {0} is already pending approval in {1}", [item_code, r.message]),
 					indicator: "red",
 				}, 5);
 				return;
 			}
 
-			add_item_row(frm, item_code);
+			frappe.call({
+				method: "frappe.client.get_list",
+				args: {
+					doctype: "Bin",
+					filters: { item_code: item_code, warehouse: frm.doc.source },
+					fields: ["actual_qty"],
+					limit: 1,
+				},
+				callback: function (r) {
+					const actual_qty = (r.message && r.message.length) ? flt(r.message[0].actual_qty) : 0;
+
+					if (actual_qty <= 0) {
+						frappe.show_alert({
+							message: __("Item {0} is not available in {1}", [item_code, frm.doc.source]),
+							indicator: "red",
+						}, 5);
+						return;
+					}
+
+					add_item_row(frm, item_code);
+				},
+			});
 		},
 	});
 }
@@ -383,6 +397,23 @@ frappe.ui.form.on("Material Transfer Item", {
 			frappe.model.set_value(cdt, cdn, "item", "");
 			return;
 		}
+
+		// check if item is already pending approval in another MT
+		frappe.call({
+			method: "fleet.fleet.doctype.material_transfer.material_transfer.is_item_pending_approval",
+			args: { item_code: row.item, current_doc: frm.doc.name },
+			callback: function (r) {
+				if (r.message) {
+					frappe.show_alert({
+						message: __("Item {0} is already pending approval in {1}. Removed.", [row.item, r.message]),
+						indicator: "red",
+					}, 5);
+					const grid_row = frm.get_field("items").grid.grid_rows_by_docname[cdn];
+					if (grid_row) grid_row.remove();
+					frm.refresh_field("items");
+				}
+			},
+		});
 
 		frappe.call({
 			method: "frappe.client.get_list",

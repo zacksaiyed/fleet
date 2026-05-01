@@ -8,8 +8,8 @@
  "field_order": [
   "date",
   "column_break_qdkg",
-  "stock_entry",
   "accepted_by",
+  "stock_entry",
   "section_break_yctw",
   "source",
   "column_break_crbu",
@@ -79,6 +79,7 @@
   {
    "fieldname": "stock_entry",
    "fieldtype": "Link",
+   "hidden": 1,
    "label": "Stock Entry",
    "options": "Stock Entry",
    "read_only": 1
@@ -102,10 +103,11 @@
   }
  ],
  "grid_page_length": 50,
+ "hide_toolbar": 1,
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-04-21 23:40:49.859309",
+ "modified": "2026-05-01 12:18:37.670432",
  "modified_by": "Administrator",
  "module": "Fleet",
  "name": "Material Transfer",
@@ -114,12 +116,9 @@
  "permissions": [
   {
    "amend": 1,
-   "cancel": 1,
    "create": 1,
    "delete": 1,
-   "email": 1,
    "export": 1,
-   "print": 1,
    "read": 1,
    "report": 1,
    "role": "System Manager",
@@ -128,10 +127,7 @@
    "write": 1
   },
   {
-   "cancel": 1,
    "create": 1,
-   "email": 1,
-   "print": 1,
    "read": 1,
    "report": 1,
    "role": "Support Team",
@@ -142,8 +138,6 @@
   },
   {
    "create": 1,
-   "email": 1,
-   "print": 1,
    "read": 1,
    "role": "Technician",
    "select": 1,
@@ -153,9 +147,7 @@
   },
   {
    "create": 1,
-   "email": 1,
    "export": 1,
-   "print": 1,
    "read": 1,
    "report": 1,
    "role": "Fleet Administrator",
@@ -166,9 +158,7 @@
   },
   {
    "create": 1,
-   "email": 1,
    "export": 1,
-   "print": 1,
    "read": 1,
    "report": 1,
    "role": "Fleet Manager",

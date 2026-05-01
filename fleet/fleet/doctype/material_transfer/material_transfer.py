@@ -91,6 +91,10 @@ class MaterialTransfer(Document):
 				"Following items are already used in another Material Transfer (Approval Pending):<br><br>{0}<br><br>Please remove them."
 			).format(formatted))
 
+	def before_submit(self):
+		if self.workflow_state == "Approved":
+			self.accepted_by = frappe.session.user
+
 	def on_submit(self):
 		# workflow has doc_status=1 on Approved state
 		# frappe sets docstatus=1 which triggers on_submit — reliable every time
@@ -283,7 +287,8 @@ def notify_target_warehouse(doc_name):
 	frappe.db.commit()
 
 
-# returns only items with actual_qty > 0 in the given warehouse
+# returns only items with actual_qty > 0 in the given warehouse,
+# excluding items already reserved in another pending-approval MT
 # used by child table item field set_query in js
 @frappe.whitelist()
 @frappe.validate_and_sanitize_search_inputs
@@ -296,6 +301,13 @@ def get_items_in_warehouse(doctype, txt, searchfield, start, page_len, filters):
 		and (
 			i.name like %(txt)s
 			or i.item_name like %(txt)s
+		)
+		and i.name not in (
+			select mti.item
+			from `tabMaterial Transfer Item` mti
+			join `tabMaterial Transfer` mt on mt.name = mti.parent
+			where mt.docstatus = 0
+			  and mt.workflow_state = 'Approval Pending'
 		)
 	"""
 
@@ -342,6 +354,28 @@ def get_items_in_warehouse(doctype, txt, searchfield, start, page_len, filters):
 		"""
 
 	return frappe.db.sql(query, params)
+
+
+# returns the MT name if the item is already reserved in another pending-approval MT
+@frappe.whitelist()
+def is_item_pending_approval(item_code, current_doc=None):
+	exclude_self = "AND mt.name != %s" if current_doc else ""
+	args = [item_code]
+	if current_doc:
+		args.append(current_doc)
+
+	result = frappe.db.sql(f"""
+		SELECT mt.name
+		FROM `tabMaterial Transfer` mt
+		JOIN `tabMaterial Transfer Item` mti ON mti.parent = mt.name
+		WHERE mt.docstatus = 0
+		  AND mt.workflow_state = 'Approval Pending'
+		  AND mti.item = %s
+		  {exclude_self}
+		LIMIT 1
+	""", args)
+
+	return result[0][0] if result else None
 
 
 # private — creates and submits the stock entry
