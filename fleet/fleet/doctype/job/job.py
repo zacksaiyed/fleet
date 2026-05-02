@@ -276,9 +276,10 @@ class Job(Document):
 		vehicle = frappe.get_doc({
 			"doctype": "Vehicle",
 			"license_plate": self.vehicle_number,
-			"make" : self.make,	
+			"make" : self.make,
 			"model" : self.model,
 			"color" : self.color,
+			"custom_vehicle_type": self.type or None,
 			"custom_customer": self.customer or None,
 		})
 		for row in self.item_installed_removed:
@@ -289,6 +290,7 @@ class Job(Document):
 				"date":      self.date,
 			})
 		vehicle.insert(ignore_permissions=True)
+		self._attach_job_images_to_vehicle(self.vehicle_number)
 		frappe.msgprint(
 			f"Vehicle <b>{self.vehicle_number}</b> created and items recorded.", alert=True
 		)
@@ -325,6 +327,7 @@ class Job(Document):
 			vi.date   = self.date
 
 		vehicle.save(ignore_permissions=True)
+		self._attach_job_images_to_vehicle(self.vehicle_number)
 
 	# Checkup
 
@@ -383,6 +386,7 @@ class Job(Document):
 					})
 
 		vehicle.save(ignore_permissions=True)
+		self._attach_job_images_to_vehicle(self.vehicle_number)
 
 	# Accessory
 
@@ -416,6 +420,25 @@ class Job(Document):
 					"date":      self.date,
 				})
 		vehicle.save(ignore_permissions=True)
+		self._attach_job_images_to_vehicle(self.vehicle_number)
+
+	def _attach_job_images_to_vehicle(self, vehicle_number):
+		for row in self.job_images:
+			if not row.image:
+				continue
+			if frappe.db.exists("File", {
+				"file_url":            row.image,
+				"attached_to_doctype": "Vehicle",
+				"attached_to_name":    vehicle_number,
+			}):
+				continue
+			frappe.get_doc({
+				"doctype":             "File",
+				"file_url":            row.image,
+				"attached_to_doctype": "Vehicle",
+				"attached_to_name":    vehicle_number,
+				"is_private":          0,
+			}).insert(ignore_permissions=True)
 
 
 # Item search by warehouse
@@ -526,6 +549,7 @@ def job_action(job, action, comment=None, comment_field=None):
 	roles      = frappe.get_roles()
 	is_support = "Support Team" in roles
 	is_tech    = "Technician"   in roles
+	msg        = ""
 
 	if action == "done":
 		if doc.status != "In Progress":
@@ -534,6 +558,8 @@ def job_action(job, action, comment=None, comment_field=None):
 			frappe.throw("Permission denied.")
 		if not comment:
 			frappe.throw("Comment is required.")
+		if not doc.job_images:
+			frappe.throw("At least one image is required before marking the job as Done.")
 		doc.done_comment                = comment
 		doc.status                      = "In Review"
 		doc.completed_by_technician     = frappe.session.user
@@ -592,4 +618,4 @@ def job_action(job, action, comment=None, comment_field=None):
 		frappe.throw(f"Unknown action: {action}")
 
 	doc.save(ignore_permissions=True)
-	return {"msg": msg, "status": doc.status}
+	return {"msg": msg, "job_status": doc.status}
