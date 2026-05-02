@@ -24,10 +24,13 @@ _VALID_VEHICLE_TYPES = {"Truck", "Bus", "Car", "Mini Truck"}
 # POST /api/method/fleet.mobile_api.tasks.upload_job_image
 # POST /api/method/fleet.mobile_api.tasks.job_action
 
-def _error(http_status: int, code: str, message: str) -> dict:
+def _error(http_status: int, code: str, message: str, data=None) -> dict:
     """Return a clean, traceback-free error envelope and set the HTTP status code."""
     frappe.local.response["http_status_code"] = http_status
-    return {"status": "error", "code": code, "message": message}
+    resp = {"status": "error", "code": code, "message": message}
+    if data is not None:
+        resp["data"] = data
+    return resp
 
 
 # statuses considered active (not done/cancelled)
@@ -661,6 +664,21 @@ def get_job_item_options(job: str, direction: str = None) -> dict:
             WHERE b.warehouse = %(warehouse)s
               AND b.actual_qty > 0
               AND i.disabled = 0
+              AND i.name NOT IN (
+                  SELECT ji.item
+                  FROM `tabJob Item` ji
+                  JOIN `tabJob` j ON j.name = ji.parent
+                  WHERE ji.installed_or_removed = 'Installed'
+                    AND j.status NOT IN ('Cancelled', 'Completed')
+              )
+              AND i.name NOT IN (
+                  SELECT mti.item
+                  FROM `tabMaterial Transfer Item` mti
+                  JOIN `tabMaterial Transfer` mt ON mt.name = mti.parent
+                  WHERE mt.source = %(warehouse)s
+                    AND mt.workflow_state = 'Approval Pending'
+                    AND mt.docstatus < 2
+              )
             ORDER BY i.custom_item_type, i.item_name
         """, {"warehouse": warehouse}, as_dict=True)
 
@@ -1128,12 +1146,6 @@ def update_job(
             if not fetched:
                 return _error(404, "NOT_FOUND", f"Item {item_code} not found.")
 
-            # Block installing an item already active in another job
-            if r.get("installed_or_removed", "Installed") == "Installed":
-                conflict = _check_item_available(item_code, current_job=job)
-                if conflict:
-                    return _error(409, "ITEM_IN_USE", f"Item {item_code} is already installed in job {conflict}.")
-
             job_doc.append("item_installed_removed", {
                 "item":                 item_code,
                 "item_name":            fetched.item_name,
@@ -1425,22 +1437,6 @@ def _job_available_actions(status: str) -> list:
         "On Hold":     ["reopen"],
         # In Review → technician has no actions; support completes it
     }.get(status, [])
-
-
-def _check_item_available(item: str, current_job: str = None) -> str | None:
-    """Return the conflicting job name if the item is already installed in another active job."""
-    installed_in = frappe.get_all(
-        "Job Item",
-        filters={"item": item, "installed_or_removed": "Installed"},
-        pluck="parent",
-    )
-    for job_name in installed_in:
-        if job_name == current_job:
-            continue
-        if frappe.db.get_value("Job", job_name, "status") == "Cancelled":
-            continue
-        return job_name
-    return None
 
 
 def _post_job_update_message(job_doc, employee, changed_scalars: dict, set_items):
