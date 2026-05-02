@@ -1,6 +1,7 @@
 # Copyright (c) 2026, XBarq Technologies and contributors
 # For license information, please see license.txt
 
+import re
 import frappe
 import json
 
@@ -127,7 +128,7 @@ def handle_assignment(doc, method=None):
                 "custom_employee_name":    doc.custom_employee_name or "",
                 "custom_customer":         doc.custom_customer or "",
                 "custom_date":             str(doc.custom_date) if doc.custom_date else "",
-                "custom_complete_address": frappe.utils.strip_tags(doc.custom_complete_address or ""),
+                "custom_complete_address": re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", doc.custom_complete_address or "")).strip(),
                 "custom_latitude":         str(lat),
                 "custom_longitude":        str(lng),
                 "custom_mobile_no":        doc.custom_mobile_no or "",

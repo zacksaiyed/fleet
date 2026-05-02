@@ -175,11 +175,10 @@ doc_events = {
     },
     "Task": {
         "validate": "fleet.fleet.doctype.task.task.validate",
-        "after_insert": "fleet.custom_py.task_assignment.handle_assignment",
         "on_update": [
             "fleet.override.task.sync_vehicle_data",               # Vehicle sync on Complete
             "fleet.custom_py.task_hooks.on_task_update",           # Create Jobs for new rows
-            "fleet.custom_py.task_assignment.handle_assignment",   # Re-assign on update
+            "fleet.custom_py.task_assignment.handle_assignment",   # New assignment and re-assign
         ],
     },
     "Employee": {
