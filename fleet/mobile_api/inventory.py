@@ -136,6 +136,13 @@ def get_my_warehouse_inventory():
                 AND mt.workflow_state = 'Approval Pending'
                 AND mt.docstatus < 2
           )
+          AND i.name NOT IN (
+              SELECT ji.item
+              FROM `tabJob Item` ji
+              JOIN `tabJob` j ON j.name = ji.parent
+              WHERE ji.installed_or_removed = 'Installed'
+                AND j.status NOT IN ('Cancelled', 'Completed')
+          )
         ORDER BY i.custom_item_type, i.item_name
     """, (warehouse, warehouse), as_dict=True)
 
