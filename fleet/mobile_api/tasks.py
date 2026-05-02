@@ -174,8 +174,6 @@ def get_my_tasks() -> dict:
             "company",
             "creation",
             "modified",
-            "custom_latitude",
-            "custom_longitude",
         ],
         order_by="custom_date asc, modified desc"
     )
@@ -211,6 +209,17 @@ def get_my_tasks() -> dict:
                 job_type_counts[t] = {}
             job_type_counts[t][row["task_type"]] = row["cnt"]
 
+    # fetch lat/long from Address (source of truth) in one query
+    address_names = list({t["custom_address"] for t in tasks if t.get("custom_address")})
+    address_coords = {}
+    if address_names:
+        for row in frappe.get_all(
+            "Address",
+            filters={"name": ["in", address_names]},
+            fields=["name", "custom_latitude", "custom_longitude"],
+        ):
+            address_coords[row.name] = (row.custom_latitude or 0, row.custom_longitude or 0)
+
     for task in tasks:
         n = task["name"]
         task["total_jobs"]              = job_counts.get(n, 0)
@@ -218,6 +227,9 @@ def get_my_tasks() -> dict:
         task["job_type_counts"]         = job_type_counts.get(n, {})
         task["description"]             = _strip_html(task.get("description"))
         task["custom_complete_address"] = _strip_html(task.get("custom_complete_address"))
+        coords = address_coords.get(task.get("custom_address"), (0, 0))
+        task["custom_latitude"]         = coords[0]
+        task["custom_longitude"]        = coords[1]
 
     # tab badge counts for mobile nav
     tab_counts = {
