@@ -191,9 +191,10 @@ def get_my_tasks() -> dict:
                 task,
                 task_type,
                 COUNT(*) AS cnt,
-                SUM(CASE WHEN status = 'In Review' THEN 1 ELSE 0 END) AS in_review_cnt
+                SUM(CASE WHEN status = 'Completed' THEN 1 ELSE 0 END) AS completed_cnt
             FROM `tabJob`
             WHERE task IN %(tasks)s
+              AND status != 'Cancelled'
             GROUP BY task, task_type
             """,
             {"tasks": tuple(task_names)},
@@ -202,7 +203,7 @@ def get_my_tasks() -> dict:
         for row in rows:
             t = row["task"]
             job_counts[t] = job_counts.get(t, 0) + row["cnt"]
-            completed_counts[t] = completed_counts.get(t, 0) + (row["in_review_cnt"] or 0)
+            completed_counts[t] = completed_counts.get(t, 0) + (row["completed_cnt"] or 0)
             if t not in job_type_counts:
                 job_type_counts[t] = {}
             job_type_counts[t][row["task_type"]] = row["cnt"]
@@ -271,7 +272,7 @@ def get_task_jobs(task: str) -> dict:
 
     jobs = frappe.get_all(
         "Job",
-        filters={"task": task},
+        filters={"task": task, "status": ["!=", "Cancelled"]},
         fields=[
             "name",
             "title",
@@ -294,7 +295,7 @@ def get_task_jobs(task: str) -> dict:
     )
 
     total_jobs     = len(jobs)
-    completed_jobs = sum(1 for j in jobs if j["status"] == "In Review")
+    completed_jobs = sum(1 for j in jobs if j["status"] == "Completed")
 
     return {
         "status": "success",
