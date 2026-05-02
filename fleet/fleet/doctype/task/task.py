@@ -40,6 +40,7 @@ def task_action(task, action, technician=None, reject_comment=None):
 	roles      = frappe.get_roles()
 	is_support = "Support Team" in roles
 	is_tech    = "Technician"   in roles
+	msg        = ""
 
 	if action == "accept":
 		_assert_status(doc, "Open", "Task must be Open to Accept.")
@@ -124,7 +125,7 @@ def task_action(task, action, technician=None, reject_comment=None):
 		frappe.throw(f"Unknown action: {action}")
 
 	doc.save(ignore_permissions=True)
-	return {"msg": msg, "status": doc.status}
+	return {"msg": msg, "task_status": doc.status}
 
 
 def _reassign_jobs(task_name, new_technician):

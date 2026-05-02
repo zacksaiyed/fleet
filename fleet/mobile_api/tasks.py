@@ -359,7 +359,10 @@ def respond_to_task(task: str, action: str, reject_comment: str = None) -> dict:
         return _error(404, "NOT_FOUND", "Task not found or you are not assigned to it.")
 
     from fleet.fleet.doctype.task.task import task_action
-    result = task_action(task=task, action=action, reject_comment=reject_comment)
+    try:
+        result = task_action(task=task, action=action, reject_comment=reject_comment)
+    except frappe.ValidationError as e:
+        return _error(400, "VALIDATION_ERROR", str(e))
     return {"status": "success", **result}
 
 
@@ -394,7 +397,10 @@ def start_task(task: str) -> dict:
         return _error(404, "NOT_FOUND", "Task not found or you are not assigned to it.")
 
     from fleet.fleet.doctype.task.task import task_action
-    result = task_action(task=task, action="start")
+    try:
+        result = task_action(task=task, action="start")
+    except frappe.ValidationError as e:
+        return _error(400, "VALIDATION_ERROR", str(e))
     return {"status": "success", **result}
 
 
@@ -1430,7 +1436,10 @@ def job_action(job: str, action: str, comment: str = None) -> dict:
         return _error(404, "NOT_FOUND", "Job not found or you are not assigned to it.")
 
     from fleet.fleet.doctype.job.job import job_action as _job_action
-    result = _job_action(job=job, action=action, comment=comment)
+    try:
+        result = _job_action(job=job, action=action, comment=comment)
+    except frappe.ValidationError as e:
+        return _error(400, "VALIDATION_ERROR", str(e))
     return {"status": "success", **result}
 
 
