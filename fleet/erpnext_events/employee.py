@@ -205,11 +205,12 @@ def _update_user(doc, current_user_name):
 
 @frappe.whitelist()
 def change_employee_user_password(employee: str, new_password: str):
-    allowed = {"System Manager", "Fleet Administrator"}
-    if frappe.session.user != "Administrator" and not (allowed & set(frappe.get_roles())):
+    allowed = {"System Manager", "Fleet Administrator", "Fleet Manager"}
+    user_id = frappe.db.get_value("Employee", employee, "user_id")
+    is_own = user_id and frappe.session.user == user_id
+    if frappe.session.user != "Administrator" and not is_own and not (allowed & set(frappe.get_roles())):
         frappe.throw("Not permitted.", frappe.PermissionError)
 
-    user_id = frappe.db.get_value("Employee", employee, "user_id")
     if not user_id:
         frappe.throw("No user account is linked to this employee.")
 
