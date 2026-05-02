@@ -313,7 +313,8 @@ def get_my_transfers(workflow_state=None):
 
     transfers = frappe.db.sql("""
         SELECT name, date, source, target, workflow_state,
-               stock_entry, owner, creation, modified
+               stock_entry, owner, creation, modified,
+               CASE WHEN workflow_state = 'Rejected' THEN reject_reason ELSE NULL END AS reject_reason
         FROM `tabMaterial Transfer`
         WHERE {where}
         ORDER BY modified DESC
@@ -484,6 +485,7 @@ def get_transfer(name):
             "creation":          str(doc.creation),
             "can_approve":       can_approve,
             "can_cancel":        can_cancel,
+            "reject_reason":     doc.reject_reason if doc.workflow_state == "Rejected" else None,
             "groups":            item_groups,
         },
     }
@@ -697,12 +699,13 @@ def cancel_transfer(name):
 # 8. Approve or reject a material transfer
 
 @frappe.whitelist()
-def respond_transfer(name, action):
+def respond_transfer(name, action, reject_reason=None):
     """
     POST /api/method/fleet.mobile_api.inventory.respond_transfer
     Body:
-        name   — Material Transfer name (required)
-        action — "Approve" or "Reject" (required)
+        name          — Material Transfer name (required)
+        action        — "Approve" or "Reject" (required)
+        reject_reason — reason for rejection (required when action = "Reject")
 
     Who can respond:
         - Technician: only if their warehouse = target warehouse
@@ -712,7 +715,7 @@ def respond_transfer(name, action):
         - workflow_state → "Approved", doc submitted → on_submit creates Stock Entry
         - If target = Store, accepted_by is set to current user
     On Reject:
-        - workflow_state → "Rejected", creator is notified
+        - reject_reason saved, workflow_state → "Rejected", creator is notified
 
     Response:
     {
@@ -726,6 +729,9 @@ def respond_transfer(name, action):
 
     if action not in ("Approve", "Reject"):
         return _error(400, "INVALID_PARAMS", "action must be 'Approve' or 'Reject'.")
+
+    if action == "Reject" and not reject_reason:
+        return _error(400, "MISSING_PARAMS", "reject_reason is required when rejecting.")
 
     employee, err = _get_auth()
     if err:
@@ -763,6 +769,8 @@ def respond_transfer(name, action):
         }
 
     else:  # Reject
+        frappe.db.set_value("Material Transfer", name, "reject_reason", reject_reason)
+        doc.reload()
         apply_workflow(doc, "Reject")
 
         try:
