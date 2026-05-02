@@ -279,6 +279,7 @@ def notify_target_warehouse(doc_name):
 					"source_user_image": src_image,
 					"target_user_name":  tgt_name,
 					"target_user_image": tgt_image,
+					"reject_reason":     doc.reject_reason or "",
 				},
 			)
 		except Exception:

@@ -106,6 +106,13 @@ def handle_assignment(doc, method=None):
     # Push notification to the newly assigned technician
     try:
         from fleet.firebase import send_push
+
+        lat, lng = 0, 0
+        if doc.custom_address:
+            coords = frappe.db.get_value("Address", doc.custom_address, ["custom_latitude", "custom_longitude"])
+            if coords:
+                lat, lng = coords[0] or 0, coords[1] or 0
+
         send_push(
             user=user,
             title="New Task Assigned",
@@ -120,9 +127,9 @@ def handle_assignment(doc, method=None):
                 "custom_employee_name":    doc.custom_employee_name or "",
                 "custom_customer":         doc.custom_customer or "",
                 "custom_date":             str(doc.custom_date) if doc.custom_date else "",
-                "custom_complete_address": doc.custom_complete_address or "",
-                "custom_latitude":         str(doc.custom_latitude) if doc.custom_latitude else "",
-                "custom_longitude":        str(doc.custom_longitude) if doc.custom_longitude else "",
+                "custom_complete_address": frappe.utils.strip_tags(doc.custom_complete_address or ""),
+                "custom_latitude":         str(lat),
+                "custom_longitude":        str(lng),
                 "custom_mobile_no":        doc.custom_mobile_no or "",
                 "custom_assigned_at":      str(doc.custom_assigned_at) if doc.custom_assigned_at else "",
                 "workflow_state":          doc.workflow_state or "",
