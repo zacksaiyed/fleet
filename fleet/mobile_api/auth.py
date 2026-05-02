@@ -265,7 +265,7 @@ def change_password(old_password: str, new_password: str) -> dict:
         login_manager = LoginManager()
         login_manager.authenticate()
     except frappe.AuthenticationError:
-        return _error(401, "WRONG_PASSWORD", "Current password is incorrect.")
+        return _error(400, "WRONG_PASSWORD", "Current password is incorrect.")
 
     # update to new password
     update_password(user, new_password)
