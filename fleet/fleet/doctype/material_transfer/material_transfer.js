@@ -34,6 +34,15 @@ frappe.ui.form.on("Material Transfer", {
 		const READONLY_STATES = ["Approval Pending", "Approved", "Rejected", "Cancelled"];
 		if (READONLY_STATES.includes(frm.doc.workflow_state)) {
 			frm.disable_form();
+			if (frm.doc.workflow_state === "Rejected") {
+				// hide the Cancel workflow action button — no action needed on a rejected transfer
+				setTimeout(() => {
+					frm.page.wrapper.find(".page-actions .btn").filter(function () {
+						return $(this).text().trim() === "Cancel";
+					}).hide();
+				}, 0);
+				frm.set_df_property("reject_reason", "hidden", 0);
+			}
 			return;
 		}
 
@@ -45,6 +54,43 @@ frappe.ui.form.on("Material Transfer", {
 		if (frm.doc.workflow_state === "Initiated") {
 			setTimeout(() => frm.fields_dict['scan_barcode'].$input.focus(), 500);
 		}
+	},
+
+	before_workflow_action: function (frm) {
+		if (frm.selected_workflow_action !== "Reject") return;
+
+		// Frappe freezes the DOM before firing before_workflow_action — unfreeze so
+		// our dialog is actually interactive. Frappe's own unfreeze at the end of
+		// the workflow chain is harmless if nothing is frozen.
+		frappe.dom.unfreeze();
+
+		return new Promise((resolve, reject) => {
+			const dialog = new frappe.ui.Dialog({
+				title: __("Rejection Reason"),
+				fields: [
+					{
+						fieldname: "reject_reason",
+						fieldtype: "Small Text",
+						label: __("Reason"),
+						reqd: 1,
+					},
+				],
+				primary_action_label: __("Confirm Rejection"),
+				primary_action(values) {
+					frappe.db.set_value("Material Transfer", frm.doc.name, "reject_reason", values.reject_reason)
+						.then(() => {
+							dialog.hide();
+							resolve();
+						});
+				},
+				secondary_action_label: __("Cancel"),
+				secondary_action() {
+					dialog.hide();
+					reject();
+				},
+			});
+			dialog.show();
+		});
 	},
 
 	// fires after frappe saves the new workflow state
