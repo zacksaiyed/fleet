@@ -131,7 +131,7 @@ def get_my_tasks() -> dict:
 
     if tab == "today":
         filters["custom_date"] = today
-        filters["status"]      = "Accepted"
+        filters["status"]      = ["in", list(_ACTIVE)]
 
     elif tab == "overdue":
         filters["custom_date"] = ["<", today]
@@ -236,7 +236,7 @@ def get_my_tasks() -> dict:
         "today": frappe.db.count("Task", {
             "custom_assign_to": employee,
             "custom_date":      today,
-            "status":           "Accepted",
+            "status":           ["in", list(_ACTIVE)],
         }),
         "overdue": frappe.db.count("Task", {
             "custom_assign_to": employee,
@@ -330,7 +330,7 @@ def get_task_jobs(task: str) -> dict:
 
 
 @frappe.whitelist()
-def respond_to_task(task: str, action: str, reject_comment: str = None) -> dict:
+def respond_to_task(task: str | None = None, action: str | None = None, reject_comment: str | None = None) -> dict:
     """
     POST /api/method/fleet.mobile_api.tasks.respond_to_task
     Headers:
@@ -340,6 +340,12 @@ def respond_to_task(task: str, action: str, reject_comment: str = None) -> dict:
         action         — "accept" | "reject"
         reject_comment — required when action is "reject"
     """
+    if not task:
+        return _error(400, "MISSING_PARAMS", "task is required.")
+
+    if not action:
+        return _error(400, "MISSING_PARAMS", "action is required.")
+
     if action not in ("accept", "reject"):
         return _error(400, "INVALID_PARAMS", "action must be 'accept' or 'reject'.")
 
@@ -367,7 +373,7 @@ def respond_to_task(task: str, action: str, reject_comment: str = None) -> dict:
 
 
 @frappe.whitelist()
-def start_task(task: str) -> dict:
+def start_task(task: str | None = None) -> dict:
     """
     POST /api/method/fleet.mobile_api.tasks.start_task
     Headers:
