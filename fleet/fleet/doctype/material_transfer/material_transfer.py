@@ -113,6 +113,10 @@ class MaterialTransfer(Document):
 			se.cancel()
 		frappe.db.set_value("Material Transfer", self.name, "stock_entry", "")
 
+		from fleet.custom_py.item_warehouse import update_item_warehouse
+		for mt_item in self.items:
+			update_item_warehouse(mt_item.item, self.source)
+
 
 # returns the warehouse assigned to the logged-in user
 # warehouse doctype has custom_employee (link to employee)
@@ -473,6 +477,10 @@ def _create_stock_entry(doc_name):
 	se.submit()
 
 	frappe.db.set_value("Material Transfer", doc_name, "stock_entry", se.name)
+
+	from fleet.custom_py.item_warehouse import update_item_warehouse
+	for mt_item in doc.items:
+		update_item_warehouse(mt_item.item, doc.target)
 
 	_notify_creator_approved(doc, se.name)
 

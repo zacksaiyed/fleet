@@ -6,5 +6,9 @@ frappe.listview_settings["Item"] = {
 				$(".page-head").find(".sidebar-toggle-btn").trigger("click");
 			}
 		});
+
+		frappe.realtime.on("item_warehouse_updated", function () {
+			listview.refresh();
+		});
 	},
 };
