@@ -1,4 +1,4 @@
-# /home/umar/f/apps/fleet/fleet/fleet/doctype/job/job.py
+																									# /home/umar/f/apps/fleet/fleet/fleet/doctype/job/job.py
 import re
 
 import frappe
@@ -16,6 +16,8 @@ class Job(Document):
 		self._set_date_from_task()
 		self._set_vehicle_number()
 		self._fetch_vehicle_details()
+		if self.status == "Pending" and self.item_installed_removed:
+			self.status = "In Progress"
 
 	def validate(self):
 		before = self.get_doc_before_save()
@@ -240,6 +242,10 @@ class Job(Document):
 			se.insert(ignore_permissions=True)
 			se.submit()
 			frappe.msgprint(f"Stock moved: {len(items)} item(s) → {tgt}", alert=True)
+
+			from fleet.custom_py.item_warehouse import update_item_warehouse
+			for r in items:
+				update_item_warehouse(r.item, tgt)
 
 		return True
 
