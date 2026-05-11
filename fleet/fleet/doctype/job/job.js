@@ -58,54 +58,6 @@ frappe.ui.form.on("Job Item", {
 		// Checkup, Swapping, etc. → both values allowed
 
 		frappe.model.set_value(cdt, cdn, "item", null);
-
-		// When "Removed" is selected, auto-populate items from the linked vehicle
-		if (val === "Removed" && frm.doc.vehicle_number && frm.doc.customer) {
-			frappe.db.get_value(
-				"Vehicle",
-				{ license_plate: frm.doc.vehicle_number },
-				["name", "custom_customer"],
-				(r) => {
-					if (!r || !r.name) return;
-					if (r.custom_customer !== frm.doc.customer) return;
-
-					frappe.call({
-						method: "frappe.client.get",
-						args: { doctype: "Vehicle", name: r.name },
-						callback(res) {
-							const items = res.message && res.message.custom_vehicle_item;
-							if (!items || !items.length) return;
-
-							// Preserve Installed rows for task types that allow both
-							// directions (e.g. Checkup). Only wipe Removed rows.
-							const saved_installed = (frm.doc.item_installed_removed || [])
-								.filter(r => r.installed_or_removed === "Installed")
-								.map(r => ({
-									item:                 r.item,
-									item_name:            r.item_name,
-									item_type:            r.item_type,
-									brand:                r.brand,
-									installed_or_removed: "Installed",
-								}));
-
-							frm.clear_table("item_installed_removed");
-
-							saved_installed.forEach(saved => {
-								const new_row = frm.add_child("item_installed_removed");
-								Object.assign(new_row, saved);
-							});
-
-							items.forEach((_vi) => {
-								const new_row = frm.add_child("item_installed_removed");
-								new_row.installed_or_removed = "Removed";
-								// new_row.item = vi.item;
-							});
-							frm.refresh_field("item_installed_removed");
-						},
-					});
-				}
-			);
-		}
 	},
 });
 
@@ -164,6 +116,20 @@ frappe.ui.form.on("Job", {
 
 	refresh(frm) {
 		_attachVehicleNumberMask(frm);
+
+		// Auto-populate vehicle items once for Removal jobs — only when Pending
+		// (status moves to In Progress on first save, so this never re-fires after user clears rows)
+		if (
+			!frm.is_new()
+			&& frm.doc.task_type === "Removal"
+			&& frm.doc.status === "Pending"
+			&& frm.doc.vehicle_number
+			&& frm.doc.customer
+			&& !(frm.doc.item_installed_removed || []).length
+		) {
+			_populate_removal_items(frm);
+		}
+
 		frm.set_query("item", "item_installed_removed", function(doc, cdt, cdn) {
 			const row = locals[cdt][cdn];
 			if (row.installed_or_removed === "Installed") {
@@ -332,6 +298,54 @@ function _job_action(frm, action, comment, comment_field) {
 			frm.reload_doc();
 		},
 	});
+}
+
+function _populate_removal_items(frm) {
+	frappe.db.get_value(
+		"Vehicle",
+		{ license_plate: frm.doc.vehicle_number },
+		["name", "custom_customer"],
+		(r) => {
+			if (!r || !r.name) return;
+			if (r.custom_customer !== frm.doc.customer) return;
+
+			frappe.call({
+				method: "frappe.client.get",
+				args: { doctype: "Vehicle", name: r.name },
+				callback(res) {
+					const items = (res.message && res.message.custom_vehicle_item || [])
+						.filter(vi => vi.status === "Installed");
+					if (!items.length) return;
+
+					const item_codes = items.map(vi => vi.item);
+					frappe.call({
+						method: "frappe.client.get_list",
+						args: {
+							doctype: "Item",
+							filters: [["name", "in", item_codes]],
+							fields: ["name", "item_name", "brand"],
+						},
+						callback(r2) {
+							const item_map = {};
+							(r2.message || []).forEach(i => { item_map[i.name] = i; });
+
+							frm.clear_table("item_installed_removed");
+							items.forEach(vi => {
+								const row = frm.add_child("item_installed_removed");
+								const detail = item_map[vi.item] || {};
+								row.installed_or_removed = "Removed";
+								row.item      = vi.item;
+								row.item_type = vi.item_type;
+								row.item_name = detail.item_name || "";
+								row.brand     = detail.brand     || "";
+							});
+							frm.refresh_field("item_installed_removed");
+						},
+					});
+				},
+			});
+		}
+	);
 }
 
 function _clearVehicleDetails(frm) {

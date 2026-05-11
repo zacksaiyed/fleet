@@ -1,5 +1,11 @@
 frappe.ui.form.on('Item', {
 
+    refresh(frm) {
+        if (!frm.doc.__islocal) {
+            _load_tracking_timeline(frm);
+        }
+    },
+
     custom_item_type(frm) {
         frm.set_value("brand", "");
         frm.set_value("custom_serial_no", "");
@@ -69,6 +75,73 @@ function generate_item_details(frm) {
 
     // Update barcodes child table
     set_barcode(frm, mainValue);
+}
+
+
+function _load_tracking_timeline(frm) {
+    frappe.call({
+        method: "fleet.custom_py.item_warehouse.get_item_tracking_timeline",
+        args: { item: frm.doc.name },
+        callback(r) {
+            const events = r.message || [];
+            if (!events.length) {
+                frm.set_intro("No tracking history found for this item.", "blue");
+                return;
+            }
+            frm.set_intro(_build_timeline_html(events), "blue");
+        }
+    });
+}
+
+function _build_timeline_html(events) {
+    const COLOR = {
+        store:      "#4e73df",
+        technician: "#f6a935",
+        vehicle:    "#28a745",
+    };
+
+    const steps = events.map((e, i) => {
+        const color     = COLOR[e.type] || "#aaa";
+        const nextColor = i < events.length - 1 ? (COLOR[events[i + 1].type] || "#aaa") : null;
+        const dt        = e.datetime ? frappe.datetime.str_to_user(e.datetime) : "";
+        const isFirst   = i === 0;
+        const isLast    = i === events.length - 1;
+
+        const leftLine  = isFirst
+            ? `<div style="flex:1;"></div>`
+            : `<div style="flex:1; height:2px; background:${color};"></div>`;
+
+        const rightLine = isLast
+            ? `<div style="flex:1;"></div>`
+            : `<div style="flex:1; height:2px; background:linear-gradient(to right,${color},${nextColor});"></div>`;
+
+        return `
+            <div style="flex:1; min-width:80px; display:flex; flex-direction:column; align-items:center;">
+                <div style="display:flex; align-items:center; width:100%;">
+                    ${leftLine}
+                    <div style="
+                        width:14px; height:14px; border-radius:50%; flex-shrink:0;
+                        background:${color};
+                        box-shadow:0 0 0 3px ${color}33;
+                    "></div>
+                    ${rightLine}
+                </div>
+                <div style="margin-top:8px; text-align:center;">
+                    <div style="font-weight:700; font-size:12px; color:${color};">
+                        ${frappe.utils.escape_html(e.label)}
+                    </div>
+                    ${e.sublabel ? `<div style="font-size:11px; color:#666; margin-top:1px;">${frappe.utils.escape_html(e.sublabel)}</div>` : ""}
+                    <div style="font-size:10px; color:#aaa; margin-top:2px;">${dt}</div>
+                </div>
+            </div>`;
+    }).join("");
+
+    return `
+        <div style="padding:4px 0 2px;">
+            <div style="display:flex; align-items:flex-start; overflow-x:auto; padding:4px 4px 6px 4px;">
+                ${steps}
+            </div>
+        </div>`;
 }
 
 
