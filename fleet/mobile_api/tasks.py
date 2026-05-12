@@ -472,9 +472,9 @@ def get_job(job: str) -> dict:
     job_doc = frappe.db.get_value(
         "Job",
         {"name": job, "assigned_technician": employee},
-        ["name", "title", "status", "task_type", "vehicle_number",
+        ["name", "title", "status", "task_type", "task", "vehicle_number",
          "customer", "make", "model", "color", "type", "date", "done_comment",
-         "hold_comment", "completion_comment",
+         "hold_comment", "completion_comment", "technician_name",
          "unread_count_tech", "unread_count_support"],
         as_dict=True
     )
@@ -557,13 +557,15 @@ def get_job(job: str) -> dict:
             "title":                 job_doc.title,
             "status":                job_doc.status,
             "task_type":             job_doc.task_type,
+            "task":                  job_doc.task,
             "vehicle_number":        job_doc.vehicle_number,
             "customer":              job_doc.customer,
             "make":                  job_doc.make,
             "model":                 job_doc.model,
             "color":                 job_doc.color,
-            "type":                  job_doc.type,
+            "vehicle_type":          job_doc.type,
             "date":                  str(job_doc.date or ""),
+            "technician_name":       job_doc.technician_name,
             "done_comment":          job_doc.done_comment,
             "hold_comment":          job_doc.hold_comment,
             "completion_comment":    job_doc.completion_comment,
@@ -985,6 +987,14 @@ def create_job_for_task(
         return _error(400, "MISSING_PARAMS", "task is required.")
     if not task_type:
         return _error(400, "MISSING_PARAMS", "task_type is required.")
+
+    # normalize empty strings → None so optional fields are treated as absent
+    type           = type or None
+    make           = make or None
+    model          = model or None
+    color          = color or None
+    vehicle_number = vehicle_number.strip() if vehicle_number else None
+
     if type is not None and type not in _VALID_VEHICLE_TYPES:
         return _error(400, "INVALID_PARAMS", f"type must be one of: {', '.join(sorted(_VALID_VEHICLE_TYPES))}")
 
@@ -1105,6 +1115,13 @@ def update_job(
     """
     if not job:
         return _error(400, "MISSING_PARAMS", "job is required.")
+
+    # normalize empty strings → None so optional fields are treated as absent
+    type           = type or None
+    make           = make or None
+    model          = model or None
+    color          = color or None
+    vehicle_number = vehicle_number.strip() if vehicle_number else None
 
     employee, err = _get_auth()
     if err:
