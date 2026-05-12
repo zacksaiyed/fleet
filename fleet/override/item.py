@@ -1,4 +1,10 @@
 def generate_item_details(doc, method=None):
+    # Set current warehouse from default warehouse on first insert
+    if not doc.custom_current_warehouse and doc.item_defaults:
+        default_wh = doc.item_defaults[0].get("default_warehouse")
+        if default_wh:
+            doc.custom_current_warehouse = default_wh
+
     if not doc.custom_item_type or not doc.brand:
         return
 
