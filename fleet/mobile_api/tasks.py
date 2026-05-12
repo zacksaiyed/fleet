@@ -528,7 +528,7 @@ def get_job(job: str) -> dict:
 
         item_row = {
             "name":                r.name,
-            "item":                r.item,
+            "item_code":                r.item,
             "item_name":           r.item_name,
             "brand":               r.brand,
             "installed_or_removed": r.installed_or_removed,
