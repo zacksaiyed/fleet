@@ -10,5 +10,12 @@ frappe.listview_settings["Item"] = {
 		frappe.realtime.on("item_warehouse_updated", function () {
 			listview.refresh();
 		});
+
+		listview.page.add_inner_button(__("Import Items"), function () {
+			frappe.new_doc("Data Import", {
+				reference_doctype: "Item",
+				import_type: "Insert New Records",
+			});
+		}, null, "warning");
 	},
 };
