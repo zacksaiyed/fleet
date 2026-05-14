@@ -81,22 +81,20 @@ def _validate_import_columns(doc):
 
 
 def _inject_from_data_import(doc):
-    """Apply shared import-level fields to the item being inserted."""
-    # In dev/test mode imports run synchronously so flags are available.
-    # In production the import runs in a background worker (separate process)
-    # with a fresh frappe.local, so flags are empty — fall back to a DB query.
-    meta = frappe.flags.get("item_import_meta")
+    """Apply shared import-level fields to the item being inserted.
 
-    if not meta:
-        result = frappe.db.sql("""
-            SELECT custom_item_type, custom_brand, custom_sim_type, custom_country_code
-            FROM `tabData Import`
-            WHERE reference_doctype = 'Item'
-            AND status NOT IN ('Success', 'Failure', 'Partial Success')
-            ORDER BY creation DESC
-            LIMIT 1
-        """, as_dict=True)
-        meta = result[0] if result else None
+    Priority:
+    1. frappe.flags  — dev/test mode (sync import, same process)
+    2. Redis cache   — production (background worker, separate process, set by start_import)
+    3. SQL fallback  — last resort
+    """
+    from fleet.override.data_import import CACHE_KEY
+
+    meta = (
+        frappe.flags.get("item_import_meta")
+        or frappe.cache().get_value(CACHE_KEY)
+        or _fetch_active_import_meta()
+    )
 
     if not meta:
         return
@@ -109,6 +107,18 @@ def _inject_from_data_import(doc):
         doc.custom_sim_type = meta["custom_sim_type"]
     if not doc.custom_country_code and meta.get("custom_country_code"):
         doc.custom_country_code = meta["custom_country_code"]
+
+
+def _fetch_active_import_meta():
+    result = frappe.db.sql("""
+        SELECT custom_item_type, custom_brand, custom_sim_type, custom_country_code
+        FROM `tabData Import`
+        WHERE reference_doctype = 'Item'
+        AND status NOT IN ('Success', 'Failure', 'Partial Success')
+        ORDER BY creation DESC
+        LIMIT 1
+    """, as_dict=True)
+    return result[0] if result else None
 
 
 def _get_store_warehouse():
