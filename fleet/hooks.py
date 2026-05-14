@@ -46,11 +46,12 @@ app_home = "/fleet-track"
 # include js in doctype views
 
 doctype_js = {
-  "Task"     : "public/js/task.js",
-  "User"     : "public/js/user.js",
-  "Item"     : "public/js/item.js",
-  "Address"  : "public/js/address.js",
-  "Employee" : "public/js/employee.js",
+  "Task"        : "public/js/task.js",
+  "User"        : "public/js/user.js",
+  "Item"        : "public/js/item.js",
+  "Address"     : "public/js/address.js",
+  "Employee"    : "public/js/employee.js",
+  "Data Import" : "public/js/data_import.js",
 }
 
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
@@ -154,9 +155,9 @@ has_permission = {
 # ---------------
 # Override standard doctype classes
 
-# override_doctype_class = {
-# 	"ToDo": "custom_app.overrides.CustomToDo"
-# }
+override_doctype_class = {
+    "Data Import": "fleet.override.data_import.CustomDataImport"
+}
 
 # Document Events
 # ---------------
