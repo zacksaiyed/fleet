@@ -81,8 +81,23 @@ def _validate_import_columns(doc):
 
 
 def _inject_from_data_import(doc):
-    """Apply shared import-level fields (set by CustomDataImport.start_import) to the item."""
+    """Apply shared import-level fields to the item being inserted."""
+    # In dev/test mode imports run synchronously so flags are available.
+    # In production the import runs in a background worker (separate process)
+    # with a fresh frappe.local, so flags are empty — fall back to a DB query.
     meta = frappe.flags.get("item_import_meta")
+
+    if not meta:
+        result = frappe.db.sql("""
+            SELECT custom_item_type, custom_brand, custom_sim_type, custom_country_code
+            FROM `tabData Import`
+            WHERE reference_doctype = 'Item'
+            AND status NOT IN ('Success', 'Failure', 'Partial Success')
+            ORDER BY creation DESC
+            LIMIT 1
+        """, as_dict=True)
+        meta = result[0] if result else None
+
     if not meta:
         return
 
