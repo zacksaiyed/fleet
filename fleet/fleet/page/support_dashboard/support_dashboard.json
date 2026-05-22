@@ -3,8 +3,8 @@
  "creation": "2026-02-28 08:42:11.313213",
  "docstatus": 0,
  "doctype": "Page",
- "idx": 0,
- "modified": "2026-02-28 08:42:11.313213",
+ "idx": 3,
+ "modified": "2026-05-22 10:12:56.575585",
  "modified_by": "Administrator",
  "module": "Fleet",
  "name": "support-dashboard",
@@ -16,6 +16,12 @@
   },
   {
    "role": "Support Team"
+  },
+  {
+   "role": "Fleet Administrator"
+  },
+  {
+   "role": "Fleet Manager"
   }
  ],
  "script": null,

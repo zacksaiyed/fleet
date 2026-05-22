@@ -1,26 +1,4 @@
 import frappe
-from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
-
-
-def create_item_warehouse_field():
-    create_custom_fields(
-        {
-            "Item": [
-                {
-                    "fieldname": "custom_current_warehouse",
-                    "label": "Current Warehouse",
-                    "fieldtype": "Link",
-                    "options": "Warehouse",
-                    "read_only": 1,
-                    "in_list_view": 1,
-                    "insert_after": "item_name",
-                    "bold": 0,
-                    "no_copy": 1,
-                }
-            ]
-        },
-        ignore_validate=True,
-    )
 
 
 def update_item_warehouse(item_code, warehouse):
