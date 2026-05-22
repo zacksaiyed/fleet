@@ -50,13 +50,13 @@ def generate_item_details(doc, method=None):
             return
 
         doc.item_code = main_value
-        doc.item_name = f"{current['prefix']} {brand_first} {main_value[-6:]}"
+        doc.item_name = f"{current['prefix']} {brand_first} {main_value[-9:]}"
         set_barcode(doc, main_value)
 
     elif frappe.flags.in_import and doc.item_code:
         # Unknown item type (e.g. Dashcam) — item_code provided directly in CSV
         prefix = doc.custom_item_type[0].upper()
-        doc.item_name = f"{prefix} {brand_first} {doc.item_code[-6:]}"
+        doc.item_name = f"{prefix} {brand_first} {doc.item_code[-9:]}"
         set_barcode(doc, doc.item_code)
 
 

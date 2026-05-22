@@ -6,5 +6,12 @@ frappe.listview_settings["Vehicle"] = {
 				$(".page-head").find(".sidebar-toggle-btn").trigger("click");
 			}
 		});
+
+		listview.page.add_inner_button(__("Import Vehicles"), function () {
+			frappe.new_doc("Data Import", {
+				reference_doctype: "Vehicle",
+				import_type: "Insert New Records",
+			});
+		}, null, "warning");
 	},
 };
