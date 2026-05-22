@@ -100,8 +100,8 @@ home_page = "app/fleet-track"
 # ------------
 
 # before_install = "fleet.install.before_install"
-after_install = "fleet.custom_py.item_warehouse.create_item_warehouse_field"
-after_migrate = "fleet.custom_py.item_warehouse.create_item_warehouse_field"
+# after_install = "fleet.install.after_install"
+# after_migrate = "fleet.install.after_migrate"
 
 # Uninstallation
 # ------------
