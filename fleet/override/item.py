@@ -32,32 +32,31 @@ def generate_item_details(doc, method=None):
         "Temperature": {
             "field": "custom_temperature_serial_number",
             "prefix": "T"
+        },
+        "Dashcam": {
+            "field": "custom_dashcam_unique_number",
+            "prefix": "D"
         }
     }
 
     current = config.get(doc.custom_item_type)
+    if not current:
+        return
 
-    if current:
-        if frappe.flags.in_import:
-            # CSV has item_code as the unique identifier — copy it to the specific field
-            main_value = doc.item_code
-            if main_value:
-                setattr(doc, current["field"], main_value)
-        else:
-            main_value = getattr(doc, current["field"], None)
+    if frappe.flags.in_import:
+        # CSV has item_code as the unique identifier — copy it to the specific field
+        main_value = doc.item_code
+        if main_value:
+            setattr(doc, current["field"], main_value)
+    else:
+        main_value = getattr(doc, current["field"], None)
 
-        if not main_value:
-            return
+    if not main_value:
+        return
 
-        doc.item_code = main_value
-        doc.item_name = f"{current['prefix']} {brand_first} {main_value[-9:]}"
-        set_barcode(doc, main_value)
-
-    elif frappe.flags.in_import and doc.item_code:
-        # Unknown item type (e.g. Dashcam) — item_code provided directly in CSV
-        prefix = doc.custom_item_type[0].upper()
-        doc.item_name = f"{prefix} {brand_first} {doc.item_code[-9:]}"
-        set_barcode(doc, doc.item_code)
+    doc.item_code = main_value
+    doc.item_name = f"{current['prefix']} {brand_first} {main_value[-9:]}"
+    set_barcode(doc, main_value)
 
 
 def _validate_import_columns(doc):
