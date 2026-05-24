@@ -152,6 +152,7 @@ def get_my_warehouse_inventory():
         "SIM":           "custom_sim_type",
         "Fuel Sensor":   "custom_sensor_unique_number",
         "Temperature":   "custom_temperature_serial_number",
+        "Dashcam":       "custom_dashcam_unique_number",
     }
 
     groups = {}
@@ -403,6 +404,7 @@ def get_transfer(name):
         "SIM":           "custom_sim_type",
         "Fuel Sensor":   "custom_sensor_unique_number",
         "Temperature":   "custom_temperature_serial_number",
+        "Dashcam":       "custom_dashcam_unique_number",
     }
 
     item_codes = [r.item for r in doc.items]

@@ -500,6 +500,7 @@ def get_job(job: str) -> dict:
         "SIM":         "custom_sim_type",
         "Fuel Sensor": "custom_sensor_unique_number",
         "Temperature": "custom_temperature_serial_number",
+        "Dashcam":     "custom_dashcam_unique_number",
     }
 
     item_codes = [r.item for r in items]
@@ -658,6 +659,7 @@ def get_job_item_options(job: str, direction: str = None) -> dict:
         "SIM":         "custom_sim_type",
         "Fuel Sensor": "custom_sensor_unique_number",
         "Temperature": "custom_temperature_serial_number",
+        "Dashcam":     "custom_dashcam_unique_number",
     }
 
     items = []
@@ -897,6 +899,7 @@ def get_vehicle_details(vehicle_number: str, task: str, task_type: str) -> dict:
         "SIM":         "custom_sim_type",
         "Fuel Sensor": "custom_sensor_unique_number",
         "Temperature": "custom_temperature_serial_number",
+        "Dashcam":     "custom_dashcam_unique_number",
     }
 
     item_codes = [r.item for r in raw_items]

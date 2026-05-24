@@ -14,6 +14,7 @@ frappe.ui.form.on('Item', {
         frm.set_value("custom_temperature_serial_number", "");
         frm.set_value("custom_mobile_number", "");
         frm.set_value("custom_sim_type", "");
+        frm.set_value("custom_dashcam_unique_number", "");
         frm.set_value("item_code", "");
         frm.set_value("item_name", "");
         generate_item_details(frm);
@@ -24,7 +25,8 @@ frappe.ui.form.on('Item', {
     custom_imei_no: frm => generate_item_details(frm),
     custom_sensor_unique_number: frm => generate_item_details(frm),
     custom_temperature_serial_number: frm => generate_item_details(frm),
-    brand: frm => generate_item_details(frm)
+    brand: frm => generate_item_details(frm),
+    custom_dashcam_unique_number: frm => generate_item_details(frm)
 
 });
 
@@ -39,23 +41,28 @@ function generate_item_details(frm) {
     const config = {
         "SIM": {
             field: "custom_serial_no",
-            extra: () => (frm.doc.custom_serial_no || "").slice(-6),
+            extra: () => (frm.doc.custom_serial_no || "").slice(-9),
             prefix: "S"
         },
         "GPS Device": {
             field: "custom_imei_no",
-            extra: val => val.slice(-6),
+            extra: val => val.slice(-9),
             prefix: "G"
         },
         "Fuel Sensor": {
             field: "custom_sensor_unique_number",
-            extra: val => val.slice(-6),
+            extra: val => val.slice(-9),
             prefix: "F"
         },
         "Temperature" : {
             field: "custom_temperature_serial_number",
-            extra: val => val.slice(-6),
+            extra: val => val.slice(-9),
             prefix: "T"
+        },
+        "Dashcam": {
+            field: "custom_dashcam_unique_number",
+            extra: val => val.slice(-9),
+            prefix: "D"
         }
     };
 
