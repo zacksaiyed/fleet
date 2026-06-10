@@ -189,7 +189,8 @@ doc_events = {
         "on_update": "fleet.erpnext_events.employee.sync_user_with_employee"
     },
     "Vehicle": {
-        "validate": "fleet.erpnext_events.vehicle.validate_vehicle"
+        "validate": "fleet.erpnext_events.vehicle.validate_vehicle",
+        "after_insert": "fleet.erpnext_events.vehicle.after_insert_vehicle",
     },
     "Customer": {
         "after_insert": [
@@ -341,5 +342,8 @@ fixtures = [
                 "rgopehkm8k"
             ]
         ]
+    ]},
+    {"dt": "Report", "filters": [
+        ["name", "in", ["Vehicle Item Warehouse Status"]]
     ]},
 ]
