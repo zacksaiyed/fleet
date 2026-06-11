@@ -832,9 +832,9 @@ def get_vehicle_details(vehicle_number: str, task: str, task_type: str) -> dict:
     if not task_type:
         return _error(400, "MISSING_PARAMS", "task_type is required.")
 
-    _VEH_RE = re.compile(r"^[A-Z]{3}\d{3,4}$")
-    if not _VEH_RE.match(vehicle_number):
-        return _error(400, "INVALID_VEHICLE_NUMBER", "Vehicle number must be in the format ABC123 or ABC1234 (3 letters followed by 3 or 4 digits).")
+    # _VEH_RE = re.compile(r"^[A-Z]{3}\d{3,4}$")
+    # if not _VEH_RE.match(vehicle_number):
+    #     return _error(400, "INVALID_VEHICLE_NUMBER", "Vehicle number must be in the format ABC123 or ABC1234 (3 letters followed by 3 or 4 digits).")
 
     employee, err = _get_auth()
     if err:

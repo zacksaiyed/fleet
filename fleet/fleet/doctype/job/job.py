@@ -5,7 +5,7 @@ import frappe
 from frappe.model.document import Document
 from frappe.utils import now
 
-_VEH_RE = re.compile(r"^[A-Z]{3}\d{3,4}$")
+# _VEH_RE = re.compile(r"^[A-Z]{3}\d{3,4}$")
 
 
 class Job(Document):
@@ -38,12 +38,12 @@ class Job(Document):
 
 		if self.vehicle_number:
 			self.vehicle_number = self.vehicle_number.replace(" ", "").upper()
-			if not _VEH_RE.match(self.vehicle_number):
-				frappe.throw(
-					"Vehicle Number must be in the format <b>ABC123</b> or <b>ABC1234</b> "
-					"(3 letters followed by 3 or 4 digits).",
-					title="Invalid Vehicle Number"
-				)
+			# if not _VEH_RE.match(self.vehicle_number):
+			# 	frappe.throw(
+			# 		"Vehicle Number must be in the format <b>ABC123</b> or <b>ABC1234</b> "
+			# 		"(3 letters followed by 3 or 4 digits).",
+			# 		title="Invalid Vehicle Number"
+			# 	)
 
 		self._validate_vehicle_existence()
 
