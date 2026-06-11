@@ -15,7 +15,18 @@ def validate_vehicle(doc, method=None):
                     row.parent = normalized
 
     _remove_duplicate_vehicle_items(doc)
+    _check_installed_items_exist(doc)
     _check_item_not_installed_elsewhere(doc)
+
+
+def _check_installed_items_exist(doc):
+    """Block save if an Installed item doesn't exist in the Item master."""
+    for row in doc.get("custom_vehicle_item") or []:
+        if row.status == "Installed" and row.item and not frappe.db.exists("Item", row.item):
+            frappe.throw(
+                f"Item <b>{row.item}</b> does not exist in the Item master. "
+                f"Create it first before importing vehicle <b>{doc.name}</b>."
+            )
 
 
 def _check_item_not_installed_elsewhere(doc):
@@ -56,30 +67,6 @@ def _remove_duplicate_vehicle_items(doc):
         doc.set("custom_vehicle_item", unique_rows)
 
 
-def _ensure_item_exists(item_code, item_type, default_group):
-    """Create the Item record if it doesn't exist yet."""
-    if frappe.db.exists("Item", item_code):
-        return
-
-    item_group = default_group
-    if item_type:
-        existing_group = frappe.db.get_value(
-            "Item", {"custom_item_type": item_type}, "item_group"
-        )
-        if existing_group:
-            item_group = existing_group
-
-    frappe.get_doc({
-        "doctype": "Item",
-        "item_code": item_code,
-        "item_name": item_code,
-        "item_group": item_group,
-        "custom_item_type": item_type,
-        "is_stock_item": 1,
-        "stock_uom": "Nos",
-    }).insert(ignore_permissions=True)
-
-
 def after_insert_vehicle(doc, _method=None):
     if not doc.custom_customer:
         return
@@ -96,20 +83,11 @@ def after_insert_vehicle(doc, _method=None):
     rows = frappe.get_all(
         "Vehicle Item",
         filters={"parent": doc.name, "status": "Installed"},
-        fields=["item", "item_type"],
+        fields=["item"],
     )
-    if not rows:
-        return
-
-    default_group = (
-        frappe.db.get_value("Item Group", {"is_group": 0}, "name") or "All Item Groups"
-    )
-
     for row in rows:
-        if not row.item:
-            continue
-        _ensure_item_exists(row.item, row.item_type, default_group)
-        update_item_warehouse(row.item, customer_warehouse)
+        if row.item:
+            update_item_warehouse(row.item, customer_warehouse)
 
 
 @frappe.whitelist()
@@ -146,35 +124,3 @@ def bulk_transfer_vehicle_items():
         "skipped_no_warehouse": [],
         "skipped_no_item": skipped_no_item,
     }
-
-
-@frappe.whitelist()
-def create_missing_vehicle_items(items):
-    """Create Item records for vehicle items that don't exist in the Item master.
-    items: JSON list of {item_code, item_type} dicts.
-    """
-    items = frappe.parse_json(items)
-
-    default_group = (
-        frappe.db.get_value("Item Group", {"is_group": 0}, "name") or "All Item Groups"
-    )
-
-    created = []
-    skipped = []
-
-    for entry in items:
-        item_code = (entry.get("item_code") or "").strip()
-        item_type = entry.get("item_type") or None
-
-        if not item_code:
-            continue
-
-        if frappe.db.exists("Item", item_code):
-            skipped.append(item_code)
-            continue
-
-        _ensure_item_exists(item_code, item_type, default_group)
-        created.append(item_code)
-
-    frappe.db.commit()
-    return {"created": created, "skipped": skipped}
