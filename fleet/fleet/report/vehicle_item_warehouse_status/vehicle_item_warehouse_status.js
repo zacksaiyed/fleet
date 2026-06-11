@@ -19,43 +19,6 @@ frappe.query_reports["Vehicle Item Warehouse Status"] = {
 	},
 
 	onload: function (report) {
-		report.page.add_inner_button(__("Create Missing Items"), function () {
-			const data = report.data || [];
-			const missing = data
-				.filter((r) => r.status === "Item Not Found")
-				.map((r) => ({ item_code: r.item, item_type: r.item_type || null }));
-
-			if (!missing.length) {
-				frappe.msgprint(__("No missing items found in the current report."));
-				return;
-			}
-
-			frappe.confirm(
-				__(`Create <b>${missing.length}</b> missing item(s) in the Item master?`),
-				function () {
-					frappe.call({
-						method: "fleet.erpnext_events.vehicle.create_missing_vehicle_items",
-						args: { items: JSON.stringify(missing) },
-						freeze: true,
-						freeze_message: __("Creating items…"),
-						callback: function (r) {
-							if (!r.message) return;
-							const res = r.message;
-							frappe.msgprint({
-								title: __("Done"),
-								message: [
-									`<b>Created:</b> ${res.created.length}`,
-									`<b>Already existed (skipped):</b> ${res.skipped.length}`,
-								].join("<br>"),
-								indicator: "green",
-							});
-							report.refresh();
-						},
-					});
-				}
-			);
-		});
-
 		report.page.add_inner_button(__("Transfer All to Customer Warehouse"), function () {
 			frappe.confirm(
 				__(
