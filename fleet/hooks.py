@@ -201,7 +201,7 @@ doc_events = {
         ],
         "on_trash": [
             "fleet.override.customer_warehouse.set_customer_warehouse"
-        ]    
+        ]
     },
     "Item": {
         "before_insert": "fleet.override.item.generate_item_details"
@@ -335,7 +335,7 @@ fixtures = [
             ]
         ]
     ]},
-    
+
     {"dt": "Translation","filters": [
         [
             "name", "in", [
@@ -346,4 +346,11 @@ fixtures = [
     {"dt": "Report", "filters": [
         ["name", "in", ["Vehicle Item Warehouse Status"]]
     ]},
+	    {
+        "dt": "Custom Field",
+        "filters": [
+            ["module", "=", "Fleet"],
+            ["dt", "=", "Customer"]
+        ]
+    },
 ]
