@@ -368,23 +368,10 @@ fixtures = [
     {"dt": "Report", "filters": [
         ["name", "in", ["Vehicle Item Warehouse Status"]]
     ]},
-{
+    {
         "dt": "Custom Field", 
         "filters": [
-            ["name", "in", [
-                "Customer-custom_billing__fleettrack",  
-                "Customer-custom_billing_customer_type",
-                "Customer-custom_billing_currency",
-                "Customer-custom_invoice_generation_mode",
-                "Customer-custom_installation_cutoff_day",
-                "Customer-custom_suspension_threshold_percent",
-                "Customer-custom_parent_customer",
-                "Customer-custom_vat_applicable",
-                "Customer-custom_invoice_frequency_months",
-                "Customer-custom_active_satus_cutoff_day",
-                "Customer-custom_external_approval_period_days",
-                "Customer-custom_is_group"
-            ]]
+            ["module", "=", "Fleet"]
         ]
     },
 ]
