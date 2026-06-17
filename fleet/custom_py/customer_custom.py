@@ -18,12 +18,3 @@ def check_cutoff_days(doc):
 		if float(doc.custom_suspension_threshold_percent) < 1 or float(doc.custom_suspension_threshold_percent) > 100:
 			frappe.throw(_("Suspension Threshold Percent must be between 0 and 100."))
 	
-@frappe.whitelist()
-def get_parent_customer_query(doctype, txt, searchfield, start, page_len, filters):
-	return frappe.db.get_list("Customer",
-		fields=["Customer Name", "customer_name"],
-		filters={"custom_is_group": 1, "name": ["like", f"%{txt}%"]},
-		start=start,
-		page_len=page_len,
-		as_list=True
-	)
