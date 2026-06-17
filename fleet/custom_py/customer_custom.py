@@ -17,4 +17,3 @@ def check_cutoff_days(doc):
 	if doc.get("custom_suspension_threshold_percent"):
 		if float(doc.custom_suspension_threshold_percent) < 1 or float(doc.custom_suspension_threshold_percent) > 100:
 			frappe.throw(_("Suspension Threshold Percent must be between 0 and 100."))
-	
