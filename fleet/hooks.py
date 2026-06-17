@@ -52,6 +52,7 @@ doctype_js = {
   "Address"     : "public/js/address.js",
   "Employee"    : "public/js/employee.js",
   "Data Import" : "public/js/data_import.js",
+  "Customer"    : "public/js/customer.js",
 }
 
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
@@ -201,7 +202,7 @@ doc_events = {
         ],
         "on_trash": [
             "fleet.override.customer_warehouse.set_customer_warehouse"
-        ]    
+        ]
     },
     "Item": {
         "before_insert": "fleet.override.item.generate_item_details"
@@ -335,7 +336,7 @@ fixtures = [
             ]
         ]
     ]},
-    
+
     {"dt": "Translation","filters": [
         [
             "name", "in", [
@@ -346,4 +347,5 @@ fixtures = [
     {"dt": "Report", "filters": [
         ["name", "in", ["Vehicle Item Warehouse Status"]]
     ]},
+
 ]
