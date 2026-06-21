@@ -1,4 +1,5 @@
 import frappe
+from frappe import _
 from fleet.custom_py.item_warehouse import update_item_warehouse
 
 
@@ -79,6 +80,10 @@ def after_insert_vehicle(doc, _method=None):
     if not customer_warehouse:
         return
 
+    if _is_data_import(doc):
+        _move_imported_installed_items_to_customer_warehouse(doc, customer_warehouse)
+        return
+
     # Query DB directly — child rows are committed before after_insert fires
     rows = frappe.get_all(
         "Vehicle Item",
@@ -88,6 +93,159 @@ def after_insert_vehicle(doc, _method=None):
     for row in rows:
         if row.item:
             update_item_warehouse(row.item, customer_warehouse)
+
+
+def on_update_vehicle(doc, _method=None):
+    if not _is_data_import(doc) or not doc.custom_customer:
+        return
+
+    customer_warehouse = frappe.db.get_value(
+        "Warehouse",
+        {"custom_customer_name": doc.custom_customer, "disabled": 0},
+        "name",
+    )
+    if not customer_warehouse:
+        return
+
+    _move_imported_installed_items_to_customer_warehouse(
+        doc,
+        customer_warehouse,
+        only_newly_installed=True,
+    )
+
+
+def _is_data_import(doc=None):
+    if bool(getattr(frappe.flags, "in_import", False) or frappe.flags.get("in_import")):
+        return True
+
+    updater_reference = getattr(getattr(doc, "flags", None), "updater_reference", None) if doc else None
+    if updater_reference and updater_reference.get("doctype") == "Data Import":
+        return True
+
+    return False
+
+
+def _move_imported_installed_items_to_customer_warehouse(
+    doc,
+    customer_warehouse,
+    only_newly_installed=False,
+):
+    items = _get_installed_items_to_transfer(doc, only_newly_installed=only_newly_installed)
+    if not items:
+        return
+
+    store_warehouse = _get_store_warehouse()
+    if not store_warehouse:
+        frappe.throw(_("Default Warehouse is not set in Stock Settings. Cannot move imported vehicle items."))
+
+    items_to_move = []
+    for item_code in items:
+        if _item_already_in_customer_warehouse(item_code, customer_warehouse):
+            update_item_warehouse(item_code, customer_warehouse)
+            continue
+        items_to_move.append(item_code)
+
+    if not items_to_move:
+        return
+
+    _validate_items_available_in_store(items_to_move, store_warehouse)
+    _create_vehicle_import_stock_entry(items_to_move, store_warehouse, customer_warehouse, doc.name)
+
+    for item_code in items_to_move:
+        update_item_warehouse(item_code, customer_warehouse)
+
+
+def _get_installed_items_to_transfer(doc, only_newly_installed=False):
+    current_installed = {
+        row.item
+        for row in doc.get("custom_vehicle_item") or []
+        if row.status == "Installed" and row.item
+    }
+    if not current_installed and doc.name:
+        current_installed = {
+            row.item
+            for row in frappe.get_all(
+                "Vehicle Item",
+                filters={"parent": doc.name, "status": "Installed"},
+                fields=["item"],
+            )
+            if row.item
+        }
+
+    if not current_installed or not only_newly_installed:
+        return sorted(current_installed)
+
+    before = doc.get_doc_before_save()
+    before_installed = {
+        row.item
+        for row in (before.get("custom_vehicle_item") if before else []) or []
+        if row.status == "Installed" and row.item
+    }
+    return sorted(current_installed - before_installed)
+
+
+def _get_store_warehouse():
+    return frappe.db.get_single_value("Stock Settings", "default_warehouse")
+
+
+def _item_already_in_customer_warehouse(item_code, customer_warehouse):
+
+    qty = frappe.db.get_value(
+        "Bin",
+        {"item_code": item_code, "warehouse": customer_warehouse},
+        "actual_qty",
+    ) or 0
+    return qty > 0
+
+
+def _validate_items_available_in_store(items, store_warehouse):
+    missing = []
+    for item_code in items:
+        qty = frappe.db.get_value(
+            "Bin",
+            {"item_code": item_code, "warehouse": store_warehouse},
+            "actual_qty",
+        ) or 0
+        if qty <= 0:
+            missing.append(item_code)
+
+    if missing:
+        frappe.throw(
+            _(
+                "Cannot import vehicle item installation. The following item(s) "
+                "are not available in Store warehouse {0}:<br>{1}"
+            ).format(store_warehouse, "<br>".join(missing))
+        )
+
+
+def _create_vehicle_import_stock_entry(items, store_warehouse, customer_warehouse, vehicle):
+    company = frappe.db.get_value("Warehouse", store_warehouse, "company")
+    if not company:
+        frappe.throw(_("Company is not set on Store warehouse {0}.").format(store_warehouse))
+
+    stock_entry = frappe.get_doc({
+        "doctype": "Stock Entry",
+        "stock_entry_type": "Material Transfer",
+        "purpose": "Material Transfer",
+        "company": company,
+        "from_warehouse": store_warehouse,
+        "to_warehouse": customer_warehouse,
+        "remarks": _("Auto-created from Vehicle data import for {0}").format(vehicle),
+        "items": [
+            {
+                "item_code": item_code,
+                "qty": 1,
+                "s_warehouse": store_warehouse,
+                "t_warehouse": customer_warehouse,
+                "uom": frappe.db.get_value("Item", item_code, "stock_uom") or "Nos",
+                "stock_uom": frappe.db.get_value("Item", item_code, "stock_uom") or "Nos",
+                "conversion_factor": 1,
+            }
+            for item_code in items
+        ],
+    })
+    stock_entry.insert(ignore_permissions=True)
+    stock_entry.submit()
 
 
 @frappe.whitelist()
