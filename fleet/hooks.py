@@ -191,6 +191,7 @@ doc_events = {
     "Vehicle": {
         "validate": "fleet.erpnext_events.vehicle.validate_vehicle",
         "after_insert": "fleet.erpnext_events.vehicle.after_insert_vehicle",
+        "on_update": "fleet.erpnext_events.vehicle.on_update_vehicle",
     },
     "Customer": {
         "after_insert": [
