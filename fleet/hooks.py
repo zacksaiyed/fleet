@@ -193,7 +193,7 @@ doc_events = {
     "Vehicle": {
         "validate": "fleet.erpnext_events.vehicle.validate_vehicle",
         "after_insert": "fleet.erpnext_events.vehicle.after_insert_vehicle",
-        "on_update": "fleet.erpnext_events.vehicle.on_update_vehicle"
+        "on_update": "fleet.erpnext_events.vehicle.on_update_vehicle",
     },
     "Customer": {
         # # "validate": "fleet.custom_py.customer_custom.validate_customer",
@@ -217,6 +217,8 @@ doc_events = {
     },
     "Fleet Billing Settings": {
         "on_update": "fleet.custom_py.billing_subscription_rate.on_setting_update"
+            "fleet.override.customer_warehouse.set_customer_warehouse"
+        ]
     },
     "Item": {
         "before_insert": "fleet.override.item.generate_item_details"

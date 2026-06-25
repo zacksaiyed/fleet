@@ -224,7 +224,7 @@ frappe.ui.form.on("Job", {
 
 			if (["Pending", "In Progress"].includes(status)) {
 				frm.add_custom_button(__("Hold"), () =>
-					_job_action_with_comment(frm, "hold", __("Hold Comment"), "hold_comment")
+						_job_action_with_comment(frm, "hold", __("Hold Comment"), "hold_comment")
 				);
 			}
 
@@ -279,7 +279,25 @@ function _job_action_with_comment(frm, action, label, field) {
 	frappe.prompt(
 		[{ fieldtype: "Small Text", fieldname: "comment", label: label, reqd: 1 }],
 		(values) => {
+
+
+
+
 			_job_action(frm, action, values.comment, field);
+							if (action === "complete") {
+				frappe.call({
+					method: "fleet.fleet.doctype.job.job.add_in_customer_row",
+					args: {
+						job: frm.doc.name,
+						comment: values.comment
+					},
+					callback: function(r) {
+						if (!r.exc) {
+							console.log("Python function executed");
+						}
+					}
+				});
+			}
 		},
 		__(label),
 		__("Submit")
