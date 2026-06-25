@@ -53,6 +53,7 @@ doctype_js = {
   "Employee"    : "public/js/employee.js",
   "Data Import" : "public/js/data_import.js",
   "Vehicle"     : "public/js/vehicle.js",
+  "Customer"    : "public/js/customer.js",
 }
 
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
@@ -165,6 +166,7 @@ override_doctype_class = {
 # Hook on document methods and events
 
 doc_events = {
+    
     "User": {
         "validate": "fleet.erpnext_events.user_warehouse_hooks.validate_user_roles",
         "on_update": "fleet.erpnext_events.user_warehouse_hooks.on_update_user_roles"
@@ -206,17 +208,22 @@ doc_events = {
     "Customer": {
         "validate": [
             "fleet.override.customer_warehouse.validate",
-            "fleet.custom_py.customer_custom.validate_customer"
+            "fleet.custom_py.customer_custom.validate_customer",
+            "fleet.custom_py.billing_subscription_rate.validate_customer"
         ],
         "after_insert": [
-            "fleet.override.customer_warehouse.set_customer_warehouse"
+            "fleet.override.customer_warehouse.set_customer_warehouse",
         ],
         "on_update": [
-            "fleet.override.customer_warehouse.set_customer_warehouse"
+            "fleet.override.customer_warehouse.set_customer_warehouse",
+            "fleet.custom_py.customer_custom.on_update"
         ],
         "on_trash": [
             "fleet.override.customer_warehouse.set_customer_warehouse"
         ]
+    },
+    "Fleet Billing Settings": {
+        "on_update": "fleet.custom_py.billing_subscription_rate.on_setting_update"
     },
     "Item": {
         "before_insert": "fleet.override.item.generate_item_details"
@@ -254,8 +261,6 @@ scheduler_events = {
         ],
     },
 }
-
-
 
 # Testing
 # -------
@@ -363,7 +368,7 @@ fixtures = [
     {"dt": "Report", "filters": [
         ["name", "in", ["Vehicle Item Warehouse Status"]]
     ]},
-    {
+{
         "dt": "Custom Field", 
         "filters": [
             ["name", "in", [
