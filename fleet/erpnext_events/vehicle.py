@@ -15,6 +15,11 @@ def validate_vehicle(doc, method=None):
                 for row in doc.get(df.fieldname) or []:
                     row.parent = normalized
 
+    # Clean and strip any accidental whitespace from item codes
+    for row in doc.get("custom_vehicle_item") or []:
+        if row.item:
+            row.item = row.item.strip()
+
     _remove_duplicate_vehicle_items(doc)
     _check_installed_items_exist(doc)
     _check_item_not_installed_elsewhere(doc)
@@ -93,6 +98,171 @@ def after_insert_vehicle(doc, _method=None):
     for row in rows:
         if row.item:
             update_item_warehouse(row.item, customer_warehouse)
+
+    create_vehicle_classification_history(doc.name, doc.custom_customer, doc.get("custom_vehicle_item") or [])
+    sync_gps_installation_status_logs(doc)
+
+
+def create_vehicle_classification_history(vehicle, customer, rows, effective_date=None):
+    if not vehicle or not customer or not rows:
+        return
+
+    for row in rows:
+        status = getattr(row, "installed_or_removed", None) or getattr(row, "status", None)
+        if status != "Installed":
+            continue
+        if (getattr(row, "item_type", "") or "").lower() != "sim":
+            continue
+        item = getattr(row, "item", None)
+        if not item:
+            continue
+
+        sim_type = frappe.db.get_value("Item", item, "custom_sim_type")
+        if not sim_type:
+            continue
+
+        classification = "CB" if sim_type.upper() == "IOT" else sim_type
+
+        row_effective_date = effective_date or getattr(row, "date", None) or frappe.utils.nowdate()
+        filters = {
+            "vehicle": vehicle,
+            "customer": customer,
+            "effective_date": row_effective_date,
+            "vehicle_classification": classification,
+            "item": item,
+        }
+        if frappe.db.exists("Vehicle Classification History", filters):
+            continue
+
+        frappe.get_doc({
+            "doctype": "Vehicle Classification History",
+            **filters,
+        }).insert(ignore_permissions=True)
+
+
+def _is_installed_sim_row(row):
+    status = getattr(row, "installed_or_removed", None) or getattr(row, "status", None)
+    item_type = (getattr(row, "item_type", "") or "").lower()
+    return status == "Installed" and item_type == "sim" and bool(row.item)
+
+
+def _get_classification_history_rows(doc):
+    before = doc.get_doc_before_save()
+    current_rows = [
+        row for row in doc.get("custom_vehicle_item") or []
+        if _is_installed_sim_row(row)
+    ]
+
+    if not before:
+        return current_rows
+
+    if before.get("custom_customer") != doc.custom_customer:
+        return current_rows
+
+    before_rows = {
+        (row.item, getattr(row, "installed_or_removed", None) or getattr(row, "status", None), (getattr(row, "item_type", "") or "").lower())
+        for row in before.get("custom_vehicle_item") or []
+        if row.item
+    }
+
+    new_rows = []
+    for row in current_rows:
+        status = getattr(row, "installed_or_removed", None) or getattr(row, "status", None)
+        item_type = (getattr(row, "item_type", "") or "").lower()
+        current_key = (row.item, status, item_type)
+        if current_key not in before_rows:
+            new_rows.append(row)
+
+    return new_rows
+
+
+def _get_gps_rows_to_log(doc):
+    before = doc.get_doc_before_save()
+    gps_rows = []
+    for row in doc.get("custom_vehicle_item") or []:
+        if (getattr(row, "item_type", "") or "").lower() != "gps device":
+            continue
+        if not row.item:
+            continue
+
+        if not before:
+            gps_rows.append(row)
+            continue
+
+        if before.get("custom_customer") != doc.custom_customer:
+            gps_rows.append(row)
+            continue
+
+        before_row = None
+        for b_row in before.get("custom_vehicle_item") or []:
+            if b_row.item == row.item:
+                before_row = b_row
+                break
+
+        if not before_row or before_row.status != row.status or before_row.date != row.date:
+            gps_rows.append(row)
+
+    return gps_rows
+
+
+def sync_gps_installation_status_logs(doc):
+    if not doc.custom_customer:
+        return
+
+    rows_to_log = _get_gps_rows_to_log(doc)
+    job_name = getattr(doc.flags, "from_job", None)
+
+    for row in rows_to_log:
+        event_type = row.status or "Installed"
+        event_date = row.date or frappe.utils.nowdate()
+        _create_gps_log(doc.name, doc.custom_customer, row.item, event_type, event_date, job_name)
+
+    # Detect deleted GPS rows
+    before = doc.get_doc_before_save()
+    if before:
+        current_items = {r.item for r in doc.get("custom_vehicle_item") or [] if r.item}
+        for b_row in before.get("custom_vehicle_item") or []:
+            if (getattr(b_row, "item_type", "") or "").lower() == "gps device" and b_row.item:
+                if b_row.item not in current_items:
+                    _create_gps_log(
+                        doc.name,
+                        doc.custom_customer,
+                        b_row.item,
+                        "Removed",
+                        frappe.utils.nowdate(),
+                        job_name
+                    )
+
+
+def _create_gps_log(vehicle, customer, item, event_type, event_date, job_name=None):
+    filters = {
+        "vehicle": vehicle,
+        "customer": customer,
+        "item": item,
+        "event_type": event_type,
+        "event_date": event_date,
+    }
+    if job_name:
+        filters["job"] = job_name
+
+    if frappe.db.exists("GPS Installation Status Log", filters):
+        return
+
+    frappe.get_doc({
+        "doctype": "GPS Installation Status Log",
+        **filters,
+    }).insert(ignore_permissions=True)
+
+
+def on_update_vehicle(doc, _method=None):
+    if not doc.custom_customer:
+        return
+
+    new_rows = _get_classification_history_rows(doc)
+    if new_rows:
+        create_vehicle_classification_history(doc.name, doc.custom_customer, new_rows)
+
+    sync_gps_installation_status_logs(doc)
 
 
 def on_update_vehicle(doc, _method=None):
