@@ -58,14 +58,29 @@ FIELD_ALIASES = {
 
 class VehicleActivities(Document):
 	def validate(self):
-		if self._should_import_csv():
-			self.import_activity_csv()
+		pass
 
 	def after_insert(self):
-		self._sync_activity_detail_docs()
+		if not getattr(self.flags, "in_background_job", False):
+			frappe.enqueue(
+				"fleet.fleet.doctype.vehicle_activities.vehicle_activities.run_import_in_background",
+				queue="default",
+				doc_name=self.name,
+				now=frappe.flags.in_test,
+				enqueue_after_commit=True
+			)
 
 	def on_update(self):
-		self._sync_activity_detail_docs()
+		if not getattr(self.flags, "in_background_job", False):
+			doc_before_save = self.get_doc_before_save()
+			if doc_before_save and self.upload_file != doc_before_save.upload_file:
+				frappe.enqueue(
+					"fleet.fleet.doctype.vehicle_activities.vehicle_activities.run_import_in_background",
+					queue="default",
+					doc_name=self.name,
+					now=frappe.flags.in_test,
+					enqueue_after_commit=True
+				)
 
 	def on_trash(self):
 		frappe.db.delete("Vehicle Activity Details", {"vehicle_activity": self.name})
@@ -276,17 +291,64 @@ class VehicleActivities(Document):
 			return
 
 		self.flags.sync_activity_detail_docs = False
-		frappe.db.delete("Vehicle Activity Details", {"vehicle_activity": self.name})
 
+		# Get all existing Vehicle Activity Details for this document
+		existing_docs = frappe.get_all(
+			"Vehicle Activity Details",
+			filters={"vehicle_activity": self.name},
+			fields=["name", "vehicle", "customer", "item", "last_activity_date"]
+		)
+
+		# Map existing docs by a unique key tuple (vehicle, customer, item) -> (doc_name, last_activity_date)
+		def get_key(doc):
+			return (doc.get("vehicle"), doc.get("customer"), doc.get("item"))
+
+		existing_map = {get_key(d): (d.name, d.get("last_activity_date")) for d in existing_docs}
+		keep_doc_names = set()
+
+		# Match parsed activities against existing ones
 		for row in getattr(self.flags, "parsed_activities", []):
-			frappe.get_doc({
-				"doctype": "Vehicle Activity Details",
-				"customer": row.get("customer"),
-				"vehicle": row.get("vehicle"),
-				"last_activity_date": row.get("last_activity_date"),
-				"item": row.get("item"),
-				"vehicle_activity": self.name,
-			}).insert(ignore_permissions=True)
+			key = (row.get("vehicle"), row.get("customer"), row.get("item"))
+
+			if key in existing_map:
+				# Already exists! Mark it to keep.
+				doc_name, existing_date = existing_map[key]
+				keep_doc_names.add(doc_name)
+
+				# If the last_activity_date has changed, update it in-place!
+				csv_date = row.get("last_activity_date")
+
+				# Helper to normalize and compare dates
+				def to_date_obj(val):
+					if isinstance(val, datetime):
+						return val.date()
+					elif isinstance(val, date):
+						return val
+					elif isinstance(val, str):
+						for fmt in ("%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y", "%m/%d/%Y", "%Y/%m/%d"):
+							try:
+								return datetime.strptime(val, fmt).date()
+							except ValueError:
+								continue
+					return val
+
+				if to_date_obj(csv_date) != to_date_obj(existing_date):
+					frappe.db.set_value("Vehicle Activity Details", doc_name, "last_activity_date", csv_date)
+			else:
+				# New perfect row! Insert it.
+				frappe.get_doc({
+					"doctype": "Vehicle Activity Details",
+					"customer": row.get("customer"),
+					"vehicle": row.get("vehicle"),
+					"last_activity_date": row.get("last_activity_date"),
+					"item": row.get("item"),
+					"vehicle_activity": self.name,
+				}).insert(ignore_permissions=True)
+
+		# Delete any existing docs that are no longer in the CSV
+		for doc in existing_docs:
+			if doc.name not in keep_doc_names:
+				frappe.delete_doc("Vehicle Activity Details", doc.name, ignore_permissions=True)
 
 	def _get_value(self, row_dict, field_map, fieldname):
 		if fieldname not in field_map:
@@ -357,3 +419,23 @@ class VehicleActivities(Document):
 
 	def _normalize_key(self, value):
 		return " ".join((value or "").strip().lower().replace("_", " ").split())
+
+
+def run_import_in_background(doc_name):
+	# Get the document
+	doc = frappe.get_doc("Vehicle Activities", doc_name)
+	doc.flags.in_background_job = True
+
+	if doc.upload_file:
+		doc.import_activity_csv()
+	else:
+		# If file is cleared
+		doc.set("vehicle_activity_error_details", [])
+		doc.flags.sync_activity_detail_docs = True
+		doc.flags.parsed_activities = []
+
+	# Save the document (updates the error details child table)
+	doc.save(ignore_permissions=True)
+
+	# Sync the detail documents
+	doc._sync_activity_detail_docs()
