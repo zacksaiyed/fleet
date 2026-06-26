@@ -216,8 +216,8 @@ doc_events = {
         ]
     },
     "Fleet Billing Settings": {
-        "on_update": ["fleet.custom_py.billing_subscription_rate.on_setting_update"
-]},
+        "on_update": ["fleet.custom_py.billing_subscription_rate.on_setting_update"]
+    },
     "Item": {
         "before_insert": "fleet.override.item.generate_item_details"
     }
