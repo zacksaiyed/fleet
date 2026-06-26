@@ -165,7 +165,7 @@ override_doctype_class = {
 # Hook on document methods and events
 
 doc_events = {
-    
+
     "User": {
         "validate": "fleet.erpnext_events.user_warehouse_hooks.validate_user_roles",
         "on_update": "fleet.erpnext_events.user_warehouse_hooks.on_update_user_roles"
@@ -202,7 +202,7 @@ doc_events = {
             "fleet.custom_py.customer_custom.validate_customer",
             "fleet.custom_py.billing_subscription_rate.validate_customer"
         ],
-        
+
         "after_insert": [
             "fleet.override.customer_warehouse.set_customer_warehouse",
         ],
@@ -216,8 +216,8 @@ doc_events = {
         ]
     },
     "Fleet Billing Settings": {
-        "on_update": "fleet.custom_py.billing_subscription_rate.on_setting_update"
-            "fleet.override.customer_warehouse.set_customer_warehouse"
+        "on_update": ["fleet.custom_py.billing_subscription_rate.on_setting_update"
+
         ]
     },
     "Item": {
@@ -364,10 +364,10 @@ fixtures = [
         ["name", "in", ["Vehicle Item Warehouse Status"]]
     ]},
 {
-        "dt": "Custom Field", 
+        "dt": "Custom Field",
         "filters": [
             ["name", "in", [
-                "Customer-custom_billing__fleettrack",  
+                "Customer-custom_billing__fleettrack",
                 "Customer-custom_billing_customer_type",
                 "Customer-custom_billing_currency",
                 "Customer-custom_invoice_generation_mode",
