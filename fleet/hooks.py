@@ -216,8 +216,8 @@ doc_events = {
         ]
     },
     "Fleet Billing Settings": {
-        "on_update": "fleet.custom_py.billing_subscription_rate.on_setting_update"
-            "fleet.override.customer_warehouse.set_customer_warehouse"
+        "on_update": ["fleet.custom_py.billing_subscription_rate.on_setting_update"
+          
         ]
     },
     "Item": {
