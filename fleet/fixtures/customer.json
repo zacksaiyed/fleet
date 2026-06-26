@@ -1,291 +1,258 @@
-{
- "Customer": [
-  {
-   "dt": "Customer",
-   "fieldname": "custom_column_break_kwifo",
-   "fieldtype": "Column Break",
-   "insert_after": "custom_external_approval_period_days",
-   "module": "Fleet"
-  },
-  {
-   "dt": "Customer",
-   "fieldname": "custom_previous_invoice_frequency_months_",
-   "fieldtype": "Int",
-   "insert_after": "custom_last_billed_upto_date",
-   "label": "Previous Invoice Frequency Months ",
-   "module": "Fleet"
-  },
-  {
-   "dt": "Customer",
-   "fieldname": "custom_last_billed_upto_date",
-   "fieldtype": "Date",
-   "insert_after": "custom_invoice_frequency_months",
-   "label": "Last Billed Upto Date",
-   "module": "Fleet"
-  },
-  {
-   "dt": "Customer",
-   "fieldname": "custom_generate_pending_invoice",
-   "fieldtype": "Button",
-   "insert_after": "custom_invoice_frequency_changed_on",
-   "label": "Generate Pending Invoice",
-   "module": "Fleet"
-  },
-  {
-   "dt": "Customer",
-   "fieldname": "custom_invoice_frequency_changed_on",
-   "fieldtype": "Date",
-   "insert_after": "custom_previous_invoice_frequency_months_",
-   "label": "Invoice Frequency Changed On",
-   "module": "Fleet"
-  },
-  {
-   "dt": "Customer",
-   "fieldname": "custom_customer_component_price",
-   "fieldtype": "Table",
-   "insert_after": "custom_section_break_rmxap",
-   "label": "Customer Component Price",
-   "module": "Fleet",
-   "options": "Customer Component Price"
-  },
-  {
-   "dt": "Customer",
-   "fieldname": "custom_section_break_rmxap",
-   "fieldtype": "Section Break",
-   "insert_after": "custom_column_break_kwifo",
-   "module": "Fleet"
-  },
-  {
-   "dt": "Customer",
-   "fieldname": "billing",
-   "fieldtype": "Tab Break",
-   "insert_after": "default_commission_rate",
-   "label": "Billing",
-   "module": "Fleet"
-  },
-  {
-   "dt": "Customer",
-   "fieldname": "custom_section_break_blb58",
-   "fieldtype": "Section Break",
-   "insert_after": "custom_customer_component_price",
-   "label": "Billing Notification",
-   "module": "Fleet"
-  },
-  {
-   "dt": "Customer",
-   "fieldname": "custom_local1",
-   "fieldtype": "Currency",
-   "insert_after": "custom_section_break_blb58",
-   "label": "LOCAL 1",
-   "module": "Fleet"
-  },
-  {
-   "dt": "Customer",
-   "fieldname": "custom_local0",
-   "fieldtype": "Currency",
-   "insert_after": "custom_local1",
-   "label": "LOCAL 0",
-   "module": "Fleet"
-  },
-  {
-   "dt": "Customer",
-   "fieldname": "custom_column_break_ft8xh",
-   "fieldtype": "Column Break",
-   "insert_after": "custom_local0",
-   "module": "Fleet"
-  },
-  {
-   "dt": "Customer",
-   "fieldname": "custom_usd_1",
-   "fieldtype": "Currency",
-   "insert_after": "custom_column_break_ft8xh",
-   "label": "USD 1",
-   "module": "Fleet"
-  },
-  {
-   "dt": "Customer",
-   "fieldname": "custom_usd_0",
-   "fieldtype": "Currency",
-   "insert_after": "custom_usd_1",
-   "label": "USD 0",
-   "module": "Fleet"
-  },
-  {
-   "dt": "Customer",
-   "fieldname": "custom_section_break_vslbk",
-   "fieldtype": "Section Break",
-   "insert_after": "custom_generate_pending_invoice",
-   "module": "Fleet"
-  },
-  {
-   "dt": "Customer",
-   "fieldname": "custom_whatsapp_3",
-   "fieldtype": "Phone",
-   "insert_after": "custom_whatsapp_2",
-   "label": "Whatsapp 3",
-   "module": "Fleet"
-  },
-  {
-   "dt": "Customer",
-   "fieldname": "custom_whatsapp_2",
-   "fieldtype": "Phone",
-   "insert_after": "custom_whatsapp_1",
-   "label": "Whatsapp 2",
-   "module": "Fleet"
-  },
-  {
-   "dt": "Customer",
-   "fieldname": "custom_whatsapp_1",
-   "fieldtype": "Phone",
-   "insert_after": "custom_column_break_tfyiy",
-   "label": "Whatsapp 1",
-   "module": "Fleet"
-  },
-  {
-   "dt": "Customer",
-   "fieldname": "custom_column_break_xwjz7",
-   "fieldtype": "Column Break",
-   "insert_after": "custom_is_group",
-   "module": "Fleet"
-  },
-  {
-   "dt": "Customer",
-   "fieldname": "custom_email_3",
-   "fieldtype": "Data",
-   "insert_after": "custom_email_2",
-   "label": "Email 3",
-   "module": "Fleet",
-   "options": "Email"
-  },
-  {
-   "dt": "Customer",
-   "fieldname": "custom_email_2",
-   "fieldtype": "Data",
-   "insert_after": "custom_email_1",
-   "label": "Email 2",
-   "module": "Fleet",
-   "options": "Email"
-  },
-  {
-   "dt": "Customer",
-   "fieldname": "custom_email_1",
-   "fieldtype": "Data",
-   "insert_after": "custom_whatsapp_3",
-   "label": "Email 1",
-   "module": "Fleet",
-   "options": "Email"
-  },
-  {
-   "dt": "Customer",
-   "fieldname": "custom_column_break_tfyiy",
-   "fieldtype": "Column Break",
-   "insert_after": "custom_suspension_threshold_percent",
-   "module": "Fleet"
-  },
-  {
-   "dt": "Customer",
-   "fieldname": "custom_is_group",
-   "fieldtype": "Check",
-   "insert_after": "custom_vat_applicable",
-   "label": "Is Group",
-   "module": "Fleet"
-  },
-  {
-   "default": "15",
-   "dt": "Customer",
-   "fieldname": "custom_active_satus_cutoff_day",
-   "fieldtype": "Int",
-   "insert_after": "custom_installation_cutoff_day",
-   "label": "Active Satus Cutoff Day",
-   "module": "Fleet"
-  },
-  {
-   "dt": "Customer",
-   "fieldname": "custom_parent_customer",
-   "fieldtype": "Link",
-   "insert_after": "custom_email_3",
-   "label": "Parent Customer",
-   "module": "Fleet",
-   "options": "Customer"
-  },
-  {
-   "default": "90",
-   "dt": "Customer",
-   "fieldname": "custom_suspension_threshold_percent",
-   "fieldtype": "Float",
-   "insert_after": "custom_active_satus_cutoff_day",
-   "label": "Suspension Threshold Percent",
-   "module": "Fleet"
-  },
-  {
-   "default": "15",
-   "dt": "Customer",
-   "fieldname": "custom_installation_cutoff_day",
-   "fieldtype": "Int",
-   "insert_after": "custom_invoice_generation_mode",
-   "label": "Installation Cutoff Day",
-   "module": "Fleet"
-  },
-  {
-   "dt": "Customer",
-   "fieldname": "custom_external_approval_period_days",
-   "fieldtype": "Select",
-   "insert_after": "custom_section_break_vslbk",
-   "label": "External Approval Period Days",
-   "module": "Fleet",
-   "options": "0\n7"
-  },
-  {
-   "dt": "Customer",
-   "fieldname": "custom_invoice_generation_mode",
-   "fieldtype": "Select",
-   "insert_after": "custom_billing_currency",
-   "label": "Invoice Generation Mode",
-   "module": "Fleet",
-   "options": "Per Customer\nPer Branch"
-  },
-  {
-   "dt": "Customer",
-   "fieldname": "custom_invoice_frequency_months",
-   "fieldtype": "Select",
-   "insert_after": "custom_column_break_xwjz7",
-   "label": "Invoice Frequency Months",
-   "module": "Fleet",
-   "options": "1\n2 \n3\n4\n6\n12"
-  },
-  {
-   "dt": "Customer",
-   "fieldname": "custom_billing_currency",
-   "fieldtype": "Select",
-   "insert_after": "custom_billing_customer_type",
-   "label": "Billing Currency",
-   "module": "Fleet",
-   "options": "USD\nLOCAL\nBOTH"
-  },
-  {
-   "dt": "Customer",
-   "fieldname": "custom_vat_applicable",
-   "fieldtype": "Check",
-   "insert_after": "custom_parent_customer",
-   "label": "Vat Applicable",
-   "module": "Fleet"
-  },
-  {
-   "dt": "Customer",
-   "fieldname": "custom_billing_customer_type",
-   "fieldtype": "Select",
-   "insert_after": "custom_billing__fleettrack",
-   "label": "Billing Customer Type",
-   "module": "Fleet",
-   "options": "Local\nExport"
-  },
-  {
-   "dt": "Customer",
-   "fieldname": "custom_billing__fleettrack",
-   "fieldtype": "Tab Break",
-   "insert_after": "portal_users",
-   "label": " Invoice configuration",
-   "module": "Fleet"
-  }
- ]
-}
+[
+    {
+        "dt": "Customer",
+        "fieldname": "custom_previous_invoice_frequency_months_",
+        "fieldtype": "Int",
+        "insert_after": "custom_last_billed_upto_date",
+        "module": "Fleet",
+        "name": "Customer-custom_previous_invoice_frequency_months_"
+    },
+    {
+        "dt": "Customer",
+        "fieldname": "custom_last_billed_upto_date",
+        "fieldtype": "Date",
+        "insert_after": "custom_invoice_frequency_months",
+        "module": "Fleet",
+        "name": "Customer-custom_last_billed_upto_date"
+    },
+    {
+        "dt": "Customer",
+        "fieldname": "custom_generate_pending_invoice",
+        "fieldtype": "Button",
+        "insert_after": "custom_invoice_frequency_changed_on",
+        "module": "Fleet",
+        "name": "Customer-custom_generate_pending_invoice"
+    },
+    {
+        "dt": "Customer",
+        "fieldname": "custom_invoice_frequency_changed_on",
+        "fieldtype": "Date",
+        "insert_after": "custom_previous_invoice_frequency_months_",
+        "module": "Fleet",
+        "name": "Customer-custom_invoice_frequency_changed_on"
+    },
+    {
+        "dt": "Customer",
+        "fieldname": "custom_customer_component_price",
+        "fieldtype": "Table",
+        "insert_after": "custom_section_break_rmxap",
+        "module": "Fleet",
+        "name": "Customer-custom_customer_component_price"
+    },
+    {
+        "dt": "Customer",
+        "fieldname": "custom_section_break_rmxap",
+        "fieldtype": "Section Break",
+        "insert_after": "custom_generate_pending_invoice",
+        "module": "Fleet",
+        "name": "Customer-custom_section_break_rmxap"
+    },
+    {
+        "dt": "Customer",
+        "fieldname": "custom_section_break_blb58",
+        "fieldtype": "Section Break",
+        "insert_after": "custom_customer_component_price",
+        "module": "Fleet",
+        "name": "Customer-custom_section_break_blb58"
+    },
+    {
+        "dt": "Customer",
+        "fieldname": "custom_local1",
+        "fieldtype": "Currency",
+        "insert_after": "custom_section_break_blb58",
+        "module": "Fleet",
+        "name": "Customer-custom_local1"
+    },
+    {
+        "dt": "Customer",
+        "fieldname": "custom_local0",
+        "fieldtype": "Currency",
+        "insert_after": "custom_local1",
+        "module": "Fleet",
+        "name": "Customer-custom_local0"
+    },
+    {
+        "dt": "Customer",
+        "fieldname": "custom_column_break_ft8xh",
+        "fieldtype": "Column Break",
+        "insert_after": "custom_local0",
+        "module": "Fleet",
+        "name": "Customer-custom_column_break_ft8xh"
+    },
+    {
+        "dt": "Customer",
+        "fieldname": "custom_usd_1",
+        "fieldtype": "Currency",
+        "insert_after": "custom_column_break_ft8xh",
+        "module": "Fleet",
+        "name": "Customer-custom_usd_1"
+    },
+    {
+        "dt": "Customer",
+        "fieldname": "custom_usd_0",
+        "fieldtype": "Currency",
+        "insert_after": "custom_usd_1",
+        "module": "Fleet",
+        "name": "Customer-custom_usd_0"
+    },
+    {
+        "dt": "Customer",
+        "fieldname": "custom_whatsapp_3",
+        "fieldtype": "Phone",
+        "insert_after": "custom_whatsapp_2",
+        "module": "Fleet",
+        "name": "Customer-custom_whatsapp_3"
+    },
+    {
+        "dt": "Customer",
+        "fieldname": "custom_whatsapp_2",
+        "fieldtype": "Phone",
+        "insert_after": "custom_whatsapp_1",
+        "module": "Fleet",
+        "name": "Customer-custom_whatsapp_2"
+    },
+    {
+        "dt": "Customer",
+        "fieldname": "custom_whatsapp_1",
+        "fieldtype": "Phone",
+        "insert_after": "custom_column_break_tfyiy",
+        "module": "Fleet",
+        "name": "Customer-custom_whatsapp_1"
+    },
+    {
+        "dt": "Customer",
+        "fieldname": "custom_column_break_xwjz7",
+        "fieldtype": "Column Break",
+        "insert_after": "custom_is_group",
+        "module": "Fleet",
+        "name": "Customer-custom_column_break_xwjz7"
+    },
+    {
+        "dt": "Customer",
+        "fieldname": "custom_email_3",
+        "fieldtype": "Data",
+        "insert_after": "custom_email_2",
+        "module": "Fleet",
+        "name": "Customer-custom_email_3"
+    },
+    {
+        "dt": "Customer",
+        "fieldname": "custom_email_2",
+        "fieldtype": "Data",
+        "insert_after": "custom_email_1",
+        "module": "Fleet",
+        "name": "Customer-custom_email_2"
+    },
+    {
+        "dt": "Customer",
+        "fieldname": "custom_email_1",
+        "fieldtype": "Data",
+        "insert_after": "custom_whatsapp_3",
+        "module": "Fleet",
+        "name": "Customer-custom_email_1"
+    },
+    {
+        "dt": "Customer",
+        "fieldname": "custom_column_break_tfyiy",
+        "fieldtype": "Column Break",
+        "insert_after": "custom_vat_applicable",
+        "module": "Fleet",
+        "name": "Customer-custom_column_break_tfyiy"
+    },
+    {
+        "dt": "Customer",
+        "fieldname": "custom_is_group",
+        "fieldtype": "Check",
+        "insert_after": "custom_parent_customer",
+        "module": "Fleet",
+        "name": "Customer-custom_is_group"
+    },
+    {
+        "dt": "Customer",
+        "fieldname": "custom_active_satus_cutoff_day",
+        "fieldtype": "Int",
+        "insert_after": "custom_installation_cutoff_day",
+        "module": "Fleet",
+        "name": "Customer-custom_active_satus_cutoff_day"
+    },
+    {
+        "dt": "Customer",
+        "fieldname": "custom_parent_customer",
+        "fieldtype": "Link",
+        "insert_after": "custom_email_3",
+        "module": "Fleet",
+        "name": "Customer-custom_parent_customer"
+    },
+    {
+        "dt": "Customer",
+        "fieldname": "custom_suspension_threshold_percent",
+        "fieldtype": "Float",
+        "insert_after": "custom_active_satus_cutoff_day",
+        "module": "Fleet",
+        "name": "Customer-custom_suspension_threshold_percent"
+    },
+    {
+        "dt": "Customer",
+        "fieldname": "custom_installation_cutoff_day",
+        "fieldtype": "Int",
+        "insert_after": "custom_invoice_generation_mode",
+        "module": "Fleet",
+        "name": "Customer-custom_installation_cutoff_day"
+    },
+    {
+        "dt": "Customer",
+        "fieldname": "custom_external_approval_period_days",
+        "fieldtype": "Select",
+        "insert_after": "custom_suspension_threshold_percent",
+        "module": "Fleet",
+        "name": "Customer-custom_external_approval_period_days"
+    },
+    {
+        "dt": "Customer",
+        "fieldname": "custom_invoice_generation_mode",
+        "fieldtype": "Select",
+        "insert_after": "custom_billing_currency",
+        "module": "Fleet",
+        "name": "Customer-custom_invoice_generation_mode"
+    },
+    {
+        "dt": "Customer",
+        "fieldname": "custom_invoice_frequency_months",
+        "fieldtype": "Select",
+        "insert_after": "custom_column_break_xwjz7",
+        "module": "Fleet",
+        "name": "Customer-custom_invoice_frequency_months"
+    },
+    {
+        "dt": "Customer",
+        "fieldname": "custom_billing_currency",
+        "fieldtype": "Select",
+        "insert_after": "custom_billing_customer_type",
+        "module": "Fleet",
+        "name": "Customer-custom_billing_currency"
+    },
+    {
+        "dt": "Customer",
+        "fieldname": "custom_vat_applicable",
+        "fieldtype": "Check",
+        "insert_after": "custom_external_approval_period_days",
+        "module": "Fleet",
+        "name": "Customer-custom_vat_applicable"
+    },
+    {
+        "dt": "Customer",
+        "fieldname": "custom_billing_customer_type",
+        "fieldtype": "Select",
+        "insert_after": "custom_billing__fleettrack",
+        "module": "Fleet",
+        "name": "Customer-custom_billing_customer_type"
+    },
+    {
+        "dt": "Customer",
+        "fieldname": "custom_billing__fleettrack",
+        "fieldtype": "Tab Break",
+        "insert_after": "portal_users",
+        "module": "Fleet",
+        "name": "Customer-custom_billing__fleettrack"
+    }
+]
