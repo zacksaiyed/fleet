@@ -305,8 +305,9 @@ class Job(Document):
                 continue
 
             default_price = item_data.custom_default_billing_price
+            item_price = frappe.db.get_value("Item", item_data.custom_model, "price")
             if default_price is None:
-                default_price = frappe.db.get_value("Item Model", item_data.custom_model, "price")
+                default_price = item_price
 
             if item_data.custom_model in existing_by_model:
                 row = existing_by_model[item_data.custom_model]
@@ -324,6 +325,7 @@ class Job(Document):
                 "effective_from": effective_from,
                 "last_vehicle": self.vehicle_number,
                 "last_job": self.name,
+                "customer_price":item_price
             })
             existing_by_model[item_data.custom_model] = new_row
             changed = True
