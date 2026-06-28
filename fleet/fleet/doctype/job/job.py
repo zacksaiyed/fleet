@@ -216,7 +216,7 @@ class Job(Document):
 			if missing_items:
 				frappe.throw(
 					f"Cannot complete — the following item(s) are not in customer warehouse "
-					f"<b>{self.customer_warehouse}</b>:<br>"
+					f"<b>{self.customer_warehouse}</b>:<br>"	
 					+ "<br>".join(missing_items)
 				)
 

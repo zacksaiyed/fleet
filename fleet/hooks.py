@@ -189,9 +189,18 @@ doc_events = {
         "on_update": "fleet.erpnext_events.employee.sync_user_with_employee"
     },
     "Vehicle": {
-        "validate": "fleet.erpnext_events.vehicle.validate_vehicle",
-        "after_insert": "fleet.erpnext_events.vehicle.after_insert_vehicle",
-        "on_update": "fleet.erpnext_events.vehicle.on_update_vehicle",
+        "validate": [
+            "fleet.erpnext_events.vehicle.validate_vehicle",
+            "fleet.erpnext_events.vehicle.capture_pre_save_warehouses"
+        ],
+        "after_insert": [
+            "fleet.erpnext_events.vehicle.after_insert_vehicle",
+            "fleet.erpnext_events.vehicle.handle_manual_installation_after_insert"
+        ],
+        "on_update": [
+            "fleet.erpnext_events.vehicle.on_update_vehicle",
+            "fleet.erpnext_events.vehicle.handle_manual_installation_on_update"
+        ],
     },
     "Customer": {
         "after_insert": [
