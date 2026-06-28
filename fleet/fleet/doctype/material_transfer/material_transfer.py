@@ -15,6 +15,10 @@ ROLE_STORE      = "Support Team"
 # document class
 class MaterialTransfer(Document):
 
+	def before_insert(self):
+		self.stock_entry = None
+		self.accepted_by = None
+
 	def validate(self):
 		self.validate_source_target()
 		self.validate_items()

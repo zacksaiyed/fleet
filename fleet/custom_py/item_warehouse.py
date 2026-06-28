@@ -120,6 +120,7 @@ def get_item_tracking_timeline(item):
         FROM `tabVehicle Item` vi
         JOIN `tabVehicle` v ON v.name = vi.parent
         WHERE vi.item = %(item)s
+          AND vi.status = 'Installed'
     """, {"item": item}, as_dict=True)
 
     for row in vehicle_rows:
@@ -132,6 +133,84 @@ def get_item_tracking_timeline(item):
             "datetime": str(row.install_date) if row.install_date else "",
             "ref":      row.vehicle,
         })
+
+    # 5. Manual Stock Entries (e.g. manual installation/removal via Vehicle UI)
+    import re
+    manual_se_rows = frappe.db.sql("""
+        SELECT
+            se.name,
+            se.posting_date,
+            se.posting_time,
+            se.remarks,
+            sed.s_warehouse,
+            sed.t_warehouse
+        FROM `tabStock Entry` se
+        JOIN `tabStock Entry Detail` sed ON sed.parent = se.name
+        WHERE sed.item_code = %(item)s
+          AND se.docstatus = 1
+          AND sed.s_warehouse IS NOT NULL AND sed.s_warehouse != ''
+          AND (se.custom_job IS NULL OR se.custom_job = '')
+          AND se.name NOT IN (
+              SELECT DISTINCT stock_entry 
+              FROM `tabMaterial Transfer` 
+              WHERE stock_entry IS NOT NULL AND stock_entry != ''
+          )
+        ORDER BY TIMESTAMP(se.posting_date, se.posting_time) ASC
+    """, {"item": item}, as_dict=True)
+
+    for row in manual_se_rows:
+        s_emp = frappe.db.get_value("Warehouse", row.s_warehouse, "custom_employee")
+        t_emp = frappe.db.get_value("Warehouse", row.t_warehouse, "custom_employee")
+        s_cust = frappe.db.get_value("Warehouse", row.s_warehouse, "custom_customer_name")
+        t_cust = frappe.db.get_value("Warehouse", row.t_warehouse, "custom_customer_name")
+
+        veh_match = re.search(r"manual vehicle item update for\s+(\S+)", row.remarks or "")
+        vehicle = veh_match.group(1) if veh_match else None
+
+        if t_cust:
+            events.append({
+                "type":     "vehicle",
+                "label":    vehicle or "Vehicle",
+                "sublabel": t_cust,
+                "datetime": f"{row.posting_date} {row.posting_time}",
+                "ref":      row.name,
+            })
+            if vehicle:
+                job_vehicles.add(vehicle)
+        elif s_cust:
+            if t_emp:
+                tech_name = frappe.db.get_value("Employee", t_emp, "employee_name") or t_emp
+                event_type = "technician"
+                label = tech_name
+            else:
+                event_type = "store"
+                label = "Store"
+            
+            events.append({
+                "type":     event_type,
+                "label":    label,
+                "sublabel": f"Removed from {vehicle}" if vehicle else "Removed",
+                "datetime": f"{row.posting_date} {row.posting_time}",
+                "ref":      row.name,
+            })
+        else:
+            if t_emp:
+                tech_name = frappe.db.get_value("Employee", t_emp, "employee_name") or t_emp
+                events.append({
+                    "type":     "technician",
+                    "label":    tech_name,
+                    "sublabel": "",
+                    "datetime": f"{row.posting_date} {row.posting_time}",
+                    "ref":      row.name,
+                })
+            else:
+                events.append({
+                    "type":     "store",
+                    "label":    "Store",
+                    "sublabel": "",
+                    "datetime": f"{row.posting_date} {row.posting_time}",
+                    "ref":      row.name,
+                })
 
     events.sort(key=lambda e: e["datetime"])
     return events

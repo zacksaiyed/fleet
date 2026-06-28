@@ -216,7 +216,7 @@ class Job(Document):
 			if missing_items:
 				frappe.throw(
 					f"Cannot complete — the following item(s) are not in customer warehouse "
-					f"<b>{self.customer_warehouse}</b>:<br>"
+					f"<b>{self.customer_warehouse}</b>:<br>"	
 					+ "<br>".join(missing_items)
 				)
 
@@ -296,6 +296,16 @@ class Job(Document):
 				"date":      self.date,
 			})
 		vehicle.insert(ignore_permissions=True)
+
+		# Create Vehicle Transfer Log for new installation
+		log = frappe.get_doc({
+			"doctype": "Vehicle Transfer Log",
+			"vehicle": self.vehicle_number,
+			"customer": self.customer,
+			"transfer_date": self.date or frappe.utils.today()
+		})
+		log.insert(ignore_permissions=True)
+
 		self._attach_job_images_to_vehicle(self.vehicle_number)
 		frappe.msgprint(
 			f"Vehicle <b>{self.vehicle_number}</b> created and items recorded.", alert=True
