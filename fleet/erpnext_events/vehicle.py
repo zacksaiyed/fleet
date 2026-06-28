@@ -485,3 +485,112 @@ def _create_manual_stock_entry(items, from_warehouse, to_warehouse, vehicle):
     })
     stock_entry.insert(ignore_permissions=True)
     stock_entry.submit()
+
+
+@frappe.whitelist()
+def move_to_another_customer(vehicle_name, new_customer):
+	if not vehicle_name or not new_customer:
+		frappe.throw(_("Vehicle and New Customer are required."))
+
+	doc = frappe.get_doc("Vehicle", vehicle_name)
+	old_customer = doc.custom_customer
+
+	if old_customer == new_customer:
+		frappe.throw(_("New Customer cannot be the same as the current Customer."))
+
+	# Find old customer warehouse and new customer warehouse
+	old_customer_warehouse = None
+	if old_customer:
+		old_customer_warehouse = frappe.db.get_value(
+			"Warehouse",
+			{"custom_customer_name": old_customer, "disabled": 0},
+			"name"
+		)
+
+	new_customer_warehouse = frappe.db.get_value(
+		"Warehouse",
+		{"custom_customer_name": new_customer, "disabled": 0},
+		"name"
+	)
+	if not new_customer_warehouse:
+		frappe.throw(_("Warehouse not found for the new customer {0}.").format(new_customer))
+
+	# Find all installed items on this vehicle
+	items_to_transfer = []
+	for row in doc.get("custom_vehicle_item") or []:
+		if row.status == "Installed" and row.item:
+			items_to_transfer.append(row.item)
+
+	if items_to_transfer:
+		transfers = {}  # key: from_wh, value: list of items
+		for item_code in items_to_transfer:
+			actual_whs = frappe.db.get_all(
+				"Bin",
+				filters={"item_code": item_code, "actual_qty": (">", 0)},
+				pluck="warehouse"
+			)
+			if actual_whs:
+				from_wh = actual_whs[0]
+			else:
+				from_wh = old_customer_warehouse or _get_store_warehouse()
+
+			if not from_wh:
+				frappe.throw(_("Source warehouse not found for item {0}.").format(item_code))
+
+			if from_wh == new_customer_warehouse:
+				continue
+
+			if from_wh not in transfers:
+				transfers[from_wh] = []
+			transfers[from_wh].append(item_code)
+
+		for from_wh, items in transfers.items():
+			if not items:
+				continue
+
+			company = frappe.db.get_value("Warehouse", from_wh, "company")
+			if not company:
+				company = frappe.db.get_value("Warehouse", new_customer_warehouse, "company")
+			if not company:
+				company = frappe.db.get_single_value("Global Defaults", "default_company")
+
+			stock_entry = frappe.get_doc({
+				"doctype": "Stock Entry",
+				"stock_entry_type": "Material Transfer",
+				"purpose": "Material Transfer",
+				"company": company,
+				"from_warehouse": from_wh,
+				"to_warehouse": new_customer_warehouse,
+				"remarks": _("Auto-created from manual vehicle item update for {0} (Moved to new customer {1})").format(vehicle_name, new_customer),
+				"items": [
+					{
+						"item_code": item_code,
+						"qty": 1,
+						"s_warehouse": from_wh,
+						"t_warehouse": new_customer_warehouse,
+						"uom": frappe.db.get_value("Item", item_code, "stock_uom") or "Nos",
+						"stock_uom": frappe.db.get_value("Item", item_code, "stock_uom") or "Nos",
+						"conversion_factor": 1,
+					}
+					for item_code in items
+				],
+			})
+			stock_entry.insert(ignore_permissions=True)
+			stock_entry.submit()
+
+			# Update item warehouses
+			for item_code in items:
+				update_item_warehouse(item_code, new_customer_warehouse)
+
+	# Create Vehicle Transfer Log
+	log = frappe.get_doc({
+		"doctype": "Vehicle Transfer Log",
+		"vehicle": vehicle_name,
+		"customer": new_customer,
+		"transfer_date": frappe.utils.today()
+	})
+	log.insert(ignore_permissions=True)
+
+	# Update the customer on the vehicle
+	doc.custom_customer = new_customer
+	doc.save(ignore_permissions=True)
