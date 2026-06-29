@@ -1,47 +1,47 @@
 {
  "actions": [],
  "allow_rename": 1,
- "creation": "2026-06-25 14:07:28.795591",
+ "autoname": "field:branch",
+ "creation": "2026-06-15 22:17:29.800730",
  "doctype": "DocType",
+ "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
   "customer",
-  "vehicle",
   "branch",
-  "effective_date"
+  "billing_enabled"
  ],
  "fields": [
   {
    "fieldname": "customer",
    "fieldtype": "Link",
+   "in_list_view": 1,
    "label": "Customer",
    "options": "Customer"
   },
   {
-   "fieldname": "vehicle",
-   "fieldtype": "Link",
-   "label": "Vehicle",
-   "options": "Vehicle"
-  },
-  {
    "fieldname": "branch",
-   "fieldtype": "Link",
+   "fieldtype": "Data",
+   "in_list_view": 1,
    "label": "Branch",
-   "options": "Customer Branch"
+   "unique": 1
   },
   {
-   "fieldname": "effective_date",
-   "fieldtype": "Date",
-   "label": "Effective Date"
+   "default": "0",
+   "fieldname": "billing_enabled",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Billing Enabled"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-06-25 14:11:37.049503",
+ "modified": "2026-06-25 20:50:47.807465",
  "modified_by": "Administrator",
  "module": "Fleet",
- "name": "Vehicle Branch History",
+ "name": "Customer Branch",
+ "naming_rule": "By fieldname",
  "owner": "Administrator",
  "permissions": [
   {

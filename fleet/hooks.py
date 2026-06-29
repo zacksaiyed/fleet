@@ -193,8 +193,7 @@ doc_events = {
     "Vehicle": {
         "validate": "fleet.erpnext_events.vehicle.validate_vehicle",
         "after_insert": "fleet.erpnext_events.vehicle.after_insert_vehicle",
-        "on_update": "fleet.erpnext_events.vehicle.on_update_vehicle"
-    },
+        "before_save": "fleet.fleet.doctype.vehicle_branch_history.vehicle_branch_history.on_vehicle_save"    },
     "Customer": {
         # # "validate": "fleet.custom_py.customer_custom.validate_customer",
         # "validate": "fleet.custom_py.billing_subscription_rate.validate_customer",
@@ -218,6 +217,7 @@ doc_events = {
     "Fleet Billing Settings": {
         "on_update": "fleet.custom_py.billing_subscription_rate.on_setting_update"
     },
+    
     "Item": {
         "before_insert": "fleet.override.item.generate_item_details"
     }
@@ -361,23 +361,24 @@ fixtures = [
     {"dt": "Report", "filters": [
         ["name", "in", ["Vehicle Item Warehouse Status"]]
     ]},
-{
-        "dt": "Custom Field", 
-        "filters": [
-            ["name", "in", [
-                "Customer-custom_billing__fleettrack",  
-                "Customer-custom_billing_customer_type",
-                "Customer-custom_billing_currency",
-                "Customer-custom_invoice_generation_mode",
-                "Customer-custom_installation_cutoff_day",
-                "Customer-custom_suspension_threshold_percent",
-                "Customer-custom_parent_customer",
-                "Customer-custom_vat_applicable",
-                "Customer-custom_invoice_frequency_months",
-                "Customer-custom_active_satus_cutoff_day",
-                "Customer-custom_external_approval_period_days",
-                "Customer-custom_is_group"
-            ]]
-        ]
-    },
+# {
+#         "dt": "Custom Field", 
+#         "filters": [
+#             ["name", "in", [
+#                 "Customer-custom_billing__fleettrack",  
+#                 "Customer-custom_billing_customer_type",
+#                 "Customer-custom_billing_currency",
+#                 "Customer-custom_invoice_generation_mode",
+#                 "Customer-custom_installation_cutoff_day",
+#                 "Customer-custom_suspension_threshold_percent",
+#                 "Customer-custom_parent_customer",
+#                 "Customer-custom_vat_applicable",
+#                 "Customer-custom_invoice_frequency_months",
+#                 "Customer-custom_active_satus_cutoff_day",
+#                 "Customer-custom_external_approval_period_days",
+#                 "Customer-custom_is_group"
+#             ]]
+#         ]
+#     },
+
 ]

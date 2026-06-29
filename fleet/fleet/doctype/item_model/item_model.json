@@ -1,47 +1,51 @@
 {
  "actions": [],
  "allow_rename": 1,
- "creation": "2026-06-25 14:07:28.795591",
+ "autoname": "field:model",
+ "creation": "2026-06-16 22:13:28.774766",
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
-  "customer",
-  "vehicle",
-  "branch",
-  "effective_date"
+  "item_type",
+  "brand",
+  "price",
+  "model"
  ],
  "fields": [
   {
-   "fieldname": "customer",
+   "fieldname": "item_type",
    "fieldtype": "Link",
-   "label": "Customer",
-   "options": "Customer"
+   "label": "Item Type",
+   "options": "Item Type"
   },
   {
-   "fieldname": "vehicle",
+   "fieldname": "brand",
    "fieldtype": "Link",
-   "label": "Vehicle",
-   "options": "Vehicle"
+   "label": "Brand",
+   "link_filters": "[[\"Brand\",\"custom_item_type\",\"=\",\"eval:doc.item_type\"]]",
+   "options": "Brand"
   },
   {
-   "fieldname": "branch",
-   "fieldtype": "Link",
-   "label": "Branch",
-   "options": "Customer Branch"
+   "default": "250",
+   "fieldname": "price",
+   "fieldtype": "Currency",
+   "label": "Price"
   },
   {
-   "fieldname": "effective_date",
-   "fieldtype": "Date",
-   "label": "Effective Date"
+   "fieldname": "model",
+   "fieldtype": "Data",
+   "label": "Model",
+   "unique": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-06-25 14:11:37.049503",
+ "modified": "2026-06-16 22:19:18.986948",
  "modified_by": "Administrator",
  "module": "Fleet",
- "name": "Vehicle Branch History",
+ "name": "Item Model",
+ "naming_rule": "By fieldname",
  "owner": "Administrator",
  "permissions": [
   {

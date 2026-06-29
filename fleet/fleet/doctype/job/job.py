@@ -549,79 +549,84 @@ def check_item_available(item, current_job=None):
 # Job Actions
 
 @frappe.whitelist()
-def job_action(job, action, comment=None, comment_field=None):
-	"""Handle Job status transitions. Called from job.js and mobile API."""
-	doc        = frappe.get_doc("Job", job)
-	roles      = frappe.get_roles()
-	is_support = "Support Team" in roles
-	is_tech    = "Technician"   in roles
-	msg        = ""
+def job_action(job, action, comment=None, comment_field=None, branch=None): # <-- Yahan branch=None add kiya hai
+    """Handle Job status transitions. Called from job.js and mobile API."""
+    doc        = frappe.get_doc("Job", job)
+    roles      = frappe.get_roles()
+    is_support = "Support Team" in roles
+    is_tech    = "Technician"   in roles
+    msg        = ""
 
-	if action == "done":
-		if doc.status != "In Progress":
-			frappe.throw("Job must be In Progress to mark as Done.")
-		if not (is_support or is_tech):
-			frappe.throw("Permission denied.")
-		if not comment:
-			frappe.throw("Comment is required.")
-		if not doc.job_images:
-			frappe.throw("At least one image is required before marking the job as Done.")
-		doc.done_comment                = comment
-		doc.status                      = "In Review"
-		doc.completed_by_technician     = frappe.session.user
-		doc.completed_on_technician     = now()
-		msg = "Job marked as In Review."
+    if action == "done":
+        if doc.status != "In Progress":
+            frappe.throw("Job must be In Progress to mark as Done.")
+        if not (is_support or is_tech):
+            frappe.throw("Permission denied.")
+        if not comment:
+            frappe.throw("Comment is required.")
+        if not doc.job_images:
+            frappe.throw("At least one image is required before marking the job as Done.")
+        doc.done_comment                = comment
+        doc.status                      = "In Review"
+        doc.completed_by_technician     = frappe.session.user
+        doc.completed_on_technician     = now()
+        msg = "Job marked as In Review."
 
-	elif action == "hold":
-		if doc.status not in ("Pending", "In Progress"):
-			frappe.throw("Job must be Pending or In Progress to put On Hold.")
-		if not (is_support or is_tech):
-			frappe.throw("Permission denied.")
-		if not comment:
-			frappe.throw("Hold comment is required.")
-		doc.hold_comment = comment
-		doc.status = "On Hold"
-		msg = "Job put on hold."
+    elif action == "hold":
+        if doc.status not in ("Pending", "In Progress"):
+            frappe.throw("Job must be Pending or In Progress to put On Hold.")
+        if not (is_support or is_tech):
+            frappe.throw("Permission denied.")
+        if not comment:
+            frappe.throw("Hold comment is required.")
+        doc.hold_comment = comment
+        doc.status = "On Hold"
+        msg = "Job put on hold."
 
-	elif action == "reopen":
-		if doc.status != "On Hold":
-			frappe.throw("Job must be On Hold to Reopen.")
-		if not (is_support or is_tech):
-			frappe.throw("Permission denied.")
-		doc.status = "Pending"
-		msg = "Job reopened to Pending."
+    elif action == "reopen":
+        if doc.status != "On Hold":
+            frappe.throw("Job must be On Hold to Reopen.")
+        if not (is_support or is_tech):
+            frappe.throw("Permission denied.")
+        doc.status = "Pending"
+        msg = "Job reopened to Pending."
 
-	elif action == "complete":
-		if doc.status != "In Review":
-			frappe.throw("Job must be In Review to Complete.")
-		if not is_support:
-			frappe.throw("Only Support Team can complete a job.")
-		if not comment:
-			frappe.throw("Completion comment is required.")
-		doc.completion_comment      = comment
-		doc.status                  = "Completed"
-		doc.completed_by_support    = frappe.session.user
-		doc.completed_on_support    = now()
-		msg = "Job completed."
+    elif action == "complete":
+        if doc.status != "In Review":
+            frappe.throw("Job must be In Review to Complete.")
+        if not is_support:
+            frappe.throw("Only Support Team can complete a job.")
+        if not comment:
+            frappe.throw("Completion comment is required.")
+        doc.completion_comment      = comment
+        doc.status                  = "Completed"
+        doc.completed_by_support    = frappe.session.user
+        doc.completed_on_support    = now()
+        msg = "Job completed."
+#
+        if branch:
+            from fleet.fleet.doctype.vehicle_branch_history.vehicle_branch_history import create_log_from_job
+            create_log_from_job(doc, branch)
+#
 
-	elif action == "mark_pending":
-		if doc.status != "In Review":
-			frappe.throw("Job must be In Review to mark as Pending.")
-		if not is_support:
-			frappe.throw("Only Support Team can send a job back to Pending.")
-		doc.status = "Pending"
-		msg = "Job marked as Pending."
+    elif action == "mark_pending":
+        if doc.status != "In Review":
+            frappe.throw("Job must be In Review to mark as Pending.")
+        if not is_support:
+            frappe.throw("Only Support Team can send a job back to Pending.")
+        doc.status = "Pending"
+        msg = "Job marked as Pending."
 
-	elif action == "cancel":
-		if doc.status in ("Completed", "Cancelled"):
-			frappe.throw("Job is already finalised.")
-		if not is_support:
-			frappe.throw("Only Support Team can cancel a job.")
-		doc.status = "Cancelled"
-		msg = "Job cancelled."
+    elif action == "cancel":
+        if doc.status in ("Completed", "Cancelled"):
+            frappe.throw("Job is already finalised.")
+        if not is_support:
+            frappe.throw("Only Support Team can cancel a job.")
+        doc.status = "Cancelled"
+        msg = "Job cancelled."
 
-	else:
-		frappe.throw(f"Unknown action: {action}")
+    else:
+        frappe.throw(f"Unknown action: {action}")
 
-	doc.save(ignore_permissions=True)
-	return {"msg": msg, "job_status": doc.status}
+    doc.save(ignore_permissions=True)
+    return {"msg": msg, "job_status": doc.status}

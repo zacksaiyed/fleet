@@ -1,0 +1,117 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-06-15 22:31:26.958490",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "default_vat_rate",
+  "default_installation_cutoff_day",
+  "default_suspension_threshold_percent",
+  "column_break_ytiy",
+  "default_advance_months",
+  "default_active_status_cutoff_day",
+  "usd_to_local",
+  "section_break_ceuy",
+  "usd0",
+  "usd1",
+  "column_break_hbew",
+  "local0",
+  "local1"
+ ],
+ "fields": [
+  {
+   "default": "16",
+   "fieldname": "default_vat_rate",
+   "fieldtype": "Percent",
+   "label": "Default Vat Rate"
+  },
+  {
+   "default": "3",
+   "fieldname": "default_advance_months",
+   "fieldtype": "Int",
+   "label": "Default Advance Months"
+  },
+  {
+   "default": "15",
+   "fieldname": "default_installation_cutoff_day",
+   "fieldtype": "Int",
+   "label": "Default Installation Cutoff Day"
+  },
+  {
+   "default": "15",
+   "fieldname": "default_active_status_cutoff_day",
+   "fieldtype": "Int",
+   "label": "Default Active Status Cutoff Day"
+  },
+  {
+   "default": "90",
+   "fieldname": "default_suspension_threshold_percent",
+   "fieldtype": "Percent",
+   "label": "Default Suspension Threshold Percent"
+  },
+  {
+   "fieldname": "column_break_ytiy",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "usd_to_local",
+   "fieldtype": "Float",
+   "label": "Usd To Local"
+  },
+  {
+   "fieldname": "section_break_ceuy",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "usd0",
+   "fieldtype": "Currency",
+   "label": "USD0"
+  },
+  {
+   "fieldname": "usd1",
+   "fieldtype": "Currency",
+   "label": "USD1"
+  },
+  {
+   "fieldname": "column_break_hbew",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "local0",
+   "fieldtype": "Currency",
+   "label": "LOCAL0"
+  },
+  {
+   "fieldname": "local1",
+   "fieldtype": "Currency",
+   "label": "LOCAL1"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-06-15 22:52:44.215484",
+ "modified_by": "Administrator",
+ "module": "Fleet",
+ "name": "Fleet Billing Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
