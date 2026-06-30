@@ -3,6 +3,25 @@ from frappe import _
 from fleet.custom_py.item_warehouse import update_item_warehouse
 
 
+def _preserve_existing_vehicle_items(doc):
+    if not _is_data_import(doc):
+        return
+
+    before = doc.get_doc_before_save()
+    if not before:
+        return
+
+    current_items = {row.item for row in doc.get("custom_vehicle_item") or [] if row.item}
+
+    for old_row in before.get("custom_vehicle_item") or []:
+        if old_row.item and old_row.item not in current_items:
+            doc.append("custom_vehicle_item", old_row.as_dict())
+
+    # Re-index all child table rows to ensure consecutive numbering (idx)
+    for i, row in enumerate(doc.get("custom_vehicle_item") or []):
+        row.idx = i + 1
+
+
 def validate_vehicle(doc, method=None):
     if doc.license_plate:
         normalized = doc.license_plate.replace(" ", "").upper()
@@ -15,6 +34,7 @@ def validate_vehicle(doc, method=None):
                 for row in doc.get(df.fieldname) or []:
                     row.parent = normalized
 
+    _preserve_existing_vehicle_items(doc)
     _remove_duplicate_vehicle_items(doc)
     _check_installed_items_exist(doc)
     _check_item_not_installed_elsewhere(doc)
@@ -96,6 +116,10 @@ def after_insert_vehicle(doc, _method=None):
 
 
 def on_update_vehicle(doc, _method=None):
+    frappe.log_error(
+        message=f"on_update_vehicle called for {doc.name}. is_import: {_is_data_import(doc)}, customer: {doc.custom_customer}",
+        title="Vehicle Import Debug - Start"
+    )
     if not _is_data_import(doc) or not doc.custom_customer:
         return
 
@@ -103,6 +127,10 @@ def on_update_vehicle(doc, _method=None):
         "Warehouse",
         {"custom_customer_name": doc.custom_customer, "disabled": 0},
         "name",
+    )
+    frappe.log_error(
+        message=f"customer_warehouse: {customer_warehouse}",
+        title="Vehicle Import Debug - Wh"
     )
     if not customer_warehouse:
         return
@@ -112,6 +140,60 @@ def on_update_vehicle(doc, _method=None):
         customer_warehouse,
         only_newly_installed=True,
     )
+
+    _move_imported_removed_items_to_store_warehouse(
+        doc,
+        customer_warehouse,
+    )
+
+
+
+def _move_imported_removed_items_to_store_warehouse(doc, customer_warehouse):
+    installed_items, removed_items = get_installed_and_removed_items(doc)
+    frappe.log_error(
+        message=f"_move_imported_removed_items_to_store_warehouse: removed_items={removed_items}",
+        title="Vehicle Import Debug - Removed Start"
+    )
+    if not removed_items:
+        return
+
+    store_warehouse = _get_store_warehouse()
+    if not store_warehouse:
+        frappe.throw(_("Default Warehouse is not set in Stock Settings. Cannot move removed vehicle items."))
+
+    transfers = {}
+    for item in removed_items:
+        current_wh = frappe.db.get_value("Item", item, "custom_current_warehouse") or customer_warehouse
+        # Check physical stock
+        actual_qty = frappe.db.get_value("Bin", {"item_code": item, "warehouse": current_wh}, "actual_qty") or 0
+        frappe.log_error(
+            message=f"item: {item}, current_wh: {current_wh}, store_wh: {store_warehouse}, actual_qty: {actual_qty}",
+            title="Vehicle Import Debug - Item Stock"
+        )
+        if current_wh == store_warehouse:
+            continue
+
+        if actual_qty <= 0:
+            # Just update the field directly, skip stock entry
+            update_item_warehouse(item, store_warehouse)
+            continue
+
+        key = (current_wh, store_warehouse)
+        if key not in transfers:
+            transfers[key] = []
+        transfers[key].append(item)
+
+    frappe.log_error(
+        message=f"transfers to execute: {transfers}",
+        title="Vehicle Import Debug - Transfers"
+    )
+
+    for (from_wh, to_wh), items in transfers.items():
+        if not items:
+            continue
+        _create_manual_stock_entry(items, from_wh, to_wh, doc.name)
+        for item in items:
+            update_item_warehouse(item, to_wh)
 
 
 def _is_data_import(doc=None):
@@ -244,8 +326,20 @@ def _create_vehicle_import_stock_entry(items, store_warehouse, customer_warehous
             for item_code in items
         ],
     })
-    stock_entry.insert(ignore_permissions=True)
-    stock_entry.submit()
+    
+    # Set explicit local timezone posting date and time
+    now_dt = frappe.utils.now_datetime()
+    stock_entry.posting_date = now_dt.strftime("%Y-%m-%d")
+    stock_entry.posting_time = now_dt.strftime("%H:%M:%S")
+
+    try:
+        stock_entry.insert(ignore_permissions=True)
+        stock_entry.submit()
+    except Exception as e:
+        frappe.log_error(
+            message=f"Failed to submit installation Stock Entry for vehicle {vehicle} items {items}: {str(e)}",
+            title="Vehicle Import Stock Entry Failed"
+        )
 
 
 @frappe.whitelist()
@@ -381,6 +475,11 @@ def get_installed_and_removed_items(doc):
         if status == "Installed" and item not in current_items:
             removed_items.append(item)
 
+    frappe.log_error(
+        message=f"get_installed_and_removed_items: before: {before_items}, current: {current_items}, installed_items: {installed_items}, removed_items: {removed_items}",
+        title="Vehicle Import Debug - Compare"
+    )
+
     return installed_items, removed_items
 
 
@@ -483,8 +582,20 @@ def _create_manual_stock_entry(items, from_warehouse, to_warehouse, vehicle):
             for item_code in items
         ],
     })
-    stock_entry.insert(ignore_permissions=True)
-    stock_entry.submit()
+
+    # Set explicit local timezone posting date and time
+    now_dt = frappe.utils.now_datetime()
+    stock_entry.posting_date = now_dt.strftime("%Y-%m-%d")
+    stock_entry.posting_time = now_dt.strftime("%H:%M:%S")
+
+    try:
+        stock_entry.insert(ignore_permissions=True)
+        stock_entry.submit()
+    except Exception as e:
+        frappe.log_error(
+            message=f"Failed to submit manual transfer Stock Entry for vehicle {vehicle} items {items}: {str(e)}",
+            title="Vehicle Manual Stock Entry Failed"
+        )
 
 
 @frappe.whitelist()
@@ -575,8 +686,20 @@ def move_to_another_customer(vehicle_name, new_customer):
 					for item_code in items
 				],
 			})
-			stock_entry.insert(ignore_permissions=True)
-			stock_entry.submit()
+			
+			# Set explicit local timezone posting date and time
+			now_dt = frappe.utils.now_datetime()
+			stock_entry.posting_date = now_dt.strftime("%Y-%m-%d")
+			stock_entry.posting_time = now_dt.strftime("%H:%M:%S")
+
+			try:
+				stock_entry.insert(ignore_permissions=True)
+				stock_entry.submit()
+			except Exception as e:
+				frappe.log_error(
+					message=f"Failed to submit Stock Entry during vehicle transfer for vehicle {vehicle_name} items {items}: {str(e)}",
+					title="Vehicle Transfer Stock Entry Failed"
+				)
 
 			# Update item warehouses
 			for item_code in items:
