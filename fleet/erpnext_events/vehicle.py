@@ -3,25 +3,6 @@ from frappe import _
 from fleet.custom_py.item_warehouse import update_item_warehouse
 
 
-def _preserve_existing_vehicle_items(doc):
-    if not _is_data_import(doc):
-        return
-
-    before = doc.get_doc_before_save()
-    if not before:
-        return
-
-    current_items = {row.item for row in doc.get("custom_vehicle_item") or [] if row.item}
-
-    for old_row in before.get("custom_vehicle_item") or []:
-        if old_row.item and old_row.item not in current_items:
-            doc.append("custom_vehicle_item", old_row.as_dict())
-
-    # Re-index all child table rows to ensure consecutive numbering (idx)
-    for i, row in enumerate(doc.get("custom_vehicle_item") or []):
-        row.idx = i + 1
-
-
 def validate_vehicle(doc, method=None):
     if doc.license_plate:
         normalized = doc.license_plate.replace(" ", "").upper()
@@ -34,10 +15,13 @@ def validate_vehicle(doc, method=None):
                 for row in doc.get(df.fieldname) or []:
                     row.parent = normalized
 
-    _preserve_existing_vehicle_items(doc)
     _remove_duplicate_vehicle_items(doc)
     _check_installed_items_exist(doc)
     _check_item_not_installed_elsewhere(doc)
+
+    # Re-index all child table rows to ensure consecutive numbering (idx)
+    for i, row in enumerate(doc.get("custom_vehicle_item") or []):
+        row.idx = i + 1
 
 
 def _check_installed_items_exist(doc):

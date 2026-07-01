@@ -157,7 +157,7 @@ has_permission = {
 # Override standard doctype classes
 
 override_doctype_class = {
-    "Data Import": "fleet.override.data_import.CustomDataImport"
+    # "Data Import": "fleet.override.data_import.CustomDataImport"
 }
 
 # Document Events

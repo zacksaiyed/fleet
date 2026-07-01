@@ -148,7 +148,7 @@ function _build_timeline_html(events) {
             <div style="display:flex; align-items:flex-start; overflow-x:auto; padding:4px 4px 6px 4px;">
                 ${steps}
             </div>
-        </div>`;
+        </div>`.trim();
 }
 
 
