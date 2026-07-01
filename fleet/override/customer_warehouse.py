@@ -1,6 +1,10 @@
 from __future__ import unicode_literals
 import frappe
 
+def validate(doc,method):
+	if frappe.db.exists("Customer",{"name": ["lower", doc.customer_name.lower()],"name": ["!=", doc.name]}):
+		frappe.throw("Customer already exists.")
+
 def set_customer_warehouse(customer, method):
 
     # Get Company dynamically
