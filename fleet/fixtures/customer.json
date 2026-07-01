@@ -187,7 +187,7 @@
         "module": "Fleet",
         "name": "Customer-custom_email_1",
         "doctype": "Custom Field",
-        "label": "Email 1",
+        "label": "Email",
         "options": "Email"
     },
     {
@@ -324,8 +324,6 @@
         "fieldtype": "Tab Break",
         "insert_after": "portal_users",
         "module": "Fleet",
-        "name": "Customer-custom_billing__fleettrack",
-        "doctype": "Custom Field",
-        "label": " Invoice configuration"
+        "name": "Customer-custom_billing__fleettrack"
     }
 ]
