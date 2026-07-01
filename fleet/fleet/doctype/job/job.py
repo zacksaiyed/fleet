@@ -305,8 +305,9 @@ class Job(Document):
                 continue
 
             default_price = item_data.custom_default_billing_price
+            item_price = frappe.db.get_value("Item", item_data.custom_model, "price")
             if default_price is None:
-                default_price = frappe.db.get_value("Item Model", item_data.custom_model, "price")
+                default_price = item_price
 
             if item_data.custom_model in existing_by_model:
                 row = existing_by_model[item_data.custom_model]
@@ -324,6 +325,7 @@ class Job(Document):
                 "effective_from": effective_from,
                 "last_vehicle": self.vehicle_number,
                 "last_job": self.name,
+                "customer_price":item_price
             })
             existing_by_model[item_data.custom_model] = new_row
             changed = True
@@ -714,7 +716,7 @@ def add_in_customer_row(job: str, comment: str | None = None):
             continue
 
         model = frappe.db.get_value("Item", row.item, "custom_model")
-        default_price = frappe.db.get_value("Item", row.item, "custom_default_billing_price")
+        item_price = frappe.db.get_value("Item", row.item, "custom_default_billing_price")
         model_price = frappe.db.get_value("Item Model",model, "price")
         # customer.get with filter returns list, so take first row
         existing_rows = customer.get(
@@ -735,8 +737,13 @@ def add_in_customer_row(job: str, comment: str | None = None):
                 "effective_from": doc.completed_on_support or nowdate(),
                 "last_vehicle": doc.vehicle_number,
                 "last_job": doc.name,
-                "customer_price":default_price
+                "customer_price":item_price
             })
+
+    # Clean up any broken vehicle links to prevent LinkValidationError from blocking save
+    for r in customer.get("custom_customer_component_price") or []:
+        if r.last_vehicle and not frappe.db.exists("Vehicle", r.last_vehicle):
+            r.last_vehicle = None
 
     customer.save(ignore_permissions=True)
     frappe.db.commit()
