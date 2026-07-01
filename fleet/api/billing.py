@@ -68,6 +68,7 @@ def generate_customer_invoice(customer_id):
 
                         invoice.append("items", {
                             "item_code": row.item, "qty": 1, "custom_is_installation": 1,
+                            "custom_vehicle": vehicle.name,
                             "custom_billing_month_label": b_month["label"], "custom_original_rate": rate,
                             "description": f"Installation Charge ({b_month['label']}) - {vehicle.name}"
                         })
@@ -93,6 +94,7 @@ def generate_customer_invoice(customer_id):
                             "item_code": row.item, 
                             "qty": 1, 
                             "custom_is_subscription": 1,  
+                            "custom_vehicle": vehicle.name,
                             "custom_billing_month_label": b_month["label"], 
                             "custom_original_rate": rate, 
                             "description": f"Subscription Charge ({b_month['label']}) - Vehicle: {vehicle.name}"
