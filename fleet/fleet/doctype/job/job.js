@@ -224,7 +224,7 @@ frappe.ui.form.on("Job", {
 
 			if (["Pending", "In Progress"].includes(status)) {
 				frm.add_custom_button(__("Hold"), () =>
-					_job_action_with_comment(frm, "hold", __("Hold Comment"), "hold_comment")
+						_job_action_with_comment(frm, "hold", __("Hold Comment"), "hold_comment")
 				);
 			}
 
@@ -274,7 +274,6 @@ frappe.ui.form.on("Job", {
 	},
 
 });
-
 
 function _job_action_with_comment(frm, action, label, field) {
     let prompt_fields = [];
