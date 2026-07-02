@@ -305,7 +305,7 @@ class Job(Document):
                 continue
 
             default_price = item_data.custom_default_billing_price
-            item_price = frappe.db.get_value("Item", item_data.custom_model, "price")
+            # item_price = frappe.db.get_value("Item", item_data.custom_model, "price")
             if default_price is None:
                 default_price = item_price
 
@@ -325,7 +325,7 @@ class Job(Document):
                 "effective_from": effective_from,
                 "last_vehicle": self.vehicle_number,
                 "last_job": self.name,
-                "customer_price":item_price
+                "customer_price":default_price
             })
             existing_by_model[item_data.custom_model] = new_row
             changed = True
@@ -717,7 +717,7 @@ def add_in_customer_row(job: str, comment: str | None = None):
 
         model = frappe.db.get_value("Item", row.item, "custom_model")
         item_price = frappe.db.get_value("Item", row.item, "custom_default_billing_price")
-        model_price = frappe.db.get_value("Item Model",model, "price")
+        # model_price = frappe.db.get_value("Item Model",model, "price")
         # customer.get with filter returns list, so take first row
         existing_rows = customer.get(
             "custom_customer_component_price",
@@ -733,7 +733,7 @@ def add_in_customer_row(job: str, comment: str | None = None):
             print(f"Adding new row to customer {customer.name} for model {model} with price {default_price}")
             customer.append("custom_customer_component_price", {
                 "model": model,
-                "default_price": model_price,
+                "default_price": item_price,
                 "effective_from": doc.completed_on_support or nowdate(),
                 "last_vehicle": doc.vehicle_number,
                 "last_job": doc.name,

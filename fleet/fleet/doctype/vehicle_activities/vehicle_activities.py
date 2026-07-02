@@ -439,3 +439,48 @@ def run_import_in_background(doc_name):
 
 	# Sync the detail documents
 	doc._sync_activity_detail_docs()
+
+
+@frappe.whitelist()
+def download_errors(name):
+	from frappe.utils.xlsxutils import build_xlsx_response
+
+	doc = frappe.get_doc("Vehicle Activities", name)
+	errors = doc.get("vehicle_activity_error_details") or []
+
+	rows = [
+		["Row Number", "Error Type", "Error Message", "Vehicle", "Customer", "Item", "Last Activity Date"]
+	]
+
+	for row in errors:
+		row_num = ""
+		veh = ""
+		cust = ""
+		itm = ""
+		act_date = ""
+
+		if row.vehicle_meta:
+			try:
+				meta = json.loads(row.vehicle_meta) if isinstance(row.vehicle_meta, str) else row.vehicle_meta
+				if meta and meta.get("row") is not None:
+					row_num = meta.get("row")
+				data = meta.get("data") or meta if meta else {}
+				veh = data.get("vehicle") or data.get("license_plate") or ""
+				cust = data.get("customer") or ""
+				itm = data.get("item") or ""
+				act_date = data.get("last_activity_date") or ""
+			except Exception:
+				pass
+
+		rows.append([
+			row_num,
+			row.type,
+			row.error,
+			veh,
+			cust,
+			itm,
+			act_date
+		])
+
+	build_xlsx_response(rows, f"{name}_errors")
+

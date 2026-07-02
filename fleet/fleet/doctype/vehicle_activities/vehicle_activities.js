@@ -31,60 +31,6 @@ frappe.ui.form.on("Vehicle Activities", {
 			return;
 		}
 
-		// CSV Headers
-		let csv_rows = [
-			["Row Number", "Error Type", "Error Message", "Vehicle", "Customer", "Item", "Last Activity Date"]
-		];
-
-		errors.forEach(row => {
-			let row_num = "";
-			let veh = "";
-			let cust = "";
-			let itm = "";
-			let act_date = "";
-
-			if (row.vehicle_meta) {
-				try {
-					let meta = typeof row.vehicle_meta === 'string' ? JSON.parse(row.vehicle_meta) : row.vehicle_meta;
-					if (meta && meta.row !== undefined) {
-						row_num = meta.row;
-					}
-					let data = meta ? (meta.data || meta) : {};
-					veh = data.vehicle || data.license_plate || "";
-					cust = data.customer || "";
-					itm = data.item || "";
-					act_date = data.last_activity_date || "";
-				} catch (e) {
-					console.error("Error parsing vehicle_meta", e);
-				}
-			}
-
-			// Escape double quotes in CSV values
-			let escape_csv = (val) => {
-				let str = String(val === null || val === undefined ? "" : val);
-				return '"' + str.replace(/"/g, '""') + '"';
-			};
-
-			csv_rows.push([
-				escape_csv(row_num),
-				escape_csv(row.type),
-				escape_csv(row.error),
-				escape_csv(veh),
-				escape_csv(cust),
-				escape_csv(itm),
-				escape_csv(act_date)
-			]);
-		});
-
-		let csv_content = csv_rows.map(e => e.join(",")).join("\n");
-		let blob = new Blob([csv_content], { type: 'text/csv;charset=utf-8;' });
-		let link = document.createElement("a");
-		let url = URL.createObjectURL(blob);
-		link.setAttribute("href", url);
-		link.setAttribute("download", `${frm.doc.name}_errors.csv`);
-		link.style.visibility = 'hidden';
-		document.body.appendChild(link);
-		link.click();
-		document.body.removeChild(link);
+		window.open(frappe.urllib.get_full_url('/api/method/fleet.fleet.doctype.vehicle_activities.vehicle_activities.download_errors?name=' + encodeURIComponent(frm.doc.name)));
 	}
 });
