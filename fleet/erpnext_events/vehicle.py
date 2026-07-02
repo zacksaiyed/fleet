@@ -264,24 +264,18 @@ def on_update_vehicle(doc, _method=None):
 
     sync_gps_installation_status_logs(doc)
 
-
-def on_update_vehicle(doc, _method=None):
-    if not _is_data_import(doc) or not doc.custom_customer:
-        return
-
-    customer_warehouse = frappe.db.get_value(
-        "Warehouse",
-        {"custom_customer_name": doc.custom_customer, "disabled": 0},
-        "name",
-    )
-    if not customer_warehouse:
-        return
-
-    _move_imported_installed_items_to_customer_warehouse(
-        doc,
-        customer_warehouse,
-        only_newly_installed=True,
-    )
+    if _is_data_import(doc):
+        customer_warehouse = frappe.db.get_value(
+            "Warehouse",
+            {"custom_customer_name": doc.custom_customer, "disabled": 0},
+            "name",
+        )
+        if customer_warehouse:
+            _move_imported_installed_items_to_customer_warehouse(
+                doc,
+                customer_warehouse,
+                only_newly_installed=True,
+            )
 
 
 def _is_data_import(doc=None):

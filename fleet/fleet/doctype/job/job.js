@@ -299,20 +299,6 @@ function _job_action_with_comment(frm, action, label, field) {
         prompt_fields,
         (values) => {
             _job_action(frm, action, values.comment, field, values.branch);
-            if (action === "complete") {
-                frappe.call({
-                    method: "fleet.fleet.doctype.job.job.add_in_customer_row",
-                    args: {
-                        job: frm.doc.name,
-                        comment: values.comment
-                    },
-                    callback: function(r) {
-                        if (!r.exc) {
-                            console.log("Python function executed");
-                        }
-                    }
-                });
-            }
         },
         __(label),
         __("Submit")
