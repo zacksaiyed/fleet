@@ -710,3 +710,13 @@ def job_action(job, action, comment=None, comment_field=None, branch=None):
     return {"msg": msg, "job_status": doc.status}
 
 
+@frappe.whitelist()
+def add_in_customer_row(job: str, comment: str | None = None):
+    # This is now handled automatically in the server-side on_update hook.
+    # We keep this dummy method to prevent errors on cached browsers.
+    return {
+        "status": True,
+        "message": "Customer component price updated successfully"
+    }
+
+
