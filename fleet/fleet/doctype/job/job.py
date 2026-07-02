@@ -191,13 +191,11 @@ class Job(Document):
             pass
 
     def _handle_warehouse_movement(self):
-        if not self.item_installed_removed:
-            return
+        stock_moved = True
+        if self.item_installed_removed:
+            stock_moved = self._create_stock_entries()
 
-        # Only update vehicle records when stock was actually moved.
-        # If the guard fires (stock entry already exists) we must not touch the
-        # vehicle items either — otherwise the two get out of sync.
-        if self._create_stock_entries():
+        if stock_moved:
             self._update_vehicle_items()
 
     def _create_stock_entries(self):
@@ -363,6 +361,7 @@ class Job(Document):
             "color" : self.color,
             "custom_vehicle_type": self.type or None,
             "custom_customer": self.customer or None,
+            "custom_branch": self.flags.selected_branch or None,
         })
         for row in self.item_installed_removed:
             vehicle.append("custom_vehicle_item", {
@@ -393,6 +392,8 @@ class Job(Document):
             )
 
         vehicle = frappe.get_doc("Vehicle", self.vehicle_number)
+        if self.flags.selected_branch:
+            vehicle.custom_branch = self.flags.selected_branch
         vehicle_items = {r.item: r for r in vehicle.get("custom_vehicle_item", [])}
 
         # Validate all items exist on vehicle before making any changes
@@ -434,6 +435,8 @@ class Job(Document):
             )
 
         vehicle = frappe.get_doc("Vehicle", self.vehicle_number)
+        if self.flags.selected_branch:
+            vehicle.custom_branch = self.flags.selected_branch
         vehicle_items = {r.item: r for r in vehicle.get("custom_vehicle_item", [])}
 
         # Validate removals first — fail before making any changes
@@ -490,6 +493,8 @@ class Job(Document):
             )
 
         vehicle = frappe.get_doc("Vehicle", self.vehicle_number)
+        if self.flags.selected_branch:
+            vehicle.custom_branch = self.flags.selected_branch
         vehicle_items = {r.item: r for r in vehicle.get("custom_vehicle_item", [])}
 
         for row in self.item_installed_removed:
@@ -684,8 +689,7 @@ def job_action(job, action, comment=None, comment_field=None, branch=None):
         doc.completed_on_support    = now()
         msg = "Job completed."
         if branch:
-            from fleet.fleet.doctype.vehicle_branch_history.vehicle_branch_history import create_log_from_job
-            create_log_from_job(doc, branch)
+            doc.flags.selected_branch = branch
 
     elif action == "mark_pending":
         if doc.status != "In Review":
