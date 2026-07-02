@@ -58,7 +58,7 @@ def generate_customer_invoice(customer_id):
                     if (b_y < inst_y) or (b_y == inst_y and b_m < inst_m):
                         continue
                         
-                    # --- CONDITION B: INSTALLATION CHARGE ---
+                    # --- CONDITION A: INSTALLATION CHARGE ---
                     if b_y == inst_y and b_m == inst_m:
                         latest_price_log = frappe.db.get_all("Customer Component Price History",
                             filters={"customer": customer_id, "model": vehicle.model, "changed_on": ["<=", row.date]},
@@ -74,32 +74,27 @@ def generate_customer_invoice(customer_id):
                         })
                         has_items = True
                         
-                
-                    else:
-                        target_date = f"{b_y}-{str(b_m).zfill(2)}-01"
-                        
-                        latest_sub_rate = frappe.db.get_all("Billing Subscription Rate",
-                            filters={
-                                "customer": customer_id,
-                                "custom_changed_on": ["<=", target_date] # Is date ya isse purana latest record
-                            },
-                            fields=["usd_0"], 
-                            order_by="custom_changed_on desc", 
-                            limit=1
-                        )
-                        
-                        rate = float(latest_sub_rate[0].usd_0) if latest_sub_rate else 0.0
+                    # --- CONDITION B: SUBSCRIPTION CHARGE ---
+                    target_date = f"{b_y}-{str(b_m).zfill(2)}-01"
+                    
+                    latest_sub_rate = frappe.db.get_all("Billing Subscription Rate",
+                        filters={"customer": customer_id, "custom_changed_on": ["<=", target_date]},
+                        fields=["usd_0"], order_by="custom_changed_on desc", limit=1)
+                    
+                    rate = float(latest_sub_rate[0].usd_0) if latest_sub_rate else 0.0
 
-                        invoice.append("items", {
-                            "item_code": row.item, 
-                            "qty": 1, 
-                            "custom_is_subscription": 1,  
-                            "custom_vehicle": vehicle.name,
-                            "custom_billing_month_label": b_month["label"], 
-                            "custom_original_rate": rate, 
-                            "description": f"Subscription Charge ({b_month['label']}) - Vehicle: {vehicle.name}"
-                        })
-                        has_items = True
+                    invoice.append("items", {
+                        "custom_billing_month": int(b_month["month"]),
+                        "item_code": row.item, 
+                        "qty": 1, 
+                        "custom_is_subscription": 1,  
+                        "custom_vehicle": vehicle.name,
+                        "custom_billing_month_label": b_month["label"], 
+                        "custom_original_rate": rate, 
+                        "description": f"Subscription Charge ({b_month['label']}) - Vehicle: {vehicle.name}"
+                    })
+                    has_items = True
+
     if not has_items:
         return {"status": "error", "message": "No eligible items found for this period."}
         
