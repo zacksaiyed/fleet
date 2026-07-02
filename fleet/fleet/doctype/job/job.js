@@ -276,48 +276,6 @@ frappe.ui.form.on("Job", {
 });
 
 function _job_action_with_comment(frm, action, label, field) {
-	frappe.prompt(
-		[{ fieldtype: "Small Text", fieldname: "comment", label: label, reqd: 1 }],
-		(values) => {
-
-
-
-
-			_job_action(frm, action, values.comment, field);
-							if (action === "complete") {
-				frappe.call({
-					method: "fleet.fleet.doctype.job.job.add_in_customer_row",
-					args: {
-						job: frm.doc.name,
-						comment: values.comment
-					},
-					callback: function(r) {
-						if (!r.exc) {
-							console.log("Python function executed");
-						}
-					}
-				});
-			}
-		},
-		__(label),
-		__("Submit")
-	);
-}
-
-function _job_action(frm, action, comment, comment_field) {
-	frappe.call({
-		method: "fleet.fleet.doctype.job.job.job_action",
-		args: { job: frm.doc.name, action, comment, comment_field },
-		freeze: true,
-		freeze_message: __("Updating…"),
-		callback(r) {
-			if (r.exc) return;
-			frappe.show_alert({ message: r.message.msg, indicator: "green" }, 4);
-			frm.reload_doc();
-		},
-	});
-}
-function _job_action_with_comment(frm, action, label, field) {
     let prompt_fields = [];
     
     if (action === "complete") {
@@ -337,15 +295,38 @@ function _job_action_with_comment(frm, action, label, field) {
         reqd: 1
     });
 
-    frappe.prompt(
+    let d = frappe.prompt(
         prompt_fields,
         (values) => {
-            // Yahan se branch ki value _job_action function me bheji ja rahi hai
             _job_action(frm, action, values.comment, field, values.branch);
+            if (action === "complete") {
+                frappe.call({
+                    method: "fleet.fleet.doctype.job.job.add_in_customer_row",
+                    args: {
+                        job: frm.doc.name,
+                        comment: values.comment
+                    },
+                    callback: function(r) {
+                        if (!r.exc) {
+                            console.log("Python function executed");
+                        }
+                    }
+                });
+            }
         },
         __(label),
         __("Submit")
     );
+
+    if (action === "complete" && d) {
+        d.fields_dict['branch'].get_query = function() {
+            return {
+                filters: {
+                    'customer': frm.doc.customer
+                }
+            };
+        };
+    }
 }
 
 function _job_action(frm, action, comment, comment_field, branch_value = null) {
@@ -356,7 +337,7 @@ function _job_action(frm, action, comment, comment_field, branch_value = null) {
             action: action, 
             comment: comment, 
             comment_field: comment_field, 
-            branch: branch_value // Backend Python file ke liye branch yahan se ja raha hai
+            branch: branch_value 
         },
         freeze: true,
         freeze_message: __("Updating…"),
@@ -367,7 +348,6 @@ function _job_action(frm, action, comment, comment_field, branch_value = null) {
         },
     });
 }
-
 function _populate_removal_items(frm) {
 	frappe.db.get_value(
 		"Vehicle",

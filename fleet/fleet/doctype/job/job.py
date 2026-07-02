@@ -623,10 +623,9 @@ def check_item_available(item, current_job=None):
 # Job Actions
 
 @frappe.whitelist()
-def job_action(job, action, comment=None, comment_field=None):
+def job_action(job, action, comment=None, comment_field=None, branch=None):
     """Handle Job status transitions. Called from job.js and mobile API."""
     doc        = frappe.get_doc("Job", job)
-    # frappe.throw(f'{doc.__dict__}')
     roles      = frappe.get_roles()
     is_support = "Support Team" in roles
     is_tech    = "Technician"   in roles
@@ -678,6 +677,9 @@ def job_action(job, action, comment=None, comment_field=None):
         doc.completed_by_support    = frappe.session.user
         doc.completed_on_support    = now()
         msg = "Job completed."
+        if branch:
+            from fleet.fleet.doctype.vehicle_branch_history.vehicle_branch_history import create_log_from_job
+            create_log_from_job(doc, branch)
 
     elif action == "mark_pending":
         if doc.status != "In Review":

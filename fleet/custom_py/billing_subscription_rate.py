@@ -1,7 +1,7 @@
 
 import frappe
 from frappe import _
-from frappe.utils import flt, today, add_months
+from frappe.utils import flt, today, add_months,now_datetime
 
 def validate_customer(doc, method=None):
     fields_to_check = ["custom_usd_0", "custom_usd_1", "custom_local0", "custom_local1"]
@@ -111,7 +111,8 @@ def create_history_log(customer, rate_scope, effective_from, effective_to, usd_0
         "usd_0": usd_0,
         "usd_1": usd_1,
         "local_0": local_0,
-        "local_1": local_1
+        "local_1": local_1,
+        "custom_changed_on": now_datetime()
     })
     history_doc.flags.ignore_links = True
     history_doc.insert(ignore_permissions=True)
