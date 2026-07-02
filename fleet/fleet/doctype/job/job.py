@@ -168,6 +168,7 @@ class Job(Document):
         self.customer_warehouse = wh or None
 
     def _sync_task_child_row(self):
+
         if not self.task:
             return
         try:
@@ -291,7 +292,7 @@ class Job(Document):
             for row in customer.get("custom_customer_component_price", [])
             if row.model
         }
-        effective_from = getdate(self.completed_on_support or now())
+        effective_from = self.completed_on_support or nowdate()
         changed = False
 
         for item in installed_items:
@@ -304,10 +305,7 @@ class Job(Document):
             if not item_data or not item_data.custom_model:
                 continue
 
-            default_price = item_data.custom_default_billing_price
-            # item_price = frappe.db.get_value("Item", item_data.custom_model, "price")
-            if default_price is None:
-                default_price = item_price
+            default_price = item_data.custom_default_billing_price or 0.0
 
             if item_data.custom_model in existing_by_model:
                 row = existing_by_model[item_data.custom_model]
@@ -317,18 +315,26 @@ class Job(Document):
                 if row.last_job != self.name:
                     row.last_job = self.name
                     changed = True
-                continue
+                if row.effective_from != effective_from:
+                    row.effective_from = effective_from
+                    changed = True
+            else:
+                new_row = customer.append("custom_customer_component_price", {
+                    "model": item_data.custom_model,
+                    "default_price": default_price,
+                    "effective_from": effective_from,
+                    "last_vehicle": self.vehicle_number,
+                    "last_job": self.name,
+                    "customer_price": default_price
+                })
+                existing_by_model[item_data.custom_model] = new_row
+                changed = True
 
-            new_row = customer.append("custom_customer_component_price", {
-                "model": item_data.custom_model,
-                "default_price": default_price,
-                "effective_from": effective_from,
-                "last_vehicle": self.vehicle_number,
-                "last_job": self.name,
-                "customer_price":default_price
-            })
-            existing_by_model[item_data.custom_model] = new_row
-            changed = True
+        # Clean up any broken vehicle links to prevent LinkValidationError from blocking save
+        for r in customer.get("custom_customer_component_price") or []:
+            if r.last_vehicle and not frappe.db.exists("Vehicle", r.last_vehicle):
+                r.last_vehicle = None
+                changed = True
 
         if changed:
             customer.save(ignore_permissions=True)
@@ -704,53 +710,3 @@ def job_action(job, action, comment=None, comment_field=None, branch=None):
     return {"msg": msg, "job_status": doc.status}
 
 
-@frappe.whitelist()
-def add_in_customer_row(job: str, comment: str | None = None):
-    doc = frappe.get_doc("Job", job)
-
-    if not doc.customer:
-        frappe.throw("Customer is required in Job")
-
-    customer = frappe.get_doc("Customer", doc.customer)
-
-    for row in doc.item_installed_removed:
-        if row.installed_or_removed != "Installed":
-            continue
-
-        model = frappe.db.get_value("Item", row.item, "custom_model")
-        item_price = frappe.db.get_value("Item", row.item, "custom_default_billing_price")
-        # model_price = frappe.db.get_value("Item Model",model, "price")
-        # customer.get with filter returns list, so take first row
-        existing_rows = customer.get(
-            "custom_customer_component_price",
-            {"model": model}
-        )
-
-        if existing_rows:
-            existing_row = existing_rows[0]
-            existing_row.last_vehicle = doc.vehicle_number
-            existing_row.last_job = doc.name
-            existing_row.effective_from = doc.completed_on_support or nowdate()
-        else:
-            print(f"Adding new row to customer {customer.name} for model {model} with price {default_price}")
-            customer.append("custom_customer_component_price", {
-                "model": model,
-                "default_price": item_price,
-                "effective_from": doc.completed_on_support or nowdate(),
-                "last_vehicle": doc.vehicle_number,
-                "last_job": doc.name,
-                "customer_price":item_price
-            })
-
-    # Clean up any broken vehicle links to prevent LinkValidationError from blocking save
-    for r in customer.get("custom_customer_component_price") or []:
-        if r.last_vehicle and not frappe.db.exists("Vehicle", r.last_vehicle):
-            r.last_vehicle = None
-
-    customer.save(ignore_permissions=True)
-    frappe.db.commit()
-
-    return {
-        "status": True,
-        "message": "Customer component price updated successfully"
-    }
