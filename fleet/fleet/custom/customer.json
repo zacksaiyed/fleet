@@ -2497,6 +2497,30 @@
    "width": null
   }
  ],
+ "custom_perms": [],
+ "doctype": "Customer",
+ "links": [
+  {
+   "creation": "2013-06-11 14:26:44",
+   "custom": 0,
+   "docstatus": 0,
+   "group": "Allowed Items",
+   "hidden": 0,
+   "idx": 1,
+   "is_child_table": 0,
+   "link_doctype": "Party Specific Item",
+   "link_fieldname": "party",
+   "modified": "2026-06-20 13:43:52.977018",
+   "modified_by": "Administrator",
+   "name": "tc99182e27",
+   "owner": "Administrator",
+   "parent": "Customer",
+   "parent_doctype": null,
+   "parentfield": "links",
+   "parenttype": "DocType",
+   "table_fieldname": null
+  }
+ ],
  "property_setters": [
   {
    "_assign": null,
