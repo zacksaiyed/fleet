@@ -359,5 +359,4 @@ function _parse_vehicles(raw) {
 }
 
 // ####################### END OF CODE ######################
-lit(",").map(v => v.trim()).filter(Boolean);
-}
+
