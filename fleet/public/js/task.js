@@ -386,8 +386,17 @@ function _render_table(dialog, rows, customer_vehicles) {
                         return Awesomplete.ITEM(text, input.match(/[^,]*$/)[0]);
                     },
                     replace: function(text) {
+                        let current_vehicles = _parse_vehicles(this.input.value);
+                        
+                        if (current_vehicles.includes(text.value)) {
+                            frappe.show_alert({ message: `${text.value} is already added in this row!`, indicator: "orange" });
+                            
+                            this.input.value = current_vehicles.join(", ") + (current_vehicles.length ? ", " : "");
+                            return; // Aage add hone se rok dega
+                        }
+
                         let before = this.input.value.match(/^.+,\s*|/)[0];
-                        this.input.value = before + text + ", ";
+                        this.input.value = before + text.value + ", ";
                     }
                 });
 
