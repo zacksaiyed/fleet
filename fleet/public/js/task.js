@@ -183,6 +183,8 @@ function _task_action(frm, action, extra_args = {}) {
 	});
 }
 
+// ############H# UPDATED THE CODE FOR FIXED JOB LIST POP-POP #################
+
 function _show_reject_dialog(frm) {
 	const d = new frappe.ui.Dialog({
 		title: __("Reject Task"),
@@ -232,150 +234,207 @@ function _show_assign_dialog(frm, is_reassign) {
 }
 
 
-// Add Jobs Dialog
-
-function _show_add_jobs_dialog(frm) {
-	const rows = [{ task_type: "", count: 1, vehicles: "" }];
-
-	const dialog = new frappe.ui.Dialog({
-		title: __("Add Jobs"),
-		size: "large",
-		primary_action_label: __("Create Jobs"),
-		fields: [{ fieldtype: "HTML", fieldname: "jobs_html" }],
-		primary_action() {
-			dialog.fields_dict.jobs_html.$wrapper.find('tr[data-idx]').each(function () {
-				const idx = parseInt($(this).data('idx'));
-				rows[idx].task_type = $(this).find('.ajd-type-inp').val();
-				rows[idx].count     = parseInt($(this).find('.ajd-count-inp').val()) || 1;
-				rows[idx].vehicles  = $(this).find('.ajd-veh-inp').val();
-			});
-
-			for (const row of rows) {
-				if (!row.task_type) {
-					frappe.msgprint({ message: __("Job Type is required for every row."), indicator: "orange" });
-					return;
-				}
-				const vehicles = _parse_vehicles(row.vehicles);
-				if (vehicles.length > row.count) {
-					frappe.msgprint({
-						message: __(`"${row.task_type}": ${vehicles.length} vehicle(s) entered but count is only ${row.count}.`),
-						indicator: "orange",
-					});
-					return;
-				}
-			}
-
-			frappe.call({
-				method: "fleet.fleet.doctype.task.task.create_jobs_from_dialog",
-				args: { task: frm.doc.name, job_rows: rows.map(r => ({
-					task_type: r.task_type,
-					count: r.count,
-					vehicles: _parse_vehicles(r.vehicles),
-				}))},
-				freeze: true,
-				freeze_message: __("Creating jobs…"),
-				callback(r) {
-					if (r.exc) return;
-					frappe.show_alert({ message: __(`${r.message.created} job(s) created.`), indicator: "green" }, 4);
-					dialog.hide();
-					frm.reload_doc();
-				},
-			});
-		},
-	});
-
-	dialog.show();
-	setTimeout(() => _render_table(dialog, rows), 80);
+// 1. Data Save Logic
+function _save_current_state($wrap, rows) {
+    $wrap.find('tr[data-idx]').each(function () {
+        const idx = parseInt($(this).data('idx'));
+        if (rows[idx]) {
+            const type_input = $(this).find('.ajd-type-inp').data('frappe-control');
+            rows[idx].task_type = type_input ? type_input.get_value() : $(this).find('.ajd-type-inp').val();
+            rows[idx].count = parseInt($(this).find('.ajd-count-inp').val()) || 1;
+            rows[idx].vehicles = $(this).find('.ajd-veh-inp').val();
+        }
+    });
 }
 
-function _render_table(dialog, rows) {
-	const $wrap = dialog.fields_dict.jobs_html.$wrapper;
+// 2. Dialog Function
+function _show_add_jobs_dialog(frm) {
+    frappe.db.get_list("Vehicle", {
+        filters: { custom_customer: frm.doc.custom_customer },
+        fields: ["name"],
+        limit: 500
+    }).then(res => {
+        const customer_vehicles = res.map(r => r.name); 
+        let rows = [{ task_type: "", count: 1, vehicles: "" }];
 
-	$wrap.find('tr[data-idx]').each(function () {
-		const idx = parseInt($(this).data('idx'));
-		if (rows[idx]) {
-			rows[idx].task_type = $(this).find('.ajd-type-inp').val() || rows[idx].task_type;
-			rows[idx].count     = parseInt($(this).find('.ajd-count-inp').val()) || rows[idx].count;
-			rows[idx].vehicles  = $(this).find('.ajd-veh-inp').val();
-		}
-	});
+        const dialog = new frappe.ui.Dialog({
+            title: __("Add Jobs"),
+            size: "large",
+            primary_action_label: __("Create Jobs"),
+            fields: [{ fieldtype: "HTML", fieldname: "jobs_html" }],
+            primary_action() {
+                _save_current_state(dialog.fields_dict.jobs_html.$wrapper, rows);
 
-	$wrap.empty();
+                for (const row of rows) {
+                    if (!row.task_type) {
+                        frappe.msgprint({ message: __("Job Type is required for every row."), indicator: "orange" });
+                        return;
+                    }
+                    const vehicles = _parse_vehicles(row.vehicles);
+                    if (vehicles.length > row.count) {
+                        frappe.msgprint({
+                            message: __(`"${row.task_type}": ${vehicles.length} vehicle(s) entered but count is only ${row.count}.`),
+                            indicator: "orange",
+                        });
+                        return;
+                    }
+                }
 
-	if (!$('#ajd-styles').length) {
-		$(`<style id="ajd-styles">
-			.ajd-table { width:100%; border-collapse:collapse; }
-			.ajd-table th { font-size:11px; font-weight:600; color:var(--text-muted);
-				text-transform:uppercase; letter-spacing:.04em;
-				padding:0 8px 10px; text-align:left;
-				border-bottom:1px solid var(--border-color); }
-			.ajd-table td { padding:6px 8px; vertical-align:top; }
-			.ajd-table tr:not(:last-child) td { border-bottom:1px solid var(--border-color); }
-			.ajd-remove { width:28px; height:30px; border:1px solid var(--border-color);
-				border-radius:var(--border-radius); background:var(--control-bg);
-				cursor:pointer; display:flex; align-items:center; justify-content:center;
-				color:var(--text-muted); }
-			.ajd-remove:hover { border-color:#ef4444; color:#ef4444; background:#fff5f5; }
-			.ajd-add-row { margin-top:10px; font-size:12px; padding:4px 10px; }
-		</style>`).appendTo('head');
-	}
+                frappe.call({
+                    method: "fleet.fleet.doctype.task.task.create_jobs_from_dialog",
+                    args: { task: frm.doc.name, job_rows: rows.map(r => ({
+                        task_type: r.task_type,
+                        count: r.count,
+                        vehicles: _parse_vehicles(r.vehicles),
+                    }))},
+                    freeze: true,
+                    freeze_message: __("Creating jobs…"),
+                    callback(r) {
+                        if (r.exc) return;
+                        frappe.show_alert({ message: __(`${r.message.created} job(s) created.`), indicator: "green" }, 4);
+                        dialog.hide();
+                        frm.reload_doc();
+                    },
+                });
+            },
+        });
 
-	const $table = $(`
-		<table class="ajd-table">
-			<thead><tr>
-				<th style="width:30%">Job Type</th>
-				<th style="width:12%">Count</th>
-				<th>Vehicle(s) <span style="font-weight:400;text-transform:none;font-size:10px;">(comma separated)</span></th>
-				<th style="width:32px"></th>
-			</tr></thead>
-			<tbody></tbody>
-		</table>
-	`);
+        dialog.show();
+        setTimeout(() => _render_table(dialog, rows, customer_vehicles), 80);
+    });
+}
 
-	rows.forEach((row, idx) => {
-		const $tr = $(`
-			<tr data-idx="${idx}">
-				<td class="ajd-type-td"></td>
-				<td><input class="form-control form-control-sm ajd-count-inp"
-					type="number" min="1" max="99" value="${row.count || 1}" style="width:75px;"></td>
-				<td><input class="form-control form-control-sm ajd-veh-inp"
-					type="text" placeholder="e.g. BHU9876, NHJ9870"
-					value="${frappe.utils.escape_html(row.vehicles || '')}"></td>
-				<td><button class="ajd-remove" type="button"
-					style="${rows.length === 1 ? 'visibility:hidden' : ''}">
-					<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-						<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-					</svg></button></td>
-			</tr>
-		`);
+// 3. Render Table Function
+function _render_table(dialog, rows, customer_vehicles) {
+    const $wrap = dialog.fields_dict.jobs_html.$wrapper;
 
-		const type_ctrl = frappe.ui.form.make_control({
-			df: { fieldtype: "Link", fieldname: `task_type_${idx}`,
-				  options: "Task Type", placeholder: __("Select Job Type") },
-			parent: $tr.find('.ajd-type-td')[0],
-			only_input: true,
-		});
-		type_ctrl.make_input();
-		type_ctrl.$input.addClass('ajd-type-inp');
-		if (row.task_type) setTimeout(() => type_ctrl.set_value(row.task_type), 0);
+    $wrap.empty();
 
-		$tr.find('.ajd-remove').on('click', () => {
-			rows.splice(idx, 1);
-			_render_table(dialog, rows);
-		});
-		$table.find('tbody').append($tr);
-	});
+    // 👉 YAHAN NAYI CSS ADD KI HAI TAARI DROPDOWN INPUT KE BAHAR NA JAYE
+    if (!document.getElementById('ajd-style-fix')) {
+        $(`<style id="ajd-style-fix">
+            .ajd-table .awesomplete { width: 100%; display: block; position: relative; }
+            .ajd-table .awesomplete ul { width: 100%; left: 0 !important; min-width: 100%; box-sizing: border-box; }
+        </style>`).appendTo('head');
+    }
 
-	$wrap.append($table);
-	const $add = $(`<button class="btn btn-xs btn-default ajd-add-row">+ Add Row</button>`);
-	$add.on('click', () => {
-		rows.push({ task_type: "", count: 1, vehicles: "" });
-		_render_table(dialog, rows);
-		setTimeout(() => $wrap.find('.ajd-type-inp').last().focus(), 80);
-	});
-	$wrap.append($add);
+    const $table = $(`
+        <table class="ajd-table" style="width:100%">
+            <thead>
+                <tr>
+                    <th style="padding:10px; width:35%;">Job Type</th>
+                    <th style="padding:10px; width:15%;">Count</th>
+                    <th style="padding:10px; width:45%;">Vehicle(s)</th>
+                    <th style="padding:10px; width:5%;"></th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    `);
+
+    rows.forEach((row, idx) => {
+        // 👉 YAHAN .ajd-veh-td MEIN 'position: relative;' ADD KIYA HAI
+        const $tr = $(`<tr data-idx="${idx}">
+            <td class="ajd-type-td" style="padding:5px;"></td>
+            <td style="padding:5px;"><input class="form-control form-control-sm ajd-count-inp" type="number" min="1" value="${row.count}"></td>
+            <td class="ajd-veh-td" style="padding:5px; position: relative;"></td>
+            <td class="ajd-action-td" style="padding:5px; text-align:center;"></td>
+        </tr>`);
+
+        const $del_btn = $(`<button type="button" class="btn btn-xs btn-danger"><i class="fa fa-trash"></i></button>`);
+        $del_btn.on('click', function(e) {
+            e.preventDefault();
+            _save_current_state($wrap, rows);
+            rows.splice(idx, 1);              
+            _render_table(dialog, rows, customer_vehicles);     
+        });
+        $tr.find('.ajd-action-td').append($del_btn);
+
+        const type_ctrl = frappe.ui.form.make_control({
+            df: { fieldtype: "Select", options: "\nAccessory\nCheckup\nRemoval\nInstallation", only_input: true },
+            parent: $tr.find('.ajd-type-td')[0], only_input: true
+        });
+        type_ctrl.make_input();
+        type_ctrl.set_value(row.task_type);
+        type_ctrl.$input.addClass('ajd-type-inp');
+
+        const $count_inp = $tr.find('.ajd-count-inp');
+
+        const render_veh_field = () => {
+            const current_type = type_ctrl.get_value();
+            
+            if (["Accessory", "Checkup", "Removal"].includes(current_type)) {                
+                let vehicles_used_in_this_type = [];
+                rows.forEach((r, i) => {
+                    if (i !== idx && r.task_type === current_type && r.vehicles) {
+                        vehicles_used_in_this_type.push(..._parse_vehicles(r.vehicles));
+                    }
+                });
+
+                const available_vehicles = customer_vehicles.filter(v => !vehicles_used_in_this_type.includes(v));
+
+                $tr.find('.ajd-veh-td').html(`<input class="form-control form-control-sm ajd-veh-inp" placeholder="Select vehicles..." value="${row.vehicles || ''}">`);
+                const $inp = $tr.find('.ajd-veh-inp');
+
+                const awesomplete = new Awesomplete($inp[0], {
+                    list: available_vehicles,
+                    minChars: 0,
+                    filter: function(text, input) {
+                        return Awesomplete.FILTER_CONTAINS(text, input.match(/[^,]*$/)[0]);
+                    },
+                    item: function(text, input) {
+                        return Awesomplete.ITEM(text, input.match(/[^,]*$/)[0]);
+                    },
+                    replace: function(text) {
+                        let current_vehicles = _parse_vehicles(this.input.value);
+                        
+                        if (current_vehicles.includes(text.value)) {
+                            frappe.show_alert({ message: `${text.value} is already added in this row!`, indicator: "orange" });
+                            
+                            this.input.value = current_vehicles.join(", ") + (current_vehicles.length ? ", " : "");
+                            return; // Aage add hone se rok dega
+                        }
+
+                        let before = this.input.value.match(/^.+,\s*|/)[0];
+                        this.input.value = before + text.value + ", ";
+                    }
+                });
+
+                $inp.on('focus click', function() {
+                    awesomplete.evaluate();
+                });
+
+            } else {
+                $tr.find('.ajd-veh-td').html(`<input class="form-control form-control-sm ajd-veh-inp" placeholder="e.g. ABC1234, XYZ9876" value="${row.vehicles || ''}">`);
+            }
+        };
+
+        render_veh_field();
+        type_ctrl.$input.on('change', render_veh_field);
+        
+        $count_inp.on('change', () => {
+            _save_current_state($wrap, rows);
+            row.count = parseInt($count_inp.val()) || 1;
+            render_veh_field();
+        });
+
+        $table.find('tbody').append($tr);
+    });
+
+    $wrap.append($table);
+    
+    const $add_btn = $(`<button type="button" class="btn btn-sm btn-primary mt-3"><i class="fa fa-plus"></i> Add Row</button>`);
+    $add_btn.on('click', () => {
+        _save_current_state($wrap, rows); 
+        rows.push({ task_type: "", count: 1, vehicles: "" });
+        _render_table(dialog, rows, customer_vehicles);
+    });
+    $wrap.append($add_btn);
 }
 
 function _parse_vehicles(raw) {
-	return (raw || "").split(",").map(v => v.trim()).filter(Boolean);
+    return (raw || "").split(",").map(v => v.trim()).filter(Boolean);
 }
+
+// ####################### END OF CODE ######################
+

@@ -157,7 +157,7 @@ has_permission = {
 # Override standard doctype classes
 
 override_doctype_class = {
-    "Data Import": "fleet.override.data_import.CustomDataImport"
+    # "Data Import": "fleet.override.data_import.CustomDataImport"
 }
 
 # Document Events
@@ -204,6 +204,10 @@ doc_events = {
         ],
     },
     "Customer": {
+        "validate":[
+              "fleet.override.customer_warehouse.validate"
+
+		],
         "after_insert": [
             "fleet.override.customer_warehouse.set_customer_warehouse"
         ],
@@ -212,7 +216,7 @@ doc_events = {
         ],
         "on_trash": [
             "fleet.override.customer_warehouse.set_customer_warehouse"
-        ]    
+        ]
     },
     "Item": {
         "before_insert": "fleet.override.item.generate_item_details"
@@ -346,7 +350,7 @@ fixtures = [
             ]
         ]
     ]},
-    
+
     {"dt": "Translation","filters": [
         [
             "name", "in", [
