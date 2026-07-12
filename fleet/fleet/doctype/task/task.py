@@ -268,7 +268,6 @@ def create_jobs_from_dialog(task, job_rows):
 			# Normalize: strip spaces and uppercase
 			vehicle = vehicle.replace(" ", "").upper() if vehicle else None
 
-			# Fetch vehicle details if the vehicle exists in the system
 			vehicle_make = vehicle_model = vehicle_color = vehicle_type = None
 			if vehicle:
 				vehicle_data = frappe.db.get_value(
@@ -312,7 +311,6 @@ def create_jobs_from_dialog(task, job_rows):
 				"job":       job.name,
 			})
 
-	# reload before appending child rows to avoid overwriting hook changes
 	task_doc.reload()
 	for row in entries_to_append:
 		task_doc.append("custom_task_jobs", row)
