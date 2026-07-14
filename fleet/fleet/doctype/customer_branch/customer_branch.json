@@ -9,6 +9,7 @@
  "field_order": [
   "customer",
   "branch",
+  "tpin",
   "billing_enabled"
  ],
  "fields": [
@@ -25,6 +26,12 @@
    "in_list_view": 1,
    "label": "Branch",
    "unique": 1
+  },
+  {
+   "fieldname": "tpin",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "TPIN"
   },
   {
    "default": "0",

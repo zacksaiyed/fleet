@@ -1,6 +1,15 @@
 frappe.ui.form.on('Sales Invoice', {
 	setup: function (frm) {
 		// Custom setup if needed
+	},
+	refresh: function (frm) {
+		frm.set_query('custom_branch', function () {
+			return {
+				filters: {
+					customer: frm.doc.customer
+				}
+			};
+		});
 	}
 });
 

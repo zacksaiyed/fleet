@@ -52,6 +52,7 @@ doctype_js = {
   "Address"     : "public/js/address.js",
   "Employee"    : "public/js/employee.js",
   "Data Import" : "public/js/data_import.js",
+  "Vehicle"     : "public/js/vehicle.js",
   "Customer"    : "public/js/customer.js",
   "Sales Invoice": "public/js/sales_invoice.js",
 }
@@ -158,7 +159,7 @@ has_permission = {
 # Override standard doctype classes
 
 override_doctype_class = {
-    "Data Import": "fleet.override.data_import.CustomDataImport"
+    # "Data Import": "fleet.override.data_import.CustomDataImport"
 }
 
 # Document Events
@@ -167,6 +168,7 @@ override_doctype_class = {
 
 doc_events = {
 
+    
     "User": {
         "validate": "fleet.erpnext_events.user_warehouse_hooks.validate_user_roles",
         "on_update": "fleet.erpnext_events.user_warehouse_hooks.on_update_user_roles"
@@ -192,36 +194,40 @@ doc_events = {
         "on_update": "fleet.erpnext_events.employee.sync_user_with_employee"
     },
     "Vehicle": {
-        "validate": "fleet.erpnext_events.vehicle.validate_vehicle",
-        "after_insert": "fleet.erpnext_events.vehicle.after_insert_vehicle",
-        "on_update": "fleet.erpnext_events.vehicle.on_update_vehicle",
-        "before_save": "fleet.fleet.doctype.vehicle_branch_history.vehicle_branch_history.on_vehicle_save"
+        "validate": [
+            "fleet.erpnext_events.vehicle.validate_vehicle",
+            "fleet.erpnext_events.vehicle.capture_pre_save_warehouses"
+        ],
+        "after_insert": [
+            "fleet.erpnext_events.vehicle.after_insert_vehicle",
+            "fleet.erpnext_events.vehicle.handle_manual_installation_after_insert"
+        ],
+        "on_update": [
+            "fleet.erpnext_events.vehicle.on_update_vehicle",
+            "fleet.erpnext_events.vehicle.handle_manual_installation_on_update"
+        ],
     },
     "Customer": {
-        # # "validate": "fleet.custom_py.customer_custom.validate_customer",
-        # "validate": "fleet.custom_py.billing_subscription_rate.validate_customer",
         "validate": [
+            "fleet.override.customer_warehouse.validate",
             "fleet.custom_py.customer_custom.validate_customer",
             "fleet.custom_py.billing_subscription_rate.validate_customer"
         ],
-
         "after_insert": [
             "fleet.override.customer_warehouse.set_customer_warehouse",
         ],
         "on_update": [
             "fleet.override.customer_warehouse.set_customer_warehouse",
             "fleet.custom_py.customer_custom.on_update"
-
         ],
         "on_trash": [
-            "fleet.override.customer_warehouse.set_customer_warehouse",
+            "fleet.override.customer_warehouse.set_customer_warehouse"
         ]
     },
     "Fleet Billing Settings": {
         "on_update": "fleet.custom_py.billing_subscription_rate.on_setting_update"
     },
-        
-    
+
     "Item": {
         "before_insert": "fleet.override.item.generate_item_details"
     },
@@ -366,5 +372,10 @@ fixtures = [
     {"dt": "Report", "filters": [
         ["name", "in", ["Vehicle Item Warehouse Status"]]
     ]},
-
+    {
+        "dt": "Custom Field", 
+        "filters": [
+            ["module", "=", "Fleet"]
+        ]
+    },
 ]

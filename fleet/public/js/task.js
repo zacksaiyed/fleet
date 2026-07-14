@@ -183,6 +183,7 @@ function _task_action(frm, action, extra_args = {}) {
 	});
 }
 
+// ############H# UPDATED THE CODE FOR FIXED JOB LIST POP-POP #################
 
 function _show_reject_dialog(frm) {
 	const d = new frappe.ui.Dialog({
@@ -309,6 +310,7 @@ function _render_table(dialog, rows, customer_vehicles) {
 
     $wrap.empty();
 
+    // 👉 YAHAN NAYI CSS ADD KI HAI TAARI DROPDOWN INPUT KE BAHAR NA JAYE
     if (!document.getElementById('ajd-style-fix')) {
         $(`<style id="ajd-style-fix">
             .ajd-table .awesomplete { width: 100%; display: block; position: relative; }
@@ -331,6 +333,7 @@ function _render_table(dialog, rows, customer_vehicles) {
     `);
 
     rows.forEach((row, idx) => {
+        // 👉 YAHAN .ajd-veh-td MEIN 'position: relative;' ADD KIYA HAI
         const $tr = $(`<tr data-idx="${idx}">
             <td class="ajd-type-td" style="padding:5px;"></td>
             <td style="padding:5px;"><input class="form-control form-control-sm ajd-count-inp" type="number" min="1" value="${row.count}"></td>
@@ -382,11 +385,7 @@ function _render_table(dialog, rows, customer_vehicles) {
                     item: function(text, input) {
                         return Awesomplete.ITEM(text, input.match(/[^,]*$/)[0]);
                     },
-                    // replace: function(text) {
-                    //     let before = this.input.value.match(/^.+,\s*|/)[0];
-                    //     this.input.value = before + text + ", ";
-                    // }
-					replace: function(text) {
+                    replace: function(text) {
                         let current_vehicles = _parse_vehicles(this.input.value);
                         
                         if (current_vehicles.includes(text.value)) {
@@ -435,4 +434,3 @@ function _render_table(dialog, rows, customer_vehicles) {
 
 function _parse_vehicles(raw) {
     return (raw || "").split(",").map(v => v.trim()).filter(Boolean);
-}

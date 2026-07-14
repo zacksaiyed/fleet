@@ -10,526 +10,451 @@ GPS_ITEM_TYPE = "GPS Device"
 
 class Job(Document):
 
-    def before_save(self):
-        self._fetch_technician_warehouse()
-        self._fetch_customer_warehouse()
-        self._set_date_from_task()
-        self._set_vehicle_number()
-        self._fetch_vehicle_details()
-        if self.status == "Pending" and self.item_installed_removed:
-            self.status = "In Progress"
-
-        # Clean and strip any accidental whitespace from item codes
-        for row in self.item_installed_removed or []:
-            if row.item:
-                row.item = row.item.strip()
-
-    def validate(self):
-        before = self.get_doc_before_save()
-        if before and before.get("status") in ("Completed", "Cancelled"):
-            frappe.throw(
-                f"This job is <b>{before.get('status')}</b> and cannot be modified.",
-                title="Job Locked"
-            )
-
-        if before and before.get("status") == "In Review":
-            allowed = {"Support Team", "Fleet Administrator", "Fleet Manager",
-                       "Administrator", "System Manager"}
-            if not allowed & set(frappe.get_roles()):
-                frappe.throw(
-                    "This job is <b>In Review</b> and can only be edited by support staff.",
-                    title="Job Locked"
-                )
-
-        if self.vehicle_number:
-            self.vehicle_number = self.vehicle_number.replace(" ", "").upper()
-            # if not _VEH_RE.match(self.vehicle_number):
-            # 	frappe.throw(
-            # 		"Vehicle Number must be in the format <b>ABC123</b> or <b>ABC1234</b> "
-            # 		"(3 letters followed by 3 or 4 digits).",
-            # 		title="Invalid Vehicle Number"
-            # 	)
-
-        self._validate_vehicle_existence()
-
-        if self.status == "Completed" and not self.completion_comment:
-            frappe.throw("Completion comment is mandatory before marking a Job as Completed.")
-
-    def _validate_vehicle_existence(self):
-        if not self.vehicle_number or not self.task_type:
-            return
-
-        vehicle_exists = frappe.db.exists("Vehicle", self.vehicle_number)
-
-        if self.task_type == "Installation":
-            if vehicle_exists:
-                frappe.throw(
-                    f"Vehicle <b>{self.vehicle_number}</b> is already registered in the system. "
-                    f"Installation is only for new vehicles.",
-                    title="Vehicle Already Registered"
-                )
-        else:
-            if not vehicle_exists:
-                frappe.throw(
-                    f"Vehicle <b>{self.vehicle_number}</b> is not registered in the system. "
-                    f"Please enter a valid vehicle number.",
-                    title="Vehicle Not Found"
-                )
-
-            vehicle_customer = frappe.db.get_value("Vehicle", self.vehicle_number, "custom_customer")
-            if vehicle_customer and self.customer and vehicle_customer != self.customer:
-                frappe.throw(
-                    f"Vehicle <b>{self.vehicle_number}</b> belongs to <b>{vehicle_customer}</b>, "
-                    f"not <b>{self.customer}</b>.",
-                    title="Customer Mismatch"
-                )
-
-    def on_update(self):
-        self._sync_task_child_row()
-        self._recompute_task_status()
-        before = self.get_doc_before_save()
-        if self.status == "Completed" and (not before or before.get("status") != "Completed"):
-            self._handle_warehouse_movement()
-            self._sync_customer_component_prices()
-        elif self.status == "Completed" and before and before.get("status") == "Completed":
-            self._sync_customer_component_prices()
-
-    def on_trash(self):
-        if self.task:
-            frappe.db.delete("Task Job", {"job": self.name, "parent": self.task})
-            # Re-sequence idx on remaining rows to avoid numbering gaps
-            remaining = frappe.get_all(
-                "Task Job",
-                filters={"parent": self.task},
-                fields=["name"],
-                order_by="idx asc",
-            )
-            for i, row in enumerate(remaining, start=1):
-                frappe.db.set_value("Task Job", row.name, "idx", i, update_modified=False)
-            frappe.db.set_value("Task", self.task, "modified", frappe.utils.now())
-            from fleet.fleet.doctype.task.task import recompute_task_status
-            recompute_task_status(self.task)
-
-    # Private helpers
-    def _set_vehicle_number(self):
-        if self.vehicle_number:
-            self.vehicle_number = self.vehicle_number.replace(" ", "").upper()
-
-    def _fetch_vehicle_details(self):
-        if not self.vehicle_number or self.task_type == "Installation":
-            return
-
-        vehicle = frappe.db.get_value(
-            "Vehicle",
-            self.vehicle_number,
-            ["make", "model", "color", "custom_vehicle_type"],
-            as_dict=True
-        )
-        if vehicle:
-            self.make  = vehicle.make
-            self.model = vehicle.model
-            self.color = vehicle.color
-            self.type  = vehicle.custom_vehicle_type
-
-    def _set_date_from_task(self):
-        if not self.date and self.task:
-            task_date = frappe.db.get_value("Task", self.task, "custom_date")
-            if task_date:
-                self.date = task_date
-
-    def _fetch_technician_warehouse(self):
-        if not self.assigned_technician:
-            return
-
-        # Only re-derive if technician changed (or it's a new doc)
-        before = self.get_doc_before_save()
-        if before and before.get("assigned_technician") == self.assigned_technician:
-            return  # technician unchanged, don't touch warehouse
-
-        wh = frappe.db.get_value(
-            "Warehouse", {"custom_employee": self.assigned_technician, "disabled": 0}, "name"
-        )
-        self.technician_warehouse = wh or None
-
-    def _fetch_customer_warehouse(self):
-        if not self.customer:
-            return
-
-        # Only re-derive if customer changed (or it's a new doc)
-        before = self.get_doc_before_save()
-        if before and before.get("customer") == self.customer:
-            return  # customer unchanged, don't touch warehouse
-
-        wh = frappe.db.get_value(
-            "Warehouse",
-            {"custom_customer_name": self.customer, "disabled": 0},
-            "name"
-        )
-        self.customer_warehouse = wh or None
-
-    def _sync_task_child_row(self):
-
-        if not self.task:
-            return
-        try:
-            frappe.db.set_value(
-                "Task Job",
-                {"job": self.name, "parent": self.task},
-                "status",
-                self.status
-            )
-        except Exception:
-            frappe.log_error(frappe.get_traceback(), "Job sync task child row failed")
-
-    def _recompute_task_status(self):
-        if not self.task:
-            return
-        try:
-            from fleet.fleet.doctype.task.task import recompute_task_status
-            recompute_task_status(self.task)
-        except Exception:
-            pass
-
-    def _handle_warehouse_movement(self):
-        stock_moved = True
-        if self.item_installed_removed:
-            stock_moved = self._create_stock_entries()
-
-        if stock_moved:
-            self._update_vehicle_items()
-
-    def _create_stock_entries(self):
-        # Idempotent guard — skip if already submitted for this job
-        if frappe.db.exists("Stock Entry", {"custom_job": self.name, "docstatus": 1}):
-            return False
-        if not self.technician_warehouse:
-            frappe.throw("Technician warehouse not set. Cannot create stock movement.")
-        if not self.customer_warehouse:
-            frappe.throw("Customer warehouse not set. Cannot create stock movement.")
-
-        installed = [r for r in self.item_installed_removed if r.installed_or_removed == "Installed"]
-        removed   = [r for r in self.item_installed_removed if r.installed_or_removed == "Removed"]
-
-        # For Removed items — verify each exists in customer warehouse before moving
-        if removed:
-            missing_items = []
-            for r in removed:
-                qty = frappe.db.get_value(
-                    "Bin",
-                    {"item_code": r.item, "warehouse": self.customer_warehouse},
-                    "actual_qty"
-                ) or 0
-                if qty <= 0:
-                    missing_items.append(r.item)
-            if missing_items:
-                frappe.throw(
-                    f"Cannot complete — the following item(s) are not in customer warehouse "
-                    f"<b>{self.customer_warehouse}</b>:<br>"
-                    + "<br>".join(missing_items)
-                )
-
-        # Installed: technician warehouse → customer warehouse
-        # Removed:   customer warehouse  → technician warehouse
-        for items, src, tgt in [
-            (installed, self.technician_warehouse, self.customer_warehouse),
-            (removed,   self.customer_warehouse,   self.technician_warehouse),
-        ]:
-            if not items:
-                continue
-            company = frappe.db.get_value("Warehouse", src, "company")
-            se = frappe.get_doc({
-                "doctype": "Stock Entry",
-                "stock_entry_type": "Material Transfer",
-                "company": company,
-                "custom_job": self.name,
-                "items": [
-                    {"item_code": r.item, "qty": 1, "s_warehouse": src, "t_warehouse": tgt}
-                    for r in items
-                ],
-            })
-            se.insert(ignore_permissions=True)
-            se.submit()
-            frappe.msgprint	(f"Stock moved: {len(items)} item(s) → {tgt}", alert=True)
-
-            from fleet.custom_py.item_warehouse import update_item_warehouse
-            for r in items:
-                update_item_warehouse(r.item, tgt)
-
-        return True
-
-    def _update_vehicle_items(self):
-        if not self.vehicle_number:
-            return
-
-        task_type = self.task_type or ""
-
-        if task_type == "Installation":
-            self._handle_installation_vehicle()
-        elif task_type == "Removal":
-            self._handle_removal_vehicle()
-        elif task_type == "Checkup":
-            self._handle_checkup_vehicle()
-        elif task_type == "Accessory":
-            self._handle_accessory_vehicle()
-
-    def _sync_customer_component_prices(self):
-        if not self.customer or not self.item_installed_removed:
-            return
-
-        installed_items = [
-            row.item
-            for row in self.item_installed_removed
-            if row.installed_or_removed == "Installed" and row.item
-        ]
-        if not installed_items:
-            return
-
-        customer = frappe.get_doc("Customer", self.customer)
-        existing_by_model = {
-            row.model: row
-            for row in customer.get("custom_customer_component_price", [])
-            if row.model
-        }
-        effective_from = self.completed_on_support or nowdate()
-        changed = False
-
-        for item in installed_items:
-            item_data = frappe.db.get_value(
-                "Item",
-                item,
-                ["custom_model", "custom_default_billing_price"],
-                as_dict=True,
-            )
-            if not item_data or not item_data.custom_model:
-                continue
-
-            default_price = item_data.custom_default_billing_price or 0.0
-
-            if item_data.custom_model in existing_by_model:
-                row = existing_by_model[item_data.custom_model]
-                if row.last_vehicle != self.vehicle_number:
-                    row.last_vehicle = self.vehicle_number
-                    changed = True
-                if row.last_job != self.name:
-                    row.last_job = self.name
-                    changed = True
-                if row.effective_from != effective_from:
-                    row.effective_from = effective_from
-                    changed = True
-            else:
-                new_row = customer.append("custom_customer_component_price", {
-                    "model": item_data.custom_model,
-                    "default_price": default_price,
-                    "effective_from": effective_from,
-                    "last_vehicle": self.vehicle_number,
-                    "last_job": self.name,
-                    "customer_price": default_price
-                })
-                existing_by_model[item_data.custom_model] = new_row
-                changed = True
-
-        # Clean up any broken vehicle links to prevent LinkValidationError from blocking save
-        for r in customer.get("custom_customer_component_price") or []:
-            if r.last_vehicle and not frappe.db.exists("Vehicle", r.last_vehicle):
-                r.last_vehicle = None
-                changed = True
-
-        if changed:
-            customer.save(ignore_permissions=True)
-
-
-    # Installation
-
-    def _handle_installation_vehicle(self):
-        """
-        New vehicle for customer — must NOT already exist.
-        If it exists, technician entered wrong vehicle number.
-        Create vehicle, map customer, add all items as Installed.
-        """
-        if frappe.db.exists("Vehicle", self.vehicle_number):
-            frappe.throw(
-                f"Vehicle <b>{self.vehicle_number}</b> already exists in the system. "
-                f"For Task Type <b>Installation</b> the vehicle should be new. "
-                f"Please check the vehicle number."
-            )
-
-        vehicle = frappe.get_doc({
-            "doctype": "Vehicle",
-            "license_plate": self.vehicle_number,
-            "make" : self.make,
-            "model" : self.model,
-            "color" : self.color,
-            "custom_vehicle_type": self.type or None,
-            "custom_customer": self.customer or None,
-            "custom_branch": self.flags.selected_branch or None,
-        })
-        for row in self.item_installed_removed:
-            vehicle.append("custom_vehicle_item", {
-                "item":      row.item,
-                "item_type": row.item_type,
-                "status":    "Installed",
-                "date":      self.date,
-            })
-        vehicle.flags.from_job = self.name
-        vehicle.insert(ignore_permissions=True)
-        self._attach_job_images_to_vehicle(self.vehicle_number)
-        frappe.msgprint(
-            f"Vehicle <b>{self.vehicle_number}</b> created and items recorded.", alert=True
-        )
-
-    # Removal
-
-    def _handle_removal_vehicle(self):
-        """
-        Removing items from an existing vehicle.
-        Vehicle must exist.
-        Every item in the job table must exist in custom_vehicle_item — hard error if not.
-        """
-        if not frappe.db.exists("Vehicle", self.vehicle_number):
-            frappe.throw(
-                f"Vehicle <b>{self.vehicle_number}</b> not found. "
-                f"Cannot process Removal for a vehicle that does not exist."
-            )
-
-        vehicle = frappe.get_doc("Vehicle", self.vehicle_number)
-        if self.flags.selected_branch:
-            vehicle.custom_branch = self.flags.selected_branch
-        vehicle_items = {r.item: r for r in vehicle.get("custom_vehicle_item", [])}
-
-        # Validate all items exist on vehicle before making any changes
-        missing = [row.item for row in self.item_installed_removed if row.item not in vehicle_items]
-        if missing:
-            frappe.throw(
-                f"Cannot complete — the following item(s) are not installed on vehicle "
-                f"<b>{self.vehicle_number}</b>:<br>"
-                + "<br>".join(missing)
-            )
-
-        for row in self.item_installed_removed:
-            vi        = vehicle_items[row.item]
-            vi.status = "Removed"
-            vi.date   = self.date
-
-        vehicle.flags.from_job = self.name
-        vehicle.save(ignore_permissions=True)
-        self._attach_job_images_to_vehicle(self.vehicle_number)
-
-    # Checkup
-
-    def _handle_checkup_vehicle(self):
-        """
-        Servicing an existing vehicle — vehicle must exist.
-
-        Removed rows:
-          - Item not on vehicle → hard error
-          - Item on vehicle     → set status Removed + date
-
-        Installed rows:
-          - Item on vehicle (any status) → set status Installed + date
-          - Item not on vehicle          → add new row as Installed
-        """
-        if not frappe.db.exists("Vehicle", self.vehicle_number):
-            frappe.throw(
-                f"Vehicle <b>{self.vehicle_number}</b> not found. "
-                f"Checkup requires an existing vehicle."
-            )
-
-        vehicle = frappe.get_doc("Vehicle", self.vehicle_number)
-        if self.flags.selected_branch:
-            vehicle.custom_branch = self.flags.selected_branch
-        vehicle_items = {r.item: r for r in vehicle.get("custom_vehicle_item", [])}
-
-        # Validate removals first — fail before making any changes
-        removal_errors = [
-            row.item for row in self.item_installed_removed
-            if row.installed_or_removed == "Removed" and row.item not in vehicle_items
-        ]
-        if removal_errors:
-            frappe.throw(
-                f"Cannot complete — the following item(s) are not installed on vehicle "
-                f"<b>{self.vehicle_number}</b> hence cannot be removed:<br>"
-                + "<br>".join(removal_errors)
-            )
-
-        for row in self.item_installed_removed:
-            if row.installed_or_removed == "Removed":
-                vi        = vehicle_items[row.item]
-                vi.status = "Removed"
-                vi.date   = self.date
-
-            elif row.installed_or_removed == "Installed":
-                if row.item in vehicle_items:
-                    # Update status to Installed + date regardless of previous status
-                    vi        = vehicle_items[row.item]
-                    vi.status = "Installed"
-                    vi.date   = self.date
-                else:
-                    # Not on vehicle yet — add fresh
-                    vehicle.append("custom_vehicle_item", {
-                        "item":      row.item,
-                        "item_type": row.item_type,
-                        "status":    "Installed",
-                        "date":      self.date,
-                    })
-
-        vehicle.flags.from_job = self.name
-        vehicle.save(ignore_permissions=True)
-        self._attach_job_images_to_vehicle(self.vehicle_number)
-
-    # Accessory
-
-    def _handle_accessory_vehicle(self):
-        """
-        Adding accessories to an existing vehicle — vehicle must exist.
-
-          - Same item + status Installed → update date only
-          - Same item + status Removed   → update status to Installed + date
-          - Item not on vehicle          → add new row as Installed
-        """
-        if not frappe.db.exists("Vehicle", self.vehicle_number):
-            frappe.throw(
-                f"Vehicle <b>{self.vehicle_number}</b> not found. "
-                f"Accessory installation requires an existing vehicle."
-            )
-
-        vehicle = frappe.get_doc("Vehicle", self.vehicle_number)
-        if self.flags.selected_branch:
-            vehicle.custom_branch = self.flags.selected_branch
-        vehicle_items = {r.item: r for r in vehicle.get("custom_vehicle_item", [])}
-
-        for row in self.item_installed_removed:
-            if row.item in vehicle_items:
-                vi        = vehicle_items[row.item]
-                vi.status = "Installed"
-                vi.date   = self.date
-            else:
-                vehicle.append("custom_vehicle_item", {
-                    "item":      row.item,
-                    "item_type": row.item_type,
-                    "status":    "Installed",
-                    "date":      self.date,
-                })
-        vehicle.flags.from_job = self.name
-        vehicle.save(ignore_permissions=True)
-        self._attach_job_images_to_vehicle(self.vehicle_number)
-
-    def _attach_job_images_to_vehicle(self, vehicle_number):
-        for row in self.job_images:
-            if not row.image:
-                continue
-            if frappe.db.exists("File", {
-                "file_url":            row.image,
-                "attached_to_doctype": "Vehicle",
-                "attached_to_name":    vehicle_number,
-            }):
-                continue
-            frappe.get_doc({
-                "doctype":             "File",
-                "file_url":            row.image,
-                "attached_to_doctype": "Vehicle",
-                "attached_to_name":    vehicle_number,
-                "is_private":          0,
-            }).insert(ignore_permissions=True)
+	def before_save(self):
+		self._fetch_technician_warehouse()
+		self._fetch_customer_warehouse()
+		self._set_date_from_task()
+		self._set_vehicle_number()
+		self._fetch_vehicle_details()
+		if self.status == "Pending" and self.item_installed_removed:
+			self.status = "In Progress"
+
+	def validate(self):
+		before = self.get_doc_before_save()
+		if before and before.get("status") in ("Completed", "Cancelled"):
+			frappe.throw(
+				f"This job is <b>{before.get('status')}</b> and cannot be modified.",
+				title="Job Locked"
+			)
+
+		if before and before.get("status") == "In Review":
+			allowed = {"Support Team", "Fleet Administrator", "Fleet Manager",
+			           "Administrator", "System Manager"}
+			if not allowed & set(frappe.get_roles()):
+				frappe.throw(
+					"This job is <b>In Review</b> and can only be edited by support staff.",
+					title="Job Locked"
+				)
+
+		if self.vehicle_number:
+			self.vehicle_number = self.vehicle_number.replace(" ", "").upper()
+			# if not _VEH_RE.match(self.vehicle_number):
+			# 	frappe.throw(
+			# 		"Vehicle Number must be in the format <b>ABC123</b> or <b>ABC1234</b> "
+			# 		"(3 letters followed by 3 or 4 digits).",
+			# 		title="Invalid Vehicle Number"
+			# 	)
+
+		self._validate_vehicle_existence()
+
+		if self.status == "Completed" and not self.completion_comment:
+			frappe.throw("Completion comment is mandatory before marking a Job as Completed.")
+
+	def _validate_vehicle_existence(self):
+		if not self.vehicle_number or not self.task_type:
+			return
+
+		vehicle_exists = frappe.db.exists("Vehicle", self.vehicle_number)
+
+		if self.task_type == "Installation":
+			if vehicle_exists:
+				frappe.throw(
+					f"Vehicle <b>{self.vehicle_number}</b> is already registered in the system. "
+					f"Installation is only for new vehicles.",
+					title="Vehicle Already Registered"
+				)
+		else:
+			if not vehicle_exists:
+				frappe.throw(
+					f"Vehicle <b>{self.vehicle_number}</b> is not registered in the system. "
+					f"Please enter a valid vehicle number.",
+					title="Vehicle Not Found"
+				)
+
+			vehicle_customer = frappe.db.get_value("Vehicle", self.vehicle_number, "custom_customer")
+			if vehicle_customer and self.customer and vehicle_customer != self.customer:
+				frappe.throw(
+					f"Vehicle <b>{self.vehicle_number}</b> belongs to <b>{vehicle_customer}</b>, "
+					f"not <b>{self.customer}</b>.",
+					title="Customer Mismatch"
+				)
+
+	def on_update(self):
+		self._sync_task_child_row()
+		self._recompute_task_status()
+		if self.status == "Completed":
+			self._handle_warehouse_movement()
+
+	def on_trash(self):
+		if self.task:
+			frappe.db.delete("Task Job", {"job": self.name, "parent": self.task})
+			# Re-sequence idx on remaining rows to avoid numbering gaps
+			remaining = frappe.get_all(
+				"Task Job",
+				filters={"parent": self.task},
+				fields=["name"],
+				order_by="idx asc",
+			)
+			for i, row in enumerate(remaining, start=1):
+				frappe.db.set_value("Task Job", row.name, "idx", i, update_modified=False)
+			frappe.db.set_value("Task", self.task, "modified", frappe.utils.now())
+			from fleet.fleet.doctype.task.task import recompute_task_status
+			recompute_task_status(self.task)
+
+	# Private helpers
+	def _set_vehicle_number(self):
+		if self.vehicle_number:
+			self.vehicle_number = self.vehicle_number.replace(" ", "").upper()
+	
+	def _fetch_vehicle_details(self):
+		if not self.vehicle_number or self.task_type == "Installation":
+			return
+
+		vehicle = frappe.db.get_value(
+			"Vehicle",
+			self.vehicle_number,
+			["make", "model", "color", "custom_vehicle_type"],
+			as_dict=True
+		)
+		if vehicle:
+			self.make  = vehicle.make
+			self.model = vehicle.model
+			self.color = vehicle.color
+			self.type  = vehicle.custom_vehicle_type
+			
+	def _set_date_from_task(self):
+		if not self.date and self.task:
+			task_date = frappe.db.get_value("Task", self.task, "custom_date")
+			if task_date:
+				self.date = task_date
+
+	def _fetch_technician_warehouse(self):
+		if not self.assigned_technician:
+			return
+
+		# Only re-derive if technician changed (or it's a new doc)
+		before = self.get_doc_before_save()
+		if before and before.get("assigned_technician") == self.assigned_technician:
+			return  # technician unchanged, don't touch warehouse
+
+		wh = frappe.db.get_value(
+			"Warehouse", {"custom_employee": self.assigned_technician, "disabled": 0}, "name"
+		)
+		self.technician_warehouse = wh or None
+
+	def _fetch_customer_warehouse(self):
+		if not self.customer:
+			return
+
+		# Only re-derive if customer changed (or it's a new doc)
+		before = self.get_doc_before_save()
+		if before and before.get("customer") == self.customer:
+			return  # customer unchanged, don't touch warehouse
+
+		wh = frappe.db.get_value(
+			"Warehouse",
+			{"custom_customer_name": self.customer, "disabled": 0},
+			"name"
+		)
+		self.customer_warehouse = wh or None
+
+	def _sync_task_child_row(self):
+		if not self.task:
+			return
+		try:
+			frappe.db.set_value(
+				"Task Job",
+				{"job": self.name, "parent": self.task},
+				"status",
+				self.status
+			)
+		except Exception:
+			frappe.log_error(frappe.get_traceback(), "Job sync task child row failed")
+
+	def _recompute_task_status(self):
+		if not self.task:
+			return
+		try:
+			from fleet.fleet.doctype.task.task import recompute_task_status
+			recompute_task_status(self.task)
+		except Exception:
+			pass
+
+	def _handle_warehouse_movement(self):
+		if not self.item_installed_removed:
+			return
+
+		# Only update vehicle records when stock was actually moved.
+		# If the guard fires (stock entry already exists) we must not touch the
+		# vehicle items either — otherwise the two get out of sync.
+		if self._create_stock_entries():
+			self._update_vehicle_items()
+
+	def _create_stock_entries(self):
+		# Idempotent guard — skip if already submitted for this job
+		if frappe.db.exists("Stock Entry", {"custom_job": self.name, "docstatus": 1}):
+			return False
+		if not self.technician_warehouse:
+			frappe.throw("Technician warehouse not set. Cannot create stock movement.")
+		if not self.customer_warehouse:
+			frappe.throw("Customer warehouse not set. Cannot create stock movement.")
+
+		installed = [r for r in self.item_installed_removed if r.installed_or_removed == "Installed"]
+		removed   = [r for r in self.item_installed_removed if r.installed_or_removed == "Removed"]
+
+		# For Removed items — verify each exists in customer warehouse before moving
+		if removed:
+			missing_items = []
+			for r in removed:
+				qty = frappe.db.get_value(
+					"Bin",
+					{"item_code": r.item, "warehouse": self.customer_warehouse},
+					"actual_qty"
+				) or 0
+				if qty <= 0:
+					missing_items.append(r.item)
+			if missing_items:
+				frappe.throw(
+					f"Cannot complete — the following item(s) are not in customer warehouse "
+					f"<b>{self.customer_warehouse}</b>:<br>"	
+					+ "<br>".join(missing_items)
+				)
+
+		# Installed: technician warehouse → customer warehouse
+		# Removed:   customer warehouse  → technician warehouse
+		for items, src, tgt in [
+			(installed, self.technician_warehouse, self.customer_warehouse),
+			(removed,   self.customer_warehouse,   self.technician_warehouse),
+		]:
+			if not items:
+				continue
+			company = frappe.db.get_value("Warehouse", src, "company")
+			se = frappe.get_doc({
+				"doctype": "Stock Entry",
+				"stock_entry_type": "Material Transfer",
+				"company": company,
+				"custom_job": self.name,
+				"items": [
+					{"item_code": r.item, "qty": 1, "s_warehouse": src, "t_warehouse": tgt}
+					for r in items
+				],
+			})
+			se.insert(ignore_permissions=True)
+			se.submit()
+			frappe.msgprint(f"Stock moved: {len(items)} item(s) → {tgt}", alert=True)
+
+			from fleet.custom_py.item_warehouse import update_item_warehouse
+			for r in items:
+				update_item_warehouse(r.item, tgt)
+
+		return True
+
+	def _update_vehicle_items(self):
+		if not self.vehicle_number:
+			return
+
+		task_type = self.task_type or ""
+
+		if task_type == "Installation":
+			self._handle_installation_vehicle()
+		elif task_type == "Removal":
+			self._handle_removal_vehicle()
+		elif task_type == "Checkup":
+			self._handle_checkup_vehicle()
+		elif task_type == "Accessory":
+			self._handle_accessory_vehicle()
+
+	# Installation
+
+	def _handle_installation_vehicle(self):
+		"""
+		New vehicle for customer — must NOT already exist.
+		If it exists, technician entered wrong vehicle number.
+		Create vehicle, map customer, add all items as Installed.
+		"""
+		if frappe.db.exists("Vehicle", self.vehicle_number):
+			frappe.throw(
+				f"Vehicle <b>{self.vehicle_number}</b> already exists in the system. "
+				f"For Task Type <b>Installation</b> the vehicle should be new. "
+				f"Please check the vehicle number."
+			)
+
+		vehicle = frappe.get_doc({
+			"doctype": "Vehicle",
+			"license_plate": self.vehicle_number,
+			"make" : self.make,
+			"model" : self.model,
+			"color" : self.color,
+			"custom_vehicle_type": self.type or None,
+			"custom_customer": self.customer or None,
+		})
+		for row in self.item_installed_removed:
+			vehicle.append("custom_vehicle_item", {
+				"item":      row.item,
+				"item_type": row.item_type,
+				"status":    "Installed",
+				"date":      self.date,
+			})
+		vehicle.insert(ignore_permissions=True)
+
+		# Create Vehicle Transfer Log for new installation
+		log = frappe.get_doc({
+			"doctype": "Vehicle Transfer Log",
+			"vehicle": self.vehicle_number,
+			"customer": self.customer,
+			"transfer_date": self.date or frappe.utils.today()
+		})
+		log.insert(ignore_permissions=True)
+
+		self._attach_job_images_to_vehicle(self.vehicle_number)
+		frappe.msgprint(
+			f"Vehicle <b>{self.vehicle_number}</b> created and items recorded.", alert=True
+		)
+
+	# Removal
+
+	def _handle_removal_vehicle(self):
+		"""
+		Removing items from an existing vehicle.
+		Vehicle must exist.
+		Every item in the job table must exist in custom_vehicle_item — hard error if not.
+		"""
+		if not frappe.db.exists("Vehicle", self.vehicle_number):
+			frappe.throw(
+				f"Vehicle <b>{self.vehicle_number}</b> not found. "
+				f"Cannot process Removal for a vehicle that does not exist."
+			)
+
+		vehicle = frappe.get_doc("Vehicle", self.vehicle_number)
+		vehicle_items = {r.item: r for r in vehicle.get("custom_vehicle_item", [])}
+
+		# Validate all items exist on vehicle before making any changes
+		missing = [row.item for row in self.item_installed_removed if row.item not in vehicle_items]
+		if missing:
+			frappe.throw(
+				f"Cannot complete — the following item(s) are not installed on vehicle "
+				f"<b>{self.vehicle_number}</b>:<br>"
+				+ "<br>".join(missing)
+			)
+
+		for row in self.item_installed_removed:
+			vi        = vehicle_items[row.item]
+			vi.status = "Removed"
+			vi.date   = self.date
+
+		vehicle.save(ignore_permissions=True)
+		self._attach_job_images_to_vehicle(self.vehicle_number)
+
+	# Checkup
+
+	def _handle_checkup_vehicle(self):
+		"""
+		Servicing an existing vehicle — vehicle must exist.
+
+		Removed rows:
+		  - Item not on vehicle → hard error
+		  - Item on vehicle     → set status Removed + date
+
+		Installed rows:
+		  - Item on vehicle (any status) → set status Installed + date
+		  - Item not on vehicle          → add new row as Installed
+		"""
+		if not frappe.db.exists("Vehicle", self.vehicle_number):
+			frappe.throw(
+				f"Vehicle <b>{self.vehicle_number}</b> not found. "
+				f"Checkup requires an existing vehicle."
+			)
+
+		vehicle = frappe.get_doc("Vehicle", self.vehicle_number)
+		vehicle_items = {r.item: r for r in vehicle.get("custom_vehicle_item", [])}
+
+		# Validate removals first — fail before making any changes
+		removal_errors = [
+			row.item for row in self.item_installed_removed
+			if row.installed_or_removed == "Removed" and row.item not in vehicle_items
+		]
+		if removal_errors:
+			frappe.throw(
+				f"Cannot complete — the following item(s) are not installed on vehicle "
+				f"<b>{self.vehicle_number}</b> hence cannot be removed:<br>"
+				+ "<br>".join(removal_errors)
+			)
+
+		for row in self.item_installed_removed:
+			if row.installed_or_removed == "Removed":
+				vi        = vehicle_items[row.item]
+				vi.status = "Removed"
+				vi.date   = self.date
+
+			elif row.installed_or_removed == "Installed":
+				if row.item in vehicle_items:
+					# Update status to Installed + date regardless of previous status
+					vi        = vehicle_items[row.item]
+					vi.status = "Installed"
+					vi.date   = self.date
+				else:
+					# Not on vehicle yet — add fresh
+					vehicle.append("custom_vehicle_item", {
+						"item":      row.item,
+						"item_type": row.item_type,
+						"status":    "Installed",
+						"date":      self.date,
+					})
+
+		vehicle.save(ignore_permissions=True)
+		self._attach_job_images_to_vehicle(self.vehicle_number)
+
+	# Accessory
+
+	def _handle_accessory_vehicle(self):
+		"""
+		Adding accessories to an existing vehicle — vehicle must exist.
+
+		  - Same item + status Installed → update date only
+		  - Same item + status Removed   → update status to Installed + date
+		  - Item not on vehicle          → add new row as Installed
+		"""
+		if not frappe.db.exists("Vehicle", self.vehicle_number):
+			frappe.throw(
+				f"Vehicle <b>{self.vehicle_number}</b> not found. "
+				f"Accessory installation requires an existing vehicle."
+			)
+
+		vehicle = frappe.get_doc("Vehicle", self.vehicle_number)
+		vehicle_items = {r.item: r for r in vehicle.get("custom_vehicle_item", [])}
+
+		for row in self.item_installed_removed:
+			if row.item in vehicle_items:
+				vi        = vehicle_items[row.item]
+				vi.status = "Installed"
+				vi.date   = self.date
+			else:
+				vehicle.append("custom_vehicle_item", {
+					"item":      row.item,
+					"item_type": row.item_type,
+					"status":    "Installed",
+					"date":      self.date,
+				})
+		vehicle.save(ignore_permissions=True)
+		self._attach_job_images_to_vehicle(self.vehicle_number)
+
+	def _attach_job_images_to_vehicle(self, vehicle_number):
+		for row in self.job_images:
+			if not row.image:
+				continue
+			if frappe.db.exists("File", {
+				"file_url":            row.image,
+				"attached_to_doctype": "Vehicle",
+				"attached_to_name":    vehicle_number,
+			}):
+				continue
+			frappe.get_doc({
+				"doctype":             "File",
+				"file_url":            row.image,
+				"attached_to_doctype": "Vehicle",
+				"attached_to_name":    vehicle_number,
+				"is_private":          0,
+			}).insert(ignore_permissions=True)
 
 
 # Item search by warehouse

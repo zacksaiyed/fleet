@@ -1510,13 +1510,44 @@ def _post_job_update_message(job_doc, employee, changed_scalars: dict, set_items
             val = changed_scalars[field] or "—"
             lines.append(f"{label}: {val}")
 
+    # Fetch currently installed items on the vehicle
+    if job_doc.vehicle_number and frappe.db.exists("Vehicle", job_doc.vehicle_number):
+        veh_items = frappe.db.get_all(
+            "Vehicle Item",
+            filters={"parent": job_doc.vehicle_number, "status": "Installed"},
+            fields=["item", "item_type"]
+        )
+        if veh_items:
+            lines.append("")
+            lines.append("Item:")
+            for idx, row in enumerate(veh_items):
+                if idx > 0:
+                    lines.append("")
+                item_type = row.item_type or "Item"
+                item_code = row.item or "—"
+                brand     = frappe.db.get_value("Item", item_code, "brand") or "—"
+                if item_type == "SIM":
+                    details = frappe.db.get_value("Item", item_code, ["custom_sim_type", "custom_serial_no", "custom_mobile_number"], as_dict=True) or {}
+                    sim_type = details.get("custom_sim_type") or "—"
+                    serial_no = details.get("custom_serial_no") or "—"
+                    mobile_no = details.get("custom_mobile_number") or "—"
+                    lines.append(f"  {item_type}: {item_code} - {brand}")
+                    lines.append(f"  SIM Serial No: {serial_no}")
+                    lines.append(f"  SIM Mobile No: {mobile_no}")
+                    lines.append(f"  SIM Type: {sim_type}")
+                else:
+                    lines.append(f"  {item_type}: {item_code} - {brand}")
+
     if set_items is not None:
         installed_items = [r for r in job_doc.item_installed_removed if r.installed_or_removed == "Installed"]
         removed_items = [r for r in job_doc.item_installed_removed if r.installed_or_removed == "Removed"]
 
         if installed_items:
+            lines.append("")
             lines.append("Installed:")
-            for row in installed_items:
+            for idx, row in enumerate(installed_items):
+                if idx > 0:
+                    lines.append("")
                 item_type = row.item_type or "Item"
                 item_code = row.item or "—"
                 brand     = row.brand or "—"
@@ -1525,13 +1556,19 @@ def _post_job_update_message(job_doc, employee, changed_scalars: dict, set_items
                     sim_type = details.get("custom_sim_type") or "—"
                     serial_no = details.get("custom_serial_no") or "—"
                     mobile_no = details.get("custom_mobile_number") or "—"
-                    lines.append(f"  {item_type}: {item_code} - {brand} (SIM Type: {sim_type}, Serial: {serial_no}, Mobile: {mobile_no})")
+                    lines.append(f"  {item_type}: {item_code} - {brand}")
+                    lines.append(f"  SIM Serial No: {serial_no}")
+                    lines.append(f"  SIM Mobile No: {mobile_no}")
+                    lines.append(f"  SIM Type: {sim_type}")
                 else:
                     lines.append(f"  {item_type}: {item_code} - {brand}")
 
         if removed_items:
+            lines.append("")
             lines.append("Removed:")
-            for row in removed_items:
+            for idx, row in enumerate(removed_items):
+                if idx > 0:
+                    lines.append("")
                 item_type = row.item_type or "Item"
                 item_code = row.item or "—"
                 brand     = row.brand or "—"

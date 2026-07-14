@@ -1,13 +1,14 @@
 {
  "actions": [],
  "allow_rename": 1,
- "creation": "2026-06-25 14:07:28.795591",
+ "creation": "2026-06-23 14:13:22.523111",
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
   "customer",
-  "vehicle",
   "branch",
+  "column_break_sxmk",
+  "vehicle",
   "effective_date"
  ],
  "fields": [
@@ -18,27 +19,31 @@
    "options": "Customer"
   },
   {
+   "fieldname": "branch",
+   "fieldtype": "Link",
+   "label": "Branch",
+   "options": "Branch"
+  },
+  {
+   "fieldname": "column_break_sxmk",
+   "fieldtype": "Column Break"
+  },
+  {
    "fieldname": "vehicle",
    "fieldtype": "Link",
    "label": "Vehicle",
    "options": "Vehicle"
   },
   {
-   "fieldname": "branch",
-   "fieldtype": "Link",
-   "label": "Branch",
-   "options": "Customer Branch"
-  },
-  {
    "fieldname": "effective_date",
    "fieldtype": "Date",
-   "label": "Effective Date"
+   "label": "Effective date"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-06-25 14:11:37.049503",
+ "modified": "2026-06-23 15:36:49.338452",
  "modified_by": "Administrator",
  "module": "Fleet",
  "name": "Vehicle Branch History",
