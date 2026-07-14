@@ -53,6 +53,7 @@ doctype_js = {
   "Employee"    : "public/js/employee.js",
   "Data Import" : "public/js/data_import.js",
   "Customer"    : "public/js/customer.js",
+  "Sales Invoice": "public/js/sales_invoice.js",
 }
 
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
@@ -223,9 +224,10 @@ doc_events = {
     
     "Item": {
         "before_insert": "fleet.override.item.generate_item_details"
+    },
+    "Sales Invoice": {
+        "before_submit": "fleet.api.billing.before_sales_invoice_submit"
     }
-# 		"on_trash": "method",
-#       "on_submit": "method"
 }
 
 # Scheduled Tasks

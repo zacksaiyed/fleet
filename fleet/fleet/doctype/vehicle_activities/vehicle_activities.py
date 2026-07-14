@@ -230,6 +230,77 @@ class VehicleActivities(Document):
 				last_activity_date=raw_activity_date,
 			)
 
+		# 1. Billing Month Check
+		if self.billing_month:
+			billing_month_val = self._parse_date(self.billing_month)
+			if billing_month_val:
+				if (activity_date.year != billing_month_val.year) or (activity_date.month != billing_month_val.month):
+					return self._row_error(
+						f"Activity date {raw_activity_date} does not match billing month {self.billing_month}.",
+						meta,
+						vehicle=vehicle,
+						item=item,
+					)
+
+		# 2. GPS Installation Status Log Check
+		# First check if the item was ever installed at all
+		installations = frappe.db.get_all(
+			"GPS Installation Status Log",
+			filters={
+				"vehicle": vehicle,
+				"item": item,
+				"event_type": "Installed"
+			},
+			fields=["event_date"],
+			order_by="event_date asc, creation asc",
+			limit=1
+		)
+
+		if not installations:
+			return self._row_error(
+				f"Item {item} was never installed on vehicle {vehicle}.",
+				meta,
+				vehicle=vehicle,
+				item=item,
+			)
+
+		first_install_date = installations[0].event_date
+		if activity_date < first_install_date:
+			return self._row_error(
+				f"Activity date {raw_activity_date} is before the installation date {first_install_date} of item {item} on vehicle {vehicle}.",
+				meta,
+				vehicle=vehicle,
+				item=item,
+			)
+
+		# Now check the status as of the activity_date
+		gps_logs = frappe.db.get_all(
+			"GPS Installation Status Log",
+			filters={
+				"vehicle": vehicle,
+				"item": item,
+				"event_date": ["<=", activity_date]
+			},
+			fields=["event_type", "event_date"],
+			order_by="event_date desc, creation desc",
+			limit=1
+		)
+
+		if not gps_logs:
+			return self._row_error(
+				f"Item {item} was not installed on vehicle {vehicle} on or before {raw_activity_date}.",
+				meta,
+				vehicle=vehicle,
+				item=item,
+			)
+		elif gps_logs[0].event_type == "Removed":
+			return self._row_error(
+				f"Item {item} was removed from vehicle {vehicle} on or before {raw_activity_date}.",
+				meta,
+				vehicle=vehicle,
+				item=item,
+			)
+
 		vehicle_customer = frappe.db.get_value("Vehicle", vehicle, "custom_customer")
 		customer = self._get_customer(raw_customer) if raw_customer else vehicle_customer
 
@@ -244,17 +315,6 @@ class VehicleActivities(Document):
 				vehicle=vehicle,
 				customer=customer,
 				vehicle_customer=vehicle_customer,
-			)
-
-		if not frappe.db.exists(
-			"Vehicle Item",
-			{"parent": vehicle, "item": item, "status": "Installed"},
-		):
-			return self._row_error(
-				"Item is not installed on this vehicle.",
-				meta,
-				vehicle=vehicle,
-				item=item,
 			)
 
 		return {
