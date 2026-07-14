@@ -167,6 +167,7 @@ override_doctype_class = {
 # Hook on document methods and events
 
 doc_events = {
+
     
     "User": {
         "validate": "fleet.erpnext_events.user_warehouse_hooks.validate_user_roles",

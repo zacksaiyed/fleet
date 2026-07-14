@@ -1,11 +1,11 @@
-																									# /home/umar/f/apps/fleet/fleet/fleet/doctype/job/job.py
 import re
 
 import frappe
 from frappe.model.document import Document
-from frappe.utils import now
+from frappe.utils import getdate, now, nowdate
 
 # _VEH_RE = re.compile(r"^[A-Z]{3}\d{3,4}$")
+GPS_ITEM_TYPE = "GPS Device"
 
 
 class Job(Document):
@@ -462,176 +462,190 @@ class Job(Document):
 @frappe.whitelist()
 @frappe.validate_and_sanitize_search_inputs
 def get_items_in_warehouse(doctype, txt, searchfield, start, page_len, filters):
-	warehouse = filters.get("warehouse") if filters else None
-	if not warehouse:
-		return []
-	txt_filter = f"%{txt}%" if txt else "%"
-	return frappe.db.sql(
-		"""
-		SELECT i.name, i.item_name
-		FROM `tabItem` i
-		INNER JOIN `tabBin` b ON b.item_code = i.name
-		WHERE b.warehouse = %(warehouse)s
-		  AND b.actual_qty > 0
-		  AND i.disabled = 0
-		  AND (i.name LIKE %(txt)s OR i.item_name LIKE %(txt)s)
-		ORDER BY i.item_name
-		LIMIT %(start)s, %(page_len)s
-		""",
-		{"warehouse": warehouse, "txt": txt_filter, "start": start, "page_len": page_len},
-	)
+    warehouse = filters.get("warehouse") if filters else None
+    if not warehouse:
+        return []
+    txt_filter = f"%{txt}%" if txt else "%"
+    return frappe.db.sql(
+        """
+        SELECT i.name, i.item_name
+        FROM `tabItem` i
+        INNER JOIN `tabBin` b ON b.item_code = i.name
+        WHERE b.warehouse = %(warehouse)s
+          AND b.actual_qty > 0
+          AND i.disabled = 0
+          AND (i.name LIKE %(txt)s OR i.item_name LIKE %(txt)s)
+        ORDER BY i.item_name
+        LIMIT %(start)s, %(page_len)s
+        """,
+        {"warehouse": warehouse, "txt": txt_filter, "start": start, "page_len": page_len},
+    )
 
 
 @frappe.whitelist()
 @frappe.validate_and_sanitize_search_inputs
 def get_removable_items(doctype, txt, searchfield, start, page_len, filters):
-	"""Items eligible for Removal: in customer warehouse AND installed on the vehicle."""
-	warehouse = filters.get("warehouse") if filters else None
-	vehicle_number = filters.get("vehicle_number") if filters else None
-	customer = filters.get("customer") if filters else None
+    """Items eligible for Removal: in customer warehouse AND installed on the vehicle."""
+    warehouse = filters.get("warehouse") if filters else None
+    vehicle_number = filters.get("vehicle_number") if filters else None
+    customer = filters.get("customer") if filters else None
 
-	if not warehouse:
-		return []
+    if not warehouse:
+        return []
 
-	txt_filter = f"%{txt}%" if txt else "%"
-	base_params = {"warehouse": warehouse, "txt": txt_filter, "start": start, "page_len": page_len}
+    txt_filter = f"%{txt}%" if txt else "%"
+    base_params = {"warehouse": warehouse, "txt": txt_filter, "start": start, "page_len": page_len}
 
-	if vehicle_number and customer:
-		vehicle_name = frappe.db.get_value(
-			"Vehicle",
-			{"license_plate": vehicle_number, "custom_customer": customer},
-			"name",
-		)
-		if vehicle_name:
-			return frappe.db.sql(
-				"""
-				SELECT i.name, i.item_name
-				FROM `tabItem` i
-				INNER JOIN `tabBin` b ON b.item_code = i.name
-				INNER JOIN `tabVehicle Item` vi
-					ON vi.item = i.name
-					AND vi.parent = %(vehicle)s
-					AND vi.status = 'Installed'
-				WHERE b.warehouse = %(warehouse)s
-				  AND b.actual_qty > 0
-				  AND i.disabled = 0
-				  AND (i.name LIKE %(txt)s OR i.item_name LIKE %(txt)s)
-				ORDER BY i.item_name
-				LIMIT %(start)s, %(page_len)s
-				""",
-				{**base_params, "vehicle": vehicle_name},
-			)
+    if vehicle_number and customer:
+        vehicle_name = frappe.db.get_value(
+            "Vehicle",
+            {"license_plate": vehicle_number, "custom_customer": customer},
+            "name",
+        )
+        if vehicle_name:
+            return frappe.db.sql(
+                """
+                SELECT i.name, i.item_name
+                FROM `tabItem` i
+                INNER JOIN `tabBin` b ON b.item_code = i.name
+                INNER JOIN `tabVehicle Item` vi
+                    ON vi.item = i.name
+                    AND vi.parent = %(vehicle)s
+                    AND vi.status = 'Installed'
+                WHERE b.warehouse = %(warehouse)s
+                  AND b.actual_qty > 0
+                  AND i.disabled = 0
+                  AND (i.name LIKE %(txt)s OR i.item_name LIKE %(txt)s)
+                ORDER BY i.item_name
+                LIMIT %(start)s, %(page_len)s
+                """,
+                {**base_params, "vehicle": vehicle_name},
+            )
 
-	# Fallback: no vehicle match, just show warehouse items
-	return frappe.db.sql(
-		"""
-		SELECT i.name, i.item_name
-		FROM `tabItem` i
-		INNER JOIN `tabBin` b ON b.item_code = i.name
-		WHERE b.warehouse = %(warehouse)s
-		  AND b.actual_qty > 0
-		  AND i.disabled = 0
-		  AND (i.name LIKE %(txt)s OR i.item_name LIKE %(txt)s)
-		ORDER BY i.item_name
-		LIMIT %(start)s, %(page_len)s
-		""",
-		base_params,
-	)
+    # Fallback: no vehicle match, just show warehouse items
+    return frappe.db.sql(
+        """
+        SELECT i.name, i.item_name
+        FROM `tabItem` i
+        INNER JOIN `tabBin` b ON b.item_code = i.name
+        WHERE b.warehouse = %(warehouse)s
+          AND b.actual_qty > 0
+          AND i.disabled = 0
+          AND (i.name LIKE %(txt)s OR i.item_name LIKE %(txt)s)
+        ORDER BY i.item_name
+        LIMIT %(start)s, %(page_len)s
+        """,
+        base_params,
+    )
 
 
 @frappe.whitelist()
 def check_item_available(item, current_job=None):
-	"""Return the job name if the item is already installed in another active job, else None."""
-	installed_in = frappe.get_all(
-		"Job Item",
-		filters={"item": item, "installed_or_removed": "Installed"},
-		pluck="parent",
-	)
-	for job_name in installed_in:
-		if job_name == current_job:
-			continue
-		if frappe.db.get_value("Job", job_name, "status") == "Cancelled":
-			continue
-		return job_name
-	return None
+    """Return the job name if the item is already installed in another active job, else None."""
+    installed_in = frappe.get_all(
+        "Job Item",
+        filters={"item": item, "installed_or_removed": "Installed"},
+        pluck="parent",
+    )
+    for job_name in installed_in:
+        if job_name == current_job:
+            continue
+        if frappe.db.get_value("Job", job_name, "status") == "Cancelled":
+            continue
+        return job_name
+    return None
 
 
 # Job Actions
 
 @frappe.whitelist()
-def job_action(job, action, comment=None, comment_field=None):
-	"""Handle Job status transitions. Called from job.js and mobile API."""
-	doc        = frappe.get_doc("Job", job)
-	roles      = frappe.get_roles()
-	is_support = "Support Team" in roles
-	is_tech    = "Technician"   in roles
-	msg        = ""
+def job_action(job, action, comment=None, comment_field=None, branch=None):
+    """Handle Job status transitions. Called from job.js and mobile API."""
+    doc        = frappe.get_doc("Job", job)
+    roles      = frappe.get_roles()
+    is_support = "Support Team" in roles
+    is_tech    = "Technician"   in roles
+    msg        = ""
 
-	if action == "done":
-		if doc.status != "In Progress":
-			frappe.throw("Job must be In Progress to mark as Done.")
-		if not (is_support or is_tech):
-			frappe.throw("Permission denied.")
-		if not comment:
-			frappe.throw("Comment is required.")
-		if not doc.job_images:
-			frappe.throw("At least one image is required before marking the job as Done.")
-		doc.done_comment                = comment
-		doc.status                      = "In Review"
-		doc.completed_by_technician     = frappe.session.user
-		doc.completed_on_technician     = now()
-		msg = "Job marked as In Review."
+    if action == "done":
+        if doc.status != "In Progress":
+            frappe.throw("Job must be In Progress to mark as Done.")
+        if not (is_support or is_tech):
+            frappe.throw("Permission denied.")
+        if not comment:
+            frappe.throw("Comment is required.")
+        if not doc.job_images:
+            frappe.throw("At least one image is required before marking the job as Done.")
+        doc.done_comment                = comment
+        doc.status                      = "In Review"
+        doc.completed_by_technician     = frappe.session.user
+        doc.completed_on_technician     = now()
+        msg = "Job marked as In Review."
 
-	elif action == "hold":
-		if doc.status not in ("Pending", "In Progress"):
-			frappe.throw("Job must be Pending or In Progress to put On Hold.")
-		if not (is_support or is_tech):
-			frappe.throw("Permission denied.")
-		if not comment:
-			frappe.throw("Hold comment is required.")
-		doc.hold_comment = comment
-		doc.status = "On Hold"
-		msg = "Job put on hold."
+    elif action == "hold":
+        if doc.status not in ("Pending", "In Progress"):
+            frappe.throw("Job must be Pending or In Progress to put On Hold.")
+        if not (is_support or is_tech):
+            frappe.throw("Permission denied.")
+        if not comment:
+            frappe.throw("Hold comment is required.")
+        doc.hold_comment = comment
+        doc.status = "On Hold"
+        msg = "Job put on hold."
 
-	elif action == "reopen":
-		if doc.status != "On Hold":
-			frappe.throw("Job must be On Hold to Reopen.")
-		if not (is_support or is_tech):
-			frappe.throw("Permission denied.")
-		doc.status = "Pending"
-		msg = "Job reopened to Pending."
+    elif action == "reopen":
+        if doc.status != "On Hold":
+            frappe.throw("Job must be On Hold to Reopen.")
+        if not (is_support or is_tech):
+            frappe.throw("Permission denied.")
+        doc.status = "Pending"
+        msg = "Job reopened to Pending."
 
-	elif action == "complete":
-		if doc.status != "In Review":
-			frappe.throw("Job must be In Review to Complete.")
-		if not is_support:
-			frappe.throw("Only Support Team can complete a job.")
-		if not comment:
-			frappe.throw("Completion comment is required.")
-		doc.completion_comment      = comment
-		doc.status                  = "Completed"
-		doc.completed_by_support    = frappe.session.user
-		doc.completed_on_support    = now()
-		msg = "Job completed."
+    elif action == "complete":
+        if doc.status != "In Review":
+            frappe.throw("Job must be In Review to Complete.")
+        if not is_support:
+            frappe.throw("Only Support Team can complete a job.")
+        if not comment:
+            frappe.throw("Completion comment is required.")
+        doc.completion_comment      = comment
+        doc.status                  = "Completed"
+        doc.completed_by_support    = frappe.session.user
+        doc.completed_on_support    = now()
+        msg = "Job completed."
+        if branch:
+            doc.flags.selected_branch = branch
 
-	elif action == "mark_pending":
-		if doc.status != "In Review":
-			frappe.throw("Job must be In Review to mark as Pending.")
-		if not is_support:
-			frappe.throw("Only Support Team can send a job back to Pending.")
-		doc.status = "Pending"
-		msg = "Job marked as Pending."
+    elif action == "mark_pending":
+        if doc.status != "In Review":
+            frappe.throw("Job must be In Review to mark as Pending.")
+        if not is_support:
+            frappe.throw("Only Support Team can send a job back to Pending.")
+        doc.status = "Pending"
+        msg = "Job marked as Pending."
 
-	elif action == "cancel":
-		if doc.status in ("Completed", "Cancelled"):
-			frappe.throw("Job is already finalised.")
-		if not is_support:
-			frappe.throw("Only Support Team can cancel a job.")
-		doc.status = "Cancelled"
-		msg = "Job cancelled."
+    elif action == "cancel":
+        if doc.status in ("Completed", "Cancelled"):
+            frappe.throw("Job is already finalised.")
+        if not is_support:
+            frappe.throw("Only Support Team can cancel a job.")
+        doc.status = "Cancelled"
+        msg = "Job cancelled."
 
-	else:
-		frappe.throw(f"Unknown action: {action}")
+    else:
+        frappe.throw(f"Unknown action: {action}")
 
-	doc.save(ignore_permissions=True)
-	return {"msg": msg, "job_status": doc.status}
+    doc.save(ignore_permissions=True)
+    return {"msg": msg, "job_status": doc.status}
+
+
+@frappe.whitelist()
+def add_in_customer_row(job: str, comment: str | None = None):
+    # This is now handled automatically in the server-side on_update hook.
+    # We keep this dummy method to prevent errors on cached browsers.
+    return {
+        "status": True,
+        "message": "Customer component price updated successfully"
+    }
+
+

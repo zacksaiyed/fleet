@@ -25,6 +25,7 @@ def validate_customer(doc, method=None):
                 val = flt(doc.get(f))
                 label = f.replace('custom_', '').upper()
                 log_details.append(f"• <b>{label}:</b> {val}")
+
                 
             create_history_log(
                 customer=doc.name,
