@@ -1511,11 +1511,31 @@ def _post_job_update_message(job_doc, employee, changed_scalars: dict, set_items
             lines.append(f"{label}: {val}")
 
     if set_items is not None:
-        for row in job_doc.item_installed_removed:
-            item_type = row.item_type or "Item"
-            item_code = row.item or "—"
-            brand     = row.brand or "—"
-            lines.append(f"{item_type}: {item_code} - {brand}")
+        installed_items = [r for r in job_doc.item_installed_removed if r.installed_or_removed == "Installed"]
+        removed_items = [r for r in job_doc.item_installed_removed if r.installed_or_removed == "Removed"]
+
+        if installed_items:
+            lines.append("Installed:")
+            for row in installed_items:
+                item_type = row.item_type or "Item"
+                item_code = row.item or "—"
+                brand     = row.brand or "—"
+                if item_type == "SIM":
+                    details = frappe.db.get_value("Item", item_code, ["custom_sim_type", "custom_serial_no", "custom_mobile_number"], as_dict=True) or {}
+                    sim_type = details.get("custom_sim_type") or "—"
+                    serial_no = details.get("custom_serial_no") or "—"
+                    mobile_no = details.get("custom_mobile_number") or "—"
+                    lines.append(f"  {item_type}: {item_code} - {brand} (SIM Type: {sim_type}, Serial: {serial_no}, Mobile: {mobile_no})")
+                else:
+                    lines.append(f"  {item_type}: {item_code} - {brand}")
+
+        if removed_items:
+            lines.append("Removed:")
+            for row in removed_items:
+                item_type = row.item_type or "Item"
+                item_code = row.item or "—"
+                brand     = row.brand or "—"
+                lines.append(f"  {item_type}: {item_code} - {brand}")
 
     if len(lines) == 1:   # only "Updated" header, nothing to report
         return
