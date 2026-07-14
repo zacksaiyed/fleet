@@ -1,55 +1,54 @@
 {
  "actions": [],
  "allow_rename": 1,
- "autoname": "field:branch",
- "creation": "2026-06-15 22:17:29.800730",
+ "creation": "2026-06-22 10:55:54.065248",
  "doctype": "DocType",
- "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
+  "vehicle",
   "customer",
-  "branch",
-  "tpin",
-  "billing_enabled"
+  "effective_date",
+  "vehicle_classification",
+  "item"
  ],
  "fields": [
   {
+   "fieldname": "vehicle",
+   "fieldtype": "Link",
+   "label": "Vehicle",
+   "options": "Vehicle"
+  },
+  {
    "fieldname": "customer",
    "fieldtype": "Link",
-   "in_list_view": 1,
    "label": "Customer",
    "options": "Customer"
   },
   {
-   "fieldname": "branch",
-   "fieldtype": "Data",
-   "in_list_view": 1,
-   "label": "Branch",
-   "unique": 1
+   "fieldname": "effective_date",
+   "fieldtype": "Date",
+   "label": "Effective date"
   },
   {
-   "fieldname": "tpin",
-   "fieldtype": "Data",
-   "in_list_view": 1,
-   "label": "TPIN"
+   "fieldname": "vehicle_classification",
+   "fieldtype": "Select",
+   "label": "Vehicle Classification",
+   "options": "\nLocal\nCB"
   },
   {
-   "default": "0",
-   "fieldname": "billing_enabled",
-   "fieldtype": "Check",
-   "in_list_view": 1,
-   "label": "Billing Enabled"
+   "fieldname": "item",
+   "fieldtype": "Link",
+   "label": "Item",
+   "options": "Item"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
- "istable": 0,
  "links": [],
- "modified": "2026-06-16 21:17:08.280379",
+ "modified": "2026-06-24 20:51:47.520043",
  "modified_by": "Administrator",
  "module": "Fleet",
- "name": "Customer Branch",
- "naming_rule": "By fieldname",
+ "name": "Vehicle Classification History",
  "owner": "Administrator",
  "permissions": [
   {
