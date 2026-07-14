@@ -53,6 +53,7 @@ doctype_js = {
   "Employee"    : "public/js/employee.js",
   "Data Import" : "public/js/data_import.js",
   "Customer"    : "public/js/customer.js",
+  "Sales Invoice": "public/js/sales_invoice.js",
 }
 
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
@@ -165,7 +166,7 @@ override_doctype_class = {
 # Hook on document methods and events
 
 doc_events = {
-    
+
     "User": {
         "validate": "fleet.erpnext_events.user_warehouse_hooks.validate_user_roles",
         "on_update": "fleet.erpnext_events.user_warehouse_hooks.on_update_user_roles"
@@ -193,7 +194,9 @@ doc_events = {
     "Vehicle": {
         "validate": "fleet.erpnext_events.vehicle.validate_vehicle",
         "after_insert": "fleet.erpnext_events.vehicle.after_insert_vehicle",
-        "before_save": "fleet.fleet.doctype.vehicle_branch_history.vehicle_branch_history.on_vehicle_save"    },
+        "on_update": "fleet.erpnext_events.vehicle.on_update_vehicle",
+        "before_save": "fleet.fleet.doctype.vehicle_branch_history.vehicle_branch_history.on_vehicle_save"
+    },
     "Customer": {
         # # "validate": "fleet.custom_py.customer_custom.validate_customer",
         # "validate": "fleet.custom_py.billing_subscription_rate.validate_customer",
@@ -201,7 +204,7 @@ doc_events = {
             "fleet.custom_py.customer_custom.validate_customer",
             "fleet.custom_py.billing_subscription_rate.validate_customer"
         ],
-        
+
         "after_insert": [
             "fleet.override.customer_warehouse.set_customer_warehouse",
         ],
@@ -221,9 +224,10 @@ doc_events = {
     
     "Item": {
         "before_insert": "fleet.override.item.generate_item_details"
+    },
+    "Sales Invoice": {
+        "before_submit": "fleet.api.billing.before_sales_invoice_submit"
     }
-# 		"on_trash": "method",
-#       "on_submit": "method"
 }
 
 # Scheduled Tasks
@@ -362,24 +366,5 @@ fixtures = [
     {"dt": "Report", "filters": [
         ["name", "in", ["Vehicle Item Warehouse Status"]]
     ]},
-# {
-#         "dt": "Custom Field", 
-#         "filters": [
-#             ["name", "in", [
-#                 "Customer-custom_billing__fleettrack",  
-#                 "Customer-custom_billing_customer_type",
-#                 "Customer-custom_billing_currency",
-#                 "Customer-custom_invoice_generation_mode",
-#                 "Customer-custom_installation_cutoff_day",
-#                 "Customer-custom_suspension_threshold_percent",
-#                 "Customer-custom_parent_customer",
-#                 "Customer-custom_vat_applicable",
-#                 "Customer-custom_invoice_frequency_months",
-#                 "Customer-custom_active_satus_cutoff_day",
-#                 "Customer-custom_external_approval_period_days",
-#                 "Customer-custom_is_group"
-#             ]]
-#         ]
-#     },
 
 ]
