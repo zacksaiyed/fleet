@@ -80,15 +80,23 @@ def generate_customer_invoice(customer_id):
         
     last_billed_upto = target_customer.custom_last_billed_upto_date
     
-    # We bill the target customer and all child customers linked to it
+    # We bill the target customer and all child customers linked to it.
+    # If the target is a child, we need to fetch the parent's vehicles as well.
     customers_to_bill = [target_customer]
-    child_customers = frappe.db.get_all("Customer", filters={"custom_parent_customer": target_customer.name}, fields=["name"])
-    for child in child_customers:
-        customers_to_bill.append(frappe.get_doc("Customer", child.name))
-        
-    customer_ids = [c.name for c in customers_to_bill]
-    customer_map = {c.name: c for c in customers_to_bill}
+    parent_customer_id = target_customer.custom_parent_customer
     
+    if parent_customer_id:
+        parent_doc = frappe.get_doc("Customer", parent_customer_id)
+        customer_map = {target_customer.name: target_customer, parent_doc.name: parent_doc}
+        customer_ids = [target_customer.name, parent_doc.name]
+    else:
+        child_customers = frappe.db.get_all("Customer", filters={"custom_parent_customer": target_customer.name}, fields=["name"])
+        customer_map = {target_customer.name: target_customer}
+        for child in child_customers:
+            c_doc = frappe.get_doc("Customer", child.name)
+            customer_map[c_doc.name] = c_doc
+        customer_ids = list(customer_map.keys())
+        
     # 3. VEHICLES CHECK KARNA
     linked_vehicles = frappe.get_all(
         "Vehicle",
@@ -146,11 +154,37 @@ def generate_customer_invoice(customer_id):
     for vehicle in linked_vehicles:
         vehicle_doc = vehicle_docs[vehicle.name]
         v_customer_id = vehicle.custom_customer
-        v_customer = customer_map.get(v_customer_id)
+        v_branch = vehicle.custom_branch
+        
+        # Determine the actual customer to bill for this vehicle based on branches
+        billing_customer_id = v_customer_id
+        if v_branch:
+            branch_mapped = False
+            for c_name, c_doc in customer_map.items():
+                if c_doc.custom_parent_customer:  # It's a child customer
+                    child_branches = [row.branch for row in c_doc.get("branches", [])]
+                    if v_branch in child_branches:
+                        billing_customer_id = c_name
+                        branch_mapped = True
+                        break
+            if not branch_mapped:
+                for c_name, c_doc in customer_map.items():
+                    if c_doc.custom_parent_customer:  # It's a child customer
+                        if c_name == v_branch or c_doc.customer_name == v_branch:
+                            billing_customer_id = c_name
+                            break
+                            
+        # If target is a child customer, only bill vehicles mapped to this child customer.
+        if parent_customer_id and billing_customer_id != target_customer.name:
+            continue
+            
+        v_customer = customer_map.get(billing_customer_id)
         if not v_customer:
             continue
             
-        v_branch = vehicle.custom_branch
+        original_customer_id = v_customer_id
+        v_customer_id = billing_customer_id
+            
         # Determine the TPIN for this vehicle
         tpin = None
         if v_branch:
@@ -171,7 +205,7 @@ def generate_customer_invoice(customer_id):
                 "Vehicle Activity Details",
                 filters={
                     "vehicle": vehicle.name,
-                    "customer": v_customer_id,
+                    "customer": original_customer_id,
                     "last_activity_date": ["between", [month_start, month_end]]
                 },
                 fields=["item", "last_activity_date"],
@@ -189,7 +223,7 @@ def generate_customer_invoice(customer_id):
                     "Vehicle Activity Details",
                     filters={
                         "vehicle": vehicle.name,
-                        "customer": v_customer_id,
+                        "customer": original_customer_id,
                         "last_activity_date": ["<=", month_end]
                     },
                     fields=["item", "last_activity_date"],
@@ -260,6 +294,11 @@ def generate_customer_invoice(customer_id):
                             fields=["rate"], order_by="changed_on desc", limit=1)
                         
                         rate = float(latest_price_log[0].rate) if latest_price_log else 0.0
+                        if rate == 0.0 and v_customer.custom_parent_customer:
+                            parent_price_log = frappe.db.get_all("Customer Component Price History",
+                                filters={"customer": v_customer.custom_parent_customer, "model": vehicle.model, "changed_on": ["<=", install_date]},
+                                fields=["rate"], order_by="changed_on desc", limit=1)
+                            rate = float(parent_price_log[0].rate) if parent_price_log else 0.0
                         
                         billing_items.append({
                             "v_customer_id": v_customer_id,
@@ -290,6 +329,17 @@ def generate_customer_invoice(customer_id):
                         orig_rate = float(latest_sub_rate[0].usd_0)
                     else:
                         orig_rate = float(v_customer.custom_usd_0 or 0.0)
+                        
+                    if orig_rate == 0.0 and v_customer.custom_parent_customer:
+                        parent_sub_rate = frappe.db.get_all("Billing Subscription Rate",
+                            filters={"customer": v_customer.custom_parent_customer, "custom_changed_on": ["<=", target_date]},
+                            fields=["usd_0"], order_by="custom_changed_on desc", limit=1)
+                        if parent_sub_rate:
+                            orig_rate = float(parent_sub_rate[0].usd_0)
+                        else:
+                            parent_doc = customer_map.get(v_customer.custom_parent_customer)
+                            if parent_doc:
+                                orig_rate = float(parent_doc.custom_usd_0 or 0.0)
                         
                     if orig_rate == 0.0:
                         global_usd_0 = frappe.db.get_single_value("Fleet Billing Settings", "usd0")
