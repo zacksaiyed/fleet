@@ -87,11 +87,7 @@ frappe.ui.form.on("Customer Branch Details", {
 });
 
 function setup_invoice_generation_mode(frm) {
-    if (frm.doc.custom_parent_customer) {
-        frm.toggle_display("custom_generate_pending_invoice", false);
-    } else {
-        frm.toggle_display("custom_generate_pending_invoice", true);
-    }
+    frm.toggle_display("custom_generate_pending_invoice", true);
     frm.toggle_display("custom_invoice_generation_mode", true);
     
     let options = [];

@@ -426,8 +426,9 @@ def generate_customer_invoice(customer_id):
         inv.insert(ignore_permissions=True)
         created_invoices.append(inv.name)
         
-    target_customer.custom_last_billed_upto_date = invoice_end_date
-    target_customer.save(ignore_permissions=True)
+    for c in customers_to_bill:
+        c.custom_last_billed_upto_date = invoice_end_date
+        c.save(ignore_permissions=True)
     
     return {"status": "success", "message": f"Invoices generated successfully: {', '.join(created_invoices)}"}
 
