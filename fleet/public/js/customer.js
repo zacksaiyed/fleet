@@ -1,9 +1,13 @@
 frappe.ui.form.on("Customer", {
     refresh(frm) {
         frm.set_query("branch", "branches", function() {
+            let customers = [frm.doc.name];
+            if (frm.doc.custom_parent_customer) {
+                customers.push(frm.doc.custom_parent_customer);
+            }
             return {
                 filters: {
-                    customer: frm.doc.name
+                    customer: ["in", customers]
                 }
             };
         });
