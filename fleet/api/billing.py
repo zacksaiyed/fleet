@@ -189,7 +189,12 @@ def generate_customer_invoice(customer_id):
         # Determine the TPIN for this vehicle
         tpin = None
         if v_branch:
-            tpin = frappe.db.get_value("Customer Branch", v_branch, "tpin")
+            for row in v_customer.get("branches", []):
+                if row.branch == v_branch and row.tpin:
+                    tpin = row.tpin
+                    break
+            if not tpin:
+                tpin = frappe.db.get_value("Customer Branch", v_branch, "tpin")
         if not tpin:
             tpin = v_customer.custom_tpin
         
