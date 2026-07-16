@@ -95,6 +95,7 @@ def generate_customer_invoice(customer_id):
         for child in child_customers:
             c_doc = frappe.get_doc("Customer", child.name)
             customer_map[c_doc.name] = c_doc
+            customers_to_bill.append(c_doc)
         customer_ids = list(customer_map.keys())
         
     # 3. VEHICLES CHECK KARNA
