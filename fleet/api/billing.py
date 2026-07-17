@@ -223,27 +223,13 @@ def generate_customer_invoice(customer_id):
                 if act.item not in items_in_month:
                     items_in_month[act.item] = act.last_activity_date
             
-            # If no activity in the month, fallback to the latest activity ever up to this month
-            if not items_in_month:
-                prev_activities = frappe.db.get_all(
-                    "Vehicle Activity Details",
-                    filters={
-                        "vehicle": vehicle.name,
-                        "customer": original_customer_id,
-                        "last_activity_date": ["<=", month_end]
-                    },
-                    fields=["item", "last_activity_date"],
-                    order_by="last_activity_date desc",
-                    limit=1
-                )
-                if prev_activities:
-                    items_in_month[prev_activities[0].item] = prev_activities[0].last_activity_date
-            
-            # If no activity ever, fallback to currently installed items from Vehicle Doc
-            if not items_in_month:
-                for row in vehicle_doc.get("custom_vehicle_item", []):
-                    if row.status == "Installed":
-                        items_in_month[row.item] = None
+            # If no activity in the month, only fallback to items installed in this billing month
+            for row in vehicle_doc.get("custom_vehicle_item", []):
+                if row.status == "Installed" and row.date:
+                    inst_date = getdate(row.date)
+                    if inst_date >= month_start and inst_date <= month_end:
+                        if row.item not in items_in_month:
+                            items_in_month[row.item] = None
                         
             # Now process billing for each identified item
             for item, last_act_date in items_in_month.items():
