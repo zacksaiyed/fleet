@@ -37,7 +37,8 @@ class Job(Document):
 				)
 
 		if self.vehicle_number:
-			self.vehicle_number = self.vehicle_number.replace(" ", "").upper()
+			self.vehicle_number = self.vehicle_number.upper()
+			# self.vehicle_number = self.vehicle_number.replace(" ", "").upper()
 			# if not _VEH_RE.match(self.vehicle_number):
 			# 	frappe.throw(
 			# 		"Vehicle Number must be in the format <b>ABC123</b> or <b>ABC1234</b> "
@@ -104,7 +105,8 @@ class Job(Document):
 	# Private helpers
 	def _set_vehicle_number(self):
 		if self.vehicle_number:
-			self.vehicle_number = self.vehicle_number.replace(" ", "").upper()
+			self.vehicle_number = self.vehicle_number.upper()
+			# self.vehicle_number = self.vehicle_number.replace(" ", "").upper()
 	
 	def _fetch_vehicle_details(self):
 		if not self.vehicle_number or self.task_type == "Installation":
