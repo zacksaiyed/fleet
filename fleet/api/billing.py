@@ -437,6 +437,14 @@ def generate_customer_invoice(customer_id):
 
     created_invoices = []
     for key, group in grouped_invoices.items():
+        # Skip invoice generation if there are no chargeable items
+        has_chargeable = False
+        for item_data in group["items"]:
+            if item_data.get("custom_billing_decision") == "Chargeable" and item_data.get("custom_final_rate", 0.0) > 0.0:
+                has_chargeable = True
+                break
+        if not has_chargeable:
+            continue
         inv = frappe.new_doc("Sales Invoice")
         inv.customer = group["customer"]
         inv.due_date = current_date
@@ -485,6 +493,9 @@ def generate_customer_invoice(customer_id):
     for c in customers_to_bill:
         c.custom_last_billed_upto_date = invoice_end_date
         c.save(ignore_permissions=True)
+    
+    if not created_invoices:
+        return {"status": "success", "message": "No invoices generated as all items in this period were waived."}
     
     return {"status": "success", "message": f"Invoices generated successfully: {', '.join(created_invoices)}"}
 
