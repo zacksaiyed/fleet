@@ -252,7 +252,7 @@ function _show_add_jobs_dialog(frm) {
     frappe.db.get_list("Vehicle", {
         filters: { custom_customer: frm.doc.custom_customer },
         fields: ["name"],
-        limit:0
+        limit: 10000
     }).then(res => {
         const customer_vehicles = res.map(r => r.name); 
         let rows = [{ task_type: "", count: 1, vehicles: "" }];
