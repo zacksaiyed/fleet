@@ -1,9 +1,13 @@
 frappe.ui.form.on("Customer", {
     refresh(frm) {
         frm.set_query("branch", "branches", function() {
+            let customers = [frm.doc.name];
+            if (frm.doc.custom_parent_customer) {
+                customers.push(frm.doc.custom_parent_customer);
+            }
             return {
                 filters: {
-                    customer: frm.doc.name
+                    customer: ["in", customers]
                 }
             };
         });
@@ -87,11 +91,8 @@ frappe.ui.form.on("Customer Branch Details", {
 });
 
 function setup_invoice_generation_mode(frm) {
-    if (frm.doc.custom_parent_customer) {
-        frm.toggle_display("custom_generate_pending_invoice", false);
-    } else {
-        frm.toggle_display("custom_generate_pending_invoice", true);
-    }
+    let is_parent = !frm.doc.custom_parent_customer;
+    frm.toggle_display("custom_generate_pending_invoice", is_parent);
     frm.toggle_display("custom_invoice_generation_mode", true);
     
     let options = [];
