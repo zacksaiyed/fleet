@@ -62,7 +62,8 @@ frappe.ui.form.on("Job Item", {
 });
 
 function _attachVehicleNumberMask(frm) {
-	const field = frm.get_field("vehicle_number");		if (e.key === " ") { e.preventDefault(); return; }
+	const field = frm.get_field("vehicle_number");		
+	// if (e.key === " ") { e.preventDefault(); return; }
 
 	if (!field || !field.$input) return;
 
@@ -73,7 +74,7 @@ function _attachVehicleNumberMask(frm) {
 		const isNav  = [8, 9, 13, 27, 35, 36, 37, 38, 39, 40, 46].includes(e.keyCode);
 		const isCtrl = (e.ctrlKey || e.metaKey) && [65, 67, 86, 88, 90].includes(e.keyCode);
 		if (isNav || isCtrl) return;
-		// if (e.key === " ") { e.preventDefault(); return; }
+		if (e.key === " ") { e.preventDefault(); return; }
 		if (!/^[a-zA-Z0-9]$/.test(e.key)) { e.preventDefault(); return; }
 
 		const hasSel = this.selectionStart !== this.selectionEnd;
