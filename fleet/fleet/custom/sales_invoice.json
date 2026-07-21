@@ -45,7 +45,7 @@
    "name": "Sales Invoice-custom_billing_currency_mode",
    "no_copy": 0,
    "non_negative": 0,
-   "options": "USD\nLOCAL",
+   "options": "USD\nLOCAL\nBOTH",
    "owner": "Administrator",
    "permlevel": 0,
    "placeholder": null,

@@ -3,8 +3,141 @@ from frappe.utils import getdate, add_months, add_days
 import calendar
 
 @frappe.whitelist()
-def check_charge_subscription(customer, vehicle_name, item_code, b_y, b_m, inst_y, inst_m, install_date):
+def get_vehicle_classification(vehicle_name, date):
+    classification = frappe.db.get_value(
+        "Vehicle Classification History",
+        {
+            "vehicle": vehicle_name,
+            "effective_date": ["<=", date]
+        },
+        "vehicle_classification",
+        order_by="effective_date desc, creation desc"
+    )
+    if not classification:
+        # Fallback: check if there's any SIM item currently installed in the vehicle
+        sim_items = frappe.db.sql("""
+            SELECT vi.item, i.custom_sim_type
+            FROM `tabVehicle Item` vi
+            JOIN `tabItem` i ON vi.item = i.name
+            WHERE vi.parent = %s AND vi.status = 'Installed' AND vi.date <= %s
+        """, (vehicle_name, date), as_dict=True)
+        if sim_items:
+            sim_type = sim_items[0].custom_sim_type
+            if sim_type:
+                classification = "CB" if sim_type.upper() == "IOT" else "Local"
+    
+    if not classification:
+        classification = "Local" # Default fallback
+    return classification
 
+
+@frappe.whitelist()
+def get_customer_billing_currency(customer):
+    billing_currency = customer.custom_billing_currency
+    if not billing_currency and customer.custom_parent_customer:
+        billing_currency = frappe.db.get_value("Customer", customer.custom_parent_customer, "custom_billing_currency")
+    return billing_currency or "USD"
+
+
+@frappe.whitelist()
+def get_subscription_rate(customer, vehicle_classification, billing_currency, target_date):
+    # Map rates according to specification:
+    # 1. USD Mode: CB -> USD0, Local -> USD1
+    # 2. LOCAL Mode: CB -> LOCAL0, Local -> LOCAL1
+    # 3. BOTH Mode: CB -> USD0, Local -> LOCAL0
+    
+    if billing_currency == "USD":
+        if vehicle_classification == "CB":
+            field_history = "usd_0"
+            field_customer = "custom_usd_0"
+            field_settings = "usd0"
+        else:
+            field_history = "usd_1"
+            field_customer = "custom_usd_1"
+            field_settings = "usd1"
+    elif billing_currency == "LOCAL":
+        if vehicle_classification == "CB":
+            field_history = "local_0"
+            field_customer = "custom_local0"
+            field_settings = "local0"
+        else:
+            field_history = "local_1"
+            field_customer = "custom_local1"
+            field_settings = "local1"
+    else: # BOTH mode
+        if vehicle_classification == "CB":
+            field_history = "usd_0"
+            field_customer = "custom_usd_0"
+            field_settings = "usd0"
+        else:
+            field_history = "local_1"
+            field_customer = "custom_local1"
+            field_settings = "local1"
+
+    # Calculate first and last day of the billing month for target_date
+    from frappe.utils import add_days, add_months
+    t_date = getdate(target_date)
+    first_day = getdate(f"{t_date.year}-{t_date.month:02d}-01")
+    last_day = add_days(add_months(first_day, 1), -1)
+
+    # Query Billing Subscription Rate history using date ranges overlapping with the billing month
+    rate_records = frappe.db.get_all(
+        "Billing Subscription Rate",
+        filters=[
+            ["customer", "=", customer.name],
+            ["effective_from", "<=", last_day]
+        ],
+        fields=["effective_to", field_history],
+        order_by="effective_from desc"
+    )
+    rate = 0.0
+    found = False
+    for r in rate_records:
+        eff_to = r.effective_to
+        if not eff_to or getdate(eff_to) >= getdate(first_day):
+            rate = float(r[field_history] or 0.0)
+            found = True
+            break
+            
+    if not found:
+        # Fallback to Customer record
+        rate = float(getattr(customer, field_customer, None) or 0.0)
+        
+    # If still 0 and customer has a parent, fallback to parent Customer's Billing Subscription Rate or record
+    if (not found or rate == 0.0) and customer.custom_parent_customer:
+        parent_doc = frappe.get_doc("Customer", customer.custom_parent_customer)
+        parent_records = frappe.db.get_all(
+            "Billing Subscription Rate",
+            filters=[
+                ["customer", "=", parent_doc.name],
+                ["effective_from", "<=", last_day]
+            ],
+            fields=["effective_to", field_history],
+            order_by="effective_from desc"
+        )
+        parent_found = False
+        for r in parent_records:
+            eff_to = r.effective_to
+            if not eff_to or getdate(eff_to) >= getdate(first_day):
+                rate = float(r[field_history] or 0.0)
+                parent_found = True
+                break
+        if not parent_found:
+            rate = float(getattr(parent_doc, field_customer, None) or 0.0)
+            
+    # If still 0, fallback to global settings
+    if rate == 0.0:
+        global_val = frappe.db.get_single_value("Fleet Billing Settings", field_settings)
+        rate = float(global_val or 0.0)
+        
+    return rate, field_settings.upper()
+
+
+@frappe.whitelist()
+def check_charge_subscription(customer, vehicle_name, item_code, b_y, b_m, inst_y, inst_m, install_date):
+    if isinstance(customer, str):
+        customer = frappe.get_doc("Customer", customer)
+        
     is_onboarding_month = (b_y == inst_y and b_m == inst_m)
     charge_subscription = True
     
@@ -44,21 +177,11 @@ def check_charge_subscription(customer, vehicle_name, item_code, b_y, b_m, inst_
     rate = 0.0
     if charge_subscription:
         target_date = f"{b_y}-{str(b_m).zfill(2)}-01"
-        # Fetch the subscription rate with history log, customer and master fallbacks
-        latest_sub_rate = frappe.db.get_all("Billing Subscription Rate",
-            filters={"customer": customer.name, "custom_changed_on": ["<=", target_date]},
-            fields=["usd_0"], order_by="custom_changed_on desc", limit=1)
-        
-        if latest_sub_rate:
-            rate = float(latest_sub_rate[0].usd_0)
-        else:
-            # Fallback to Customer record
-            rate = float(customer.custom_usd_0 or 0.0)
-            
-        # If still 0, fallback to global settings
-        if rate == 0.0:
-            global_usd_0 = frappe.db.get_single_value("Fleet Billing Settings", "usd0")
-            rate = float(global_usd_0 or 0.0)
+        month_end = add_days(add_months(getdate(target_date), 1), -1)
+        v_class = get_vehicle_classification(vehicle_name, month_end)
+        billing_currency = get_customer_billing_currency(customer)
+        res_rate = get_subscription_rate(customer, v_class, billing_currency, target_date)
+        rate = res_rate[0] if isinstance(res_rate, tuple) else res_rate
             
     return charge_subscription, rate
 
@@ -98,14 +221,14 @@ def generate_customer_invoice(customer_id):
             customers_to_bill.append(c_doc)
         customer_ids = list(customer_map.keys())
         
-    # 3. VEHICLES CHECK KARNA
+    # VEHICLES CHECK KARNA
     linked_vehicles = frappe.get_all(
         "Vehicle",
         filters={"custom_customer": ["in", customer_ids]},
         fields=["name", "model", "custom_branch", "custom_customer"]
     )
     
-    # 1. FIXED START DATE LOGIC
+    # FIXED START DATE LOGIC
     earliest_install_date = None
     vehicle_docs = {} 
     
@@ -127,7 +250,7 @@ def generate_customer_invoice(customer_id):
 
     invoice_end_date = add_days(add_months(invoice_start_date, frequency_months), -1)
 
-    # 2. INVOICE KE MAHINO KI LIST
+    # INVOICE KE MAHINO KI LIST
     billing_months = []
     start_y = invoice_start_date.year
     start_m = invoice_start_date.month
@@ -150,6 +273,7 @@ def generate_customer_invoice(customer_id):
             mode = "Per Customer"
         customer_modes[c.name] = mode
 
+    usd_to_local = float(frappe.db.get_single_value("Fleet Billing Settings", "usd_to_local") or 1.0)
     billing_items = []
 
     for vehicle in linked_vehicles:
@@ -198,6 +322,9 @@ def generate_customer_invoice(customer_id):
         if not tpin:
             tpin = v_customer.custom_tpin
         
+        # Get billing currency for the billed customer
+        billing_currency = get_customer_billing_currency(v_customer)
+        
         for b_month in billing_months:
             b_y = b_month["year"]
             b_m = b_month["month"]
@@ -205,6 +332,28 @@ def generate_customer_invoice(customer_id):
             
             month_start = getdate(target_date)
             month_end = add_days(add_months(month_start, 1), -1)
+            
+            # Determine vehicle classification for this month
+            v_class = get_vehicle_classification(vehicle.name, month_end)
+            
+            # Determine invoice configuration based on billing_currency and v_class
+            if billing_currency == "BOTH":
+                if v_class == "CB":
+                    inv_currency_mode = "BOTH"
+                    inv_currency = "USD"
+                    inv_vehicle_group = "CB"
+                else:
+                    inv_currency_mode = "BOTH"
+                    inv_currency = "LOCAL"
+                    inv_vehicle_group = "Local"
+            elif billing_currency == "USD":
+                inv_currency_mode = "USD"
+                inv_currency = "USD"
+                inv_vehicle_group = None
+            else: # LOCAL
+                inv_currency_mode = "LOCAL"
+                inv_currency = "LOCAL"
+                inv_vehicle_group = None
             
             # Fetch unique items active on this vehicle in this billing month
             month_activities = frappe.db.get_all(
@@ -242,7 +391,7 @@ def generate_customer_invoice(customer_id):
                         "event_type": "Installed"
                     },
                     fields=["event_date"],
-                    order_by="event_date asc, creation asc",
+                    order_by="event_date asc, creation asc, name asc",
                     limit=1
                 )
                 
@@ -267,7 +416,7 @@ def generate_customer_invoice(customer_id):
                         "event_date": ["<=", month_end]
                     },
                     fields=["event_type"],
-                    order_by="event_date desc, creation desc",
+                    order_by="event_date desc, creation desc, name desc",
                     limit=1
                 )
                 if status_log and status_log[0].event_type == "Removed":
@@ -292,10 +441,18 @@ def generate_customer_invoice(customer_id):
                                 fields=["rate"], order_by="changed_on desc", limit=1)
                             rate = float(parent_price_log[0].rate) if parent_price_log else 0.0
                         
+                        # Convert installation charge if invoice currency is LOCAL
+                        if inv_currency == "LOCAL":
+                            rate = rate * usd_to_local
+                            
                         billing_items.append({
                             "v_customer_id": v_customer_id,
                             "v_branch": v_branch,
                             "tpin": tpin,
+                            "inv_currency_mode": inv_currency_mode,
+                            "inv_currency": inv_currency,
+                            "inv_vehicle_group": inv_vehicle_group,
+                            "vehicle_classification": v_class,
                             "invoice_item": {
                                 "custom_billing_month": target_date,
                                 "item_code": item, "qty": 1, "custom_is_installation": 1,
@@ -307,36 +464,13 @@ def generate_customer_invoice(customer_id):
                                 "custom_included": 1,
                                 "custom_waived": 0,
                                 "custom_waiver_reason": "",
+                                "custom_last_activity_date": last_act_date,
                                 "description": f"Installation Charge ({b_month['label']}) - {vehicle.name}"
                             }
                         })
                         
                     # --- CONDITION B: SUBSCRIPTION CHARGE ---
-                    # Fetch subscription rate
-                    latest_sub_rate = frappe.db.get_all("Billing Subscription Rate",
-                        filters={"customer": v_customer_id, "custom_changed_on": ["<=", target_date]},
-                        fields=["usd_0"], order_by="custom_changed_on desc", limit=1)
-                    
-                    if latest_sub_rate:
-                        orig_rate = float(latest_sub_rate[0].usd_0)
-                    else:
-                        orig_rate = float(v_customer.custom_usd_0 or 0.0)
-                        
-                    if orig_rate == 0.0 and v_customer.custom_parent_customer:
-                        parent_sub_rate = frappe.db.get_all("Billing Subscription Rate",
-                            filters={"customer": v_customer.custom_parent_customer, "custom_changed_on": ["<=", target_date]},
-                            fields=["usd_0"], order_by="custom_changed_on desc", limit=1)
-                        if parent_sub_rate:
-                            orig_rate = float(parent_sub_rate[0].usd_0)
-                        else:
-                            parent_doc = customer_map.get(v_customer.custom_parent_customer)
-                            if parent_doc:
-                                orig_rate = float(parent_doc.custom_usd_0 or 0.0)
-                        
-                    if orig_rate == 0.0:
-                        global_usd_0 = frappe.db.get_single_value("Fleet Billing Settings", "usd0")
-                        orig_rate = float(global_usd_0 or 0.0)
-
+                    orig_rate, rate_code = get_subscription_rate(v_customer, v_class, billing_currency, target_date)
                     active_cutoff = int(v_customer.custom_active_satus_cutoff_day or 15)
                     
                     # Onboarding / Active cutoff checks
@@ -376,6 +510,10 @@ def generate_customer_invoice(customer_id):
                         "v_customer_id": v_customer_id,
                         "v_branch": v_branch,
                         "tpin": tpin,
+                        "inv_currency_mode": inv_currency_mode,
+                        "inv_currency": inv_currency,
+                        "inv_vehicle_group": inv_vehicle_group,
+                        "vehicle_classification": v_class,
                         "invoice_item": {
                             "custom_billing_month": target_date,
                             "item_code": item, 
@@ -385,6 +523,7 @@ def generate_customer_invoice(customer_id):
                             "custom_billing_month_label": b_month["label"], 
                             "custom_original_rate": orig_rate,
                             "custom_final_rate": final_rate,
+                            "custom_rate_code": rate_code,
                             "custom_billing_decision": billing_decision,
                             "custom_included": included,
                             "custom_waived": waived,
@@ -404,24 +543,44 @@ def generate_customer_invoice(customer_id):
         v_cust_id = item["v_customer_id"]
         v_br = item["v_branch"]
         tp = item["tpin"]
+        inv_curr_mode = item["inv_currency_mode"]
+        inv_curr = item["inv_currency"]
+        inv_veh_group = item["inv_vehicle_group"]
         
         mode = customer_modes.get(v_cust_id, "Per Customer")
-        # If mode is Per Branch but the vehicle has no branch, fallback to Per Customer grouping (key: customer, None)
         if mode == "Per Branch" and v_br:
-            key = (v_cust_id, v_br)
+            branch_key = v_br
         else:
-            key = (v_cust_id, None)
+            branch_key = None
+            
+        key = (v_cust_id, branch_key, inv_curr_mode, inv_curr, inv_veh_group)
             
         if key not in grouped_invoices:
             grouped_invoices[key] = {
                 "customer": v_cust_id,
-                "branch": v_br if (mode == "Per Branch" and v_br) else None,
+                "branch": branch_key,
                 "tpin": tp,
-                "items": []
+                "currency_mode": inv_curr_mode,
+                "currency_type": inv_curr,
+                "vehicle_group": inv_veh_group,
+                "items": [],
+                "vehicle_classifications": set()
             }
         grouped_invoices[key]["items"].append(item["invoice_item"])
+        if item.get("vehicle_classification"):
+            grouped_invoices[key]["vehicle_classifications"].add(item["vehicle_classification"])
 
     created_invoices = []
+    
+    # Retrieve company currency
+    company_name = target_customer.represents_company or frappe.defaults.get_user_default("Company")
+    if not company_name:
+        companies = frappe.get_all("Company", limit=1)
+        company_name = companies[0].name if companies else None
+    company_currency = frappe.db.get_value("Company", company_name, "default_currency") if company_name else "ZMW"
+    if not company_currency:
+        company_currency = "ZMW"
+        
     for key, group in grouped_invoices.items():
         # Skip invoice generation if there are no chargeable items
         has_chargeable = False
@@ -431,6 +590,7 @@ def generate_customer_invoice(customer_id):
                 break
         if not has_chargeable:
             continue
+            
         inv = frappe.new_doc("Sales Invoice")
         inv.customer = group["customer"]
         inv.due_date = current_date
@@ -440,10 +600,53 @@ def generate_customer_invoice(customer_id):
         inv.custom_branch = group["branch"]
         inv.custom_tpin = group["tpin"]
         
+        # Set billing currency mode
+        inv.custom_billing_currency_mode = group["currency_mode"]
+        
+        # Set vehicle group
+        if group["vehicle_group"]:
+            inv.custom_vehicle_group = group["vehicle_group"]
+        else:
+            classes = list(group["vehicle_classifications"])
+            if len(classes) > 1:
+                inv.custom_vehicle_group = "Mixed"
+            elif len(classes) == 1:
+                inv.custom_vehicle_group = classes[0]
+            else:
+                inv.custom_vehicle_group = "Mixed"
+                
+        # Set currency and conversion rate
+        if group["currency_type"] == "USD":
+            inv.currency = "USD"
+            inv.conversion_rate = usd_to_local
+            inv.custom_conversion_rate = usd_to_local
+        else:
+            inv.currency = company_currency
+            inv.conversion_rate = 1.0
+            inv.custom_conversion_rate = usd_to_local
+            
         for item_data in group["items"]:
             inv.append("items", item_data)
             
         inv.set_missing_values()
+        
+        # Resolve debit_to account based on currency
+        c_name = company_name or inv.company
+        target_currency = inv.currency
+        debit_to = None
+        party_account = frappe.db.sql("""
+            SELECT account FROM `tabParty Account`
+            WHERE parent = %s AND parenttype = 'Customer' AND company = %s
+            AND EXISTS (SELECT name FROM `tabAccount` WHERE name = `tabParty Account`.account AND account_currency = %s)
+        """, (group["customer"], c_name, target_currency))
+        if party_account:
+            debit_to = party_account[0][0]
+        else:
+            debit_to = frappe.db.get_value("Account", {"company": c_name, "account_type": "Receivable", "account_currency": target_currency}, "name")
+        if not debit_to:
+            debit_to = frappe.db.get_value("Company", c_name, "default_receivable_account")
+        if debit_to:
+            inv.debit_to = debit_to
         
         for item in inv.items:
             if item.custom_final_rate is not None:
@@ -458,7 +661,6 @@ def generate_customer_invoice(customer_id):
                 
         # VAT logic
         v_cust_doc = customer_map.get(group["customer"])
-        company_name = inv.company or frappe.defaults.get_user_default("Company")
         vat_account = frappe.db.get_value("Company", company_name, "custom_vat_account")
         
         if v_cust_doc and v_cust_doc.custom_vat_applicable:
@@ -473,6 +675,13 @@ def generate_customer_invoice(customer_id):
             })
             
         inv.calculate_taxes_and_totals()
+        
+        # Calculate local equivalent amount
+        if inv.currency == "USD":
+            inv.custom_local_equivalent_amount = inv.grand_total * usd_to_local
+        else:
+            inv.custom_local_equivalent_amount = inv.grand_total
+            
         inv.insert(ignore_permissions=True)
         created_invoices.append(inv.name)
         
@@ -587,6 +796,13 @@ def before_sales_invoice_submit(doc, method=None):
             item.amount = item.custom_final_rate * item.qty
             
     doc.calculate_taxes_and_totals()
+    
+    # Calculate local equivalent amount
+    usd_to_local = float(frappe.db.get_single_value("Fleet Billing Settings", "usd_to_local") or 1.0)
+    if doc.currency == "USD":
+        doc.custom_local_equivalent_amount = doc.grand_total * usd_to_local
+    else:
+        doc.custom_local_equivalent_amount = doc.grand_total
 
 
 @frappe.whitelist()
@@ -613,4 +829,3 @@ def check_tpin_existence(tpin, docname=None, doc_type="Customer"):
         return {"exists": True, "type": "Customer Branch", "name": branches[0].name, "customer": branches[0].customer}
         
     return {"exists": False}
-
