@@ -8,11 +8,12 @@ frappe.pages['support-dashboard-chat'].on_page_load = function (wrapper) {
 		single_column: true,
 	});
 	$(wrapper).addClass('sd-support-dashboard-chat-page');
-	$(wrapper).find('.page-title').hide();
+	fleet.support_dashboard_chat.remove_page_chrome(wrapper);
 	fleet.support_dashboard_chat.init(wrapper);
 };
 
 frappe.pages['support-dashboard-chat'].on_page_show = function (wrapper) {
+	fleet.support_dashboard_chat.remove_page_chrome(wrapper);
 	if (!fleet.support_dashboard_chat.instance) return;
 	const instance = fleet.support_dashboard_chat.instance;
 	const opts = frappe.route_options || {};
@@ -29,6 +30,11 @@ frappe.pages['support-dashboard-chat'].on_page_show = function (wrapper) {
 
 fleet.support_dashboard_chat.init = function (wrapper) {
 	fleet.support_dashboard_chat.instance = new SupportDashboardChat(wrapper);
+};
+
+fleet.support_dashboard_chat.remove_page_chrome = function (wrapper) {
+	$(wrapper).find('.page-head').remove();
+	$('body > footer, .main-section > footer').remove();
 };
 
 const STATUS_COLORS = {
@@ -514,6 +520,8 @@ class SupportDashboardChat {
 		};
 
 		content.split('\n').forEach((line) => {
+			if (!line.trim()) return;
+
 			if (line === 'Installed:' || line === 'Removed:') {
 				flushSection();
 				activeSection = {
@@ -661,12 +669,8 @@ class SupportDashboardChat {
 	_inject_styles() {
 		if ($('#sd-chat-styles').length) return;
 		$(`<style id="sd-chat-styles">
-		.sd-support-dashboard-chat-page .page-title {
-			display: none;
-		}
 		.sd-support-dashboard-chat-page .page-head {
-			min-height: 0;
-			padding-bottom: 0;
+			display: none !important;
 		}
 		.sd-support-dashboard-chat-page .page-content {
 			padding-top: 0;
@@ -743,14 +747,19 @@ class SupportDashboardChat {
 			border-right: 1px solid var(--border-color); background: var(--fg-color);
 		}
 		.sd-jobs-header {
-			padding: 10px 14px; border-bottom: 1px solid var(--border-color);
+			min-height: 36px;
+			padding: 8px 14px; border-bottom: 1px solid var(--border-color);
 			display: flex; align-items: center; gap: 10px;
 			font-weight: 600; font-size: 13px; color: var(--text-color); flex-shrink: 0;
 		}
-		#sd-jobs-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+		#sd-jobs-title {
+			flex: 1 1 auto;
+			min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+		}
 		.sd-completed-toggle {
-			margin-left: auto;
+			flex: 0 0 auto;
 			display: inline-flex; align-items: center; gap: 5px;
+			line-height: 1;
 			font-size: 11px; font-weight: 600; color: var(--text-muted);
 			white-space: nowrap; cursor: pointer;
 		}
@@ -892,7 +901,7 @@ class SupportDashboardChat {
 		.sd-bubble-mine   { background: var(--primary); color: white; border-radius: 14px 14px 2px 14px; }
 		.sd-bubble-theirs { background: var(--fg-color); color: var(--text-color); border: 1px solid var(--border-color); border-radius: 14px 14px 14px 2px; }
 		.sd-update-section {
-			margin: 8px 0;
+			margin: 4px 0;
 			padding: 8px 10px;
 			border-radius: 8px;
 			border: 1px solid transparent;
