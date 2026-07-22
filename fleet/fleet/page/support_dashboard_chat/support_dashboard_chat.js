@@ -7,6 +7,8 @@ frappe.pages['support-dashboard-chat'].on_page_load = function (wrapper) {
 		title: 'Support Dashboard',
 		single_column: true,
 	});
+	$(wrapper).addClass('sd-support-dashboard-chat-page');
+	$(wrapper).find('.page-title').hide();
 	fleet.support_dashboard_chat.init(wrapper);
 };
 
@@ -46,11 +48,13 @@ class SupportDashboardChat {
 		this.selected_tech  = null;
 		this.selected_job   = null;
 		this.jobs           = [];
+		this.show_completed_tasks = false;
 		this.realtime_bound = false;
 		this._inject_styles();
 		this._render_shell();
 		this._load_technicians_then();
 		this._bind_realtime();
+		this._bind_filters();
 		this._bind_copy();
 	}
 
@@ -66,6 +70,10 @@ class SupportDashboardChat {
 					<div class="sd-jobs-panel" id="sd-jobs-panel">
 						<div class="sd-jobs-header">
 							<span id="sd-jobs-title">Select a technician</span>
+							<label class="sd-completed-toggle">
+								<input type="checkbox" id="sd-show-completed-tasks">
+								<span>Completed</span>
+							</label>
 							<span class="sd-jobs-count" id="sd-jobs-count"></span>
 						</div>
 						<div class="sd-jobs-list" id="sd-jobs-list">
@@ -169,7 +177,10 @@ class SupportDashboardChat {
 	_load_jobs(technician, auto_unread = false) {
 		frappe.call({
 			method: 'fleet.api.dashboard_chat.get_technician_jobs',
-			args: { technician },
+			args: {
+				technician,
+				show_completed: this.show_completed_tasks ? 1 : 0,
+			},
 			callback: (r) => {
 				this.jobs = r.message || [];
 				$('#sd-jobs-count').text(`${this.jobs.length} job${this.jobs.length !== 1 ? 's' : ''}`);
@@ -182,10 +193,30 @@ class SupportDashboardChat {
 		});
 	}
 
+	_bind_filters() {
+		$(this.$main).on('change', '#sd-show-completed-tasks', (e) => {
+			this.show_completed_tasks = $(e.currentTarget).is(':checked');
+			this.selected_job = null;
+			$('#sd-chat-panel').html(`
+				<div class="sd-chat-empty">
+					<svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
+						<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+					</svg>
+					<h3>Select a job to start chatting</h3>
+					<p>Messages will appear here</p>
+				</div>
+			`);
+			if (!this.selected_tech) return;
+			$('#sd-jobs-list').html(`<div class="sd-loading-dots center"><span></span><span></span><span></span></div>`);
+			this._load_jobs(this.selected_tech.name);
+		});
+	}
+
 	_render_jobs() {
 		const $list = $('#sd-jobs-list');
 		$list.empty();
 		if (!this.jobs.length) {
+			const empty_label = this.show_completed_tasks ? 'No completed jobs found' : 'No active jobs found';
 			$list.html(`
 				<div class="sd-empty-state">
 					<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
@@ -193,7 +224,7 @@ class SupportDashboardChat {
 						<line x1="12" y1="8" x2="12" y2="12"/>
 						<line x1="12" y1="16" x2="12.01" y2="16"/>
 					</svg>
-					<p>No jobs assigned</p>
+					<p>${empty_label}</p>
 				</div>
 			`);
 			return;
@@ -425,7 +456,7 @@ class SupportDashboardChat {
 		const time       = msg.creation ? frappe.datetime.str_to_user(msg.creation, true) : 'Just now';
 		const _NO_COPY = new Set(['Make', 'Model', 'Color', 'Type']);
 		const _COPY_ICON = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 3H14.6C16.84 3 17.96 3 18.816 3.436C19.569 3.819 20.18 4.431 20.564 5.184C21 6.04 21 7.16 21 9.4V16.5M6.2 21H14.3C15.42 21 15.98 21 16.408 20.782C16.784 20.59 17.09 20.284 17.282 19.908C17.5 19.48 17.5 18.92 17.5 17.8V9.7C17.5 8.58 17.5 8.02 17.282 7.592C17.09 7.216 16.784 6.91 16.408 6.718C15.98 6.5 15.42 6.5 14.3 6.5H6.2C5.08 6.5 4.52 6.5 4.092 6.718C3.716 6.91 3.41 7.216 3.218 7.592C3 8.02 3 8.58 3 9.7V17.8C3 18.92 3 19.48 3.218 19.908C3.41 20.284 3.716 20.59 4.092 20.782C4.52 21 5.08 21 6.2 21Z"/></svg>`;
-		const rendered = content.split('\n').map(line => {
+		const renderLine = (line) => {
 			const escaped = frappe.utils.escape_html(line).replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
 			const m = line.match(/^([^:]+): (.+)$/);
 			if (m) {
@@ -443,7 +474,8 @@ class SupportDashboardChat {
 				return `${safeKey}: <span class="sd-copy-wrap">${safeVal}<button class="sd-copy-btn" data-copy="${frappe.utils.escape_html(copyVal)}" title="Copy">${_COPY_ICON}</button></span>`;
 			}
 			return escaped;
-		}).join('<br>');
+		};
+		const rendered = this._render_update_message(content, renderLine);
 		$list.append(`
 			<div class="sd-bubble-row ${is_support ? 'mine' : 'theirs'}">
 				<div class="sd-bubble-wrap">
@@ -455,6 +487,38 @@ class SupportDashboardChat {
 				</div>
 			</div>
 		`);
+	}
+
+	_render_update_message(content, renderLine) {
+		const parts = [];
+		let activeSection = null;
+		const flushSection = () => {
+			if (!activeSection) return;
+			const className = activeSection.type === 'installed' ? 'sd-update-installed' : 'sd-update-removed';
+			parts.push(`<div class="sd-update-section ${className}">${activeSection.lines.join('<br>')}</div>`);
+			activeSection = null;
+		};
+
+		content.split('\n').forEach((line) => {
+			if (line === 'Installed:' || line === 'Removed:') {
+				flushSection();
+				activeSection = {
+					type: line === 'Installed:' ? 'installed' : 'removed',
+					lines: [`<div class="sd-update-section-title">${frappe.utils.escape_html(line)}</div>`],
+				};
+				return;
+			}
+
+			const renderedLine = renderLine(line);
+			if (activeSection) {
+				activeSection.lines.push(renderedLine);
+			} else {
+				parts.push(renderedLine);
+			}
+		});
+
+		flushSection();
+		return parts.join('<br>');
 	}
 
 	_scroll_to_bottom() {
@@ -583,6 +647,16 @@ class SupportDashboardChat {
 	_inject_styles() {
 		if ($('#sd-chat-styles').length) return;
 		$(`<style id="sd-chat-styles">
+		.sd-support-dashboard-chat-page .page-title {
+			display: none;
+		}
+		.sd-support-dashboard-chat-page .page-head {
+			min-height: 0;
+			padding-bottom: 0;
+		}
+		.sd-support-dashboard-chat-page .page-content {
+			padding-top: 0;
+		}
 
 		.sd-root {
 			display: flex; flex-direction: column;
@@ -639,12 +713,12 @@ class SupportDashboardChat {
 		.stat-pill.pending  { background: #f1f5f9; color: #475569; }
 		.stat-pill.done     { background: #dcfce7; color: #15803d; }
 		.sd-tech-unread {
-			position: absolute; bottom: 3px; right: 3px;
+			position: absolute; bottom: 2px; right: 2px;
 			background: #ef4444; color: white;
-			font-size: 10px; font-weight: 700;
-			min-width: 18px; height: 18px; border-radius: 9px;
+			font-size: 13px; font-weight: 700;
+			min-width: 24px; height: 24px; border-radius: 12px;
 			display: flex; align-items: center; justify-content: center;
-			padding: 0 4px; box-shadow: 0 0 0 2px var(--fg-color); z-index: 1;
+			padding: 0 6px; box-shadow: 0 0 0 2px var(--fg-color); z-index: 1;
 		}
 		.sd-hidden { display: none !important; }
 
@@ -656,8 +730,20 @@ class SupportDashboardChat {
 		}
 		.sd-jobs-header {
 			padding: 10px 14px; border-bottom: 1px solid var(--border-color);
-			display: flex; align-items: center; justify-content: space-between;
+			display: flex; align-items: center; gap: 10px;
 			font-weight: 600; font-size: 13px; color: var(--text-color); flex-shrink: 0;
+		}
+		#sd-jobs-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+		.sd-completed-toggle {
+			margin-left: auto;
+			display: inline-flex; align-items: center; gap: 5px;
+			font-size: 11px; font-weight: 600; color: var(--text-muted);
+			white-space: nowrap; cursor: pointer;
+		}
+		.sd-completed-toggle input {
+			width: 13px; height: 13px; margin: 0;
+			accent-color: var(--primary);
+			cursor: pointer;
 		}
 		.sd-jobs-count { font-size: 11px; color: var(--text-muted); font-weight: 400; flex-shrink: 0; }
 		.sd-jobs-list { flex: 1; overflow-y: auto; }
@@ -723,7 +809,7 @@ class SupportDashboardChat {
 		.sd-job-item:hover  { background: var(--blue-50, #eff6ff); }
 		.sd-job-item.active { background: var(--blue-50, #eff6ff); border-left: 3px solid var(--primary); }
 		.sd-job-status-dot  { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-top: 4px; }
-		.sd-job-content { flex: 1; min-width: 0; }
+		.sd-job-content { flex: 1; min-width: 0; padding-right: 30px; }
 		.sd-job-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 4px; }
 		.sd-job-title { font-size: 12px; font-weight: 600; color: var(--text-color); white-space: nowrap; overflow: hidden; max-width: 200px; }
 		.sd-job-time  { font-size: 10px; color: var(--text-muted); white-space: nowrap; flex-shrink: 0; }
@@ -747,10 +833,11 @@ class SupportDashboardChat {
 			color: var(--blue-600, #2563eb); padding: 1px 6px; border-radius: 4px;
 		}
 		.sd-job-unread {
-			background: #ef4444; color: white; font-size: 10px; font-weight: 700;
-			min-width: 18px; height: 18px; border-radius: 9px;
+			position: absolute; right: 14px; bottom: 18px;
+			background: #ef4444; color: white; font-size: 12px; font-weight: 700;
+			min-width: 22px; height: 22px; border-radius: 11px;
 			display: flex; align-items: center; justify-content: center;
-			padding: 0 4px; flex-shrink: 0;
+			padding: 0 6px; flex-shrink: 0;
 		}
 
 		.sd-chat-panel { flex: 1; display: flex; flex-direction: column; background: var(--bg-color); overflow: hidden; }
@@ -790,6 +877,26 @@ class SupportDashboardChat {
 		.sd-bubble { padding: 9px 13px; font-size: 13px; line-height: 1.5; word-break: break-word; box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
 		.sd-bubble-mine   { background: var(--primary); color: white; border-radius: 14px 14px 2px 14px; }
 		.sd-bubble-theirs { background: var(--fg-color); color: var(--text-color); border: 1px solid var(--border-color); border-radius: 14px 14px 14px 2px; }
+		.sd-update-section {
+			margin: 8px 0;
+			padding: 8px 10px;
+			border-radius: 8px;
+			border: 1px solid transparent;
+		}
+		.sd-update-section-title {
+			font-weight: 700;
+			margin-bottom: 3px;
+		}
+		.sd-update-installed {
+			background: #dcfce7;
+			border-color: #86efac;
+			color: #14532d;
+		}
+		.sd-update-removed {
+			background: #fee2e2;
+			border-color: #fca5a5;
+			color: #7f1d1d;
+		}
 		.sd-bubble-time { font-size: 10px; color: var(--text-muted); margin-top: 3px; }
 		.sd-time-right  { text-align: right; }
 
