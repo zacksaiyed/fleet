@@ -515,7 +515,7 @@ class SupportDashboardChat {
 		const flushSection = () => {
 			if (!activeSection) return;
 			const className = activeSection.type === 'installed' ? 'sd-update-installed' : 'sd-update-removed';
-			parts.push(`<div class="sd-update-section ${className}">${activeSection.lines.join('<br>')}</div>`);
+			parts.push(`<div class="sd-update-section ${className}">${activeSection.lines.join('')}</div>`);
 			activeSection = null;
 		};
 
@@ -533,7 +533,9 @@ class SupportDashboardChat {
 
 			const renderedLine = renderLine(line);
 			if (activeSection) {
-				activeSection.lines.push(renderedLine);
+				if (renderedLine.trim()) {
+					activeSection.lines.push(`<div class="sd-update-line">${renderedLine}</div>`);
+				}
 			} else {
 				parts.push(renderedLine);
 			}
@@ -912,14 +914,19 @@ class SupportDashboardChat {
 		.sd-bubble-mine   { background: var(--primary); color: white; border-radius: 14px 14px 2px 14px; }
 		.sd-bubble-theirs { background: var(--fg-color); color: var(--text-color); border: 1px solid var(--border-color); border-radius: 14px 14px 14px 2px; }
 		.sd-update-section {
-			margin: 4px 0;
-			padding: 8px 10px;
+			margin: 6px 0;
+			padding: 7px 10px;
 			border-radius: 8px;
 			border: 1px solid transparent;
 		}
 		.sd-update-section-title {
 			font-weight: 700;
-			margin-bottom: 3px;
+			margin-bottom: 4px;
+			line-height: 1.25;
+		}
+		.sd-update-line {
+			line-height: 1.35;
+			margin: 1px 0;
 		}
 		.sd-update-installed {
 			background: #dcfce7;
