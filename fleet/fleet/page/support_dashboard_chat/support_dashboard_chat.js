@@ -74,16 +74,14 @@ class SupportDashboardChat {
 				</div>
 				<div class="sd-body">
 					<div class="sd-jobs-panel" id="sd-jobs-panel">
-						<div class="sd-jobs-header">
-							<span id="sd-jobs-title">Select a technician</span>
-							<div class="sd-jobs-header-actions">
+							<div class="sd-jobs-header">
+								<span id="sd-jobs-title">Select a technician</span>
 								<label class="sd-completed-toggle">
 									<input type="checkbox" id="sd-show-completed-tasks">
 									<span>Completed</span>
 								</label>
 								<span class="sd-jobs-count" id="sd-jobs-count"></span>
 							</div>
-						</div>
 						<div class="sd-jobs-list" id="sd-jobs-list">
 							<div class="sd-empty-state">
 								<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
@@ -764,7 +762,7 @@ class SupportDashboardChat {
 			min-height: 36px;
 			padding: 8px 14px; border-bottom: 1px solid var(--border-color);
 			display: grid;
-			grid-template-columns: minmax(0, 1fr) max-content;
+			grid-template-columns: minmax(0, 1fr) max-content max-content;
 			align-items: center;
 			column-gap: 12px;
 			font-weight: 600; font-size: 13px; color: var(--text-color); flex-shrink: 0;
@@ -773,15 +771,6 @@ class SupportDashboardChat {
 			display: block;
 			line-height: 18px;
 			min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-		}
-		.sd-jobs-header-actions {
-			display: grid;
-			grid-template-columns: max-content max-content;
-			align-items: center;
-			justify-content: flex-end;
-			column-gap: 10px;
-			height: 18px;
-			white-space: nowrap;
 		}
 		.sd-completed-toggle {
 			display: grid;
