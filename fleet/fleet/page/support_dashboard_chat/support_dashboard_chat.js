@@ -785,18 +785,29 @@ class SupportDashboardChat {
 		}
 		.sd-completed-toggle {
 			display: grid;
-			grid-template-columns: 13px max-content;
+			grid-template-columns: 14px max-content;
 			align-items: center;
-			column-gap: 5px;
+			column-gap: 6px;
 			height: 18px;
 			line-height: 18px;
 			font-size: 11px; font-weight: 600; color: var(--text-muted);
 			white-space: nowrap; cursor: pointer;
 		}
 		.sd-completed-toggle input {
-			width: 13px; height: 13px; margin: 0;
+			appearance: none;
+			-webkit-appearance: none;
+			display: block;
+			width: 14px; height: 14px; margin: 0;
+			border: 1.5px solid var(--border-color);
+			border-radius: 4px;
+			background: var(--fg-color);
 			accent-color: var(--primary);
 			cursor: pointer;
+		}
+		.sd-completed-toggle input:checked {
+			background: var(--primary);
+			border-color: var(--primary);
+			box-shadow: inset 0 0 0 3px var(--fg-color);
 		}
 		.sd-jobs-count {
 			display: block;
