@@ -242,7 +242,7 @@ class SupportDashboardChat {
 			const key = job.task || '__none__';
 			if (!task_groups[key]) {
 				task_order.push(key);
-				task_groups[key] = { jobs: [], subject: job.task_subject || job.task || '', date: job.task_date || '', workflow_state: job.task_workflow_state || '' };
+				task_groups[key] = { jobs: [], subject: job.task_subject || job.task || '', date: job.task_date || '' };
 			}
 			task_groups[key].jobs.push(job);
 		});
@@ -267,7 +267,7 @@ class SupportDashboardChat {
 				'Cancelled':      '#94a3b8',
 				'Template':       '#64748b',
 			};
-			const ws      = group.workflow_state;
+			const ws      = this._get_group_status(group.jobs);
 			const ws_clr  = WS_COLORS[ws] || '#64748b';
 			const ws_badge = ws
 				? `<span class="sd-task-ws-badge" style="background:${ws_clr}22;color:${ws_clr}">${frappe.utils.escape_html(ws)}</span>`
@@ -329,6 +329,15 @@ class SupportDashboardChat {
 				$group_body.append($item);
 			});
 		});
+	}
+
+	_get_group_status(jobs) {
+		const statuses = [...new Set(jobs.map(job => job.status).filter(Boolean))];
+		if (!statuses.length) return '';
+		if (statuses.length === 1) return statuses[0];
+
+		const priority = ['In Review', 'In Progress', 'On Hold', 'Pending', 'Completed', 'Cancelled'];
+		return priority.find(status => statuses.includes(status)) || statuses[0];
 	}
 
 	_select_job(job) {
