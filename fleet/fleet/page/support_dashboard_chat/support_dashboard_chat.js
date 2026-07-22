@@ -675,10 +675,20 @@ class SupportDashboardChat {
 		.sd-support-dashboard-chat-page .page-content {
 			padding-top: 0;
 		}
+		.sd-support-dashboard-chat-page .container,
+		.sd-support-dashboard-chat-page .page-body,
+		.sd-support-dashboard-chat-page .page-wrapper,
+		.sd-support-dashboard-chat-page .page-content {
+			display: flex;
+			flex-direction: column;
+			flex: 1 1 auto;
+			min-height: 0;
+		}
 
 		.sd-root {
 			display: flex; flex-direction: column;
-			height: calc(100vh - 120px);
+			height: calc(100vh - 86px);
+			min-height: 0;
 			background: var(--bg-color);
 			border-radius: 8px; overflow: hidden;
 			border: 1px solid var(--border-color);
@@ -956,7 +966,7 @@ class SupportDashboardChat {
 		.sd-no-tech { font-size: 13px; color: var(--text-muted); padding: 12px; }
 
 		@media (max-width: 900px) {
-			.sd-root { height: auto; min-height: calc(100vh - 120px); }
+			.sd-root { height: auto; min-height: calc(100vh - 86px); }
 			.sd-body { flex-direction: column; }
 			.sd-jobs-panel { width: 100%; max-height: 260px; border-right: none; border-bottom: 1px solid var(--border-color); }
 			.sd-tech-card { flex: 0 0 160px; width: 160px; }
