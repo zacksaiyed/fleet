@@ -763,25 +763,33 @@ class SupportDashboardChat {
 		.sd-jobs-header {
 			min-height: 36px;
 			padding: 8px 14px; border-bottom: 1px solid var(--border-color);
-			display: flex; align-items: center; justify-content: space-between; gap: 12px;
+			display: grid;
+			grid-template-columns: minmax(0, 1fr) max-content;
+			align-items: center;
+			column-gap: 12px;
 			font-weight: 600; font-size: 13px; color: var(--text-color); flex-shrink: 0;
 		}
 		#sd-jobs-title {
-			flex: 1 1 auto;
+			display: block;
+			line-height: 18px;
 			min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 		}
 		.sd-jobs-header-actions {
-			display: inline-flex;
+			display: grid;
+			grid-template-columns: max-content max-content;
 			align-items: center;
 			justify-content: flex-end;
-			gap: 10px;
-			flex: 0 0 auto;
+			column-gap: 10px;
+			height: 18px;
 			white-space: nowrap;
 		}
 		.sd-completed-toggle {
-			flex: 0 0 auto;
-			display: inline-flex; align-items: center; gap: 5px;
-			line-height: 1.2;
+			display: grid;
+			grid-template-columns: 13px max-content;
+			align-items: center;
+			column-gap: 5px;
+			height: 18px;
+			line-height: 18px;
 			font-size: 11px; font-weight: 600; color: var(--text-muted);
 			white-space: nowrap; cursor: pointer;
 		}
@@ -790,7 +798,11 @@ class SupportDashboardChat {
 			accent-color: var(--primary);
 			cursor: pointer;
 		}
-		.sd-jobs-count { font-size: 11px; color: var(--text-muted); font-weight: 400; flex-shrink: 0; }
+		.sd-jobs-count {
+			display: block;
+			font-size: 11px; line-height: 18px;
+			color: var(--text-muted); font-weight: 400; flex-shrink: 0;
+		}
 		.sd-jobs-list { flex: 1; overflow-y: auto; }
 		.sd-jobs-list::-webkit-scrollbar { width: 3px; }
 		.sd-jobs-list::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 2px; }
