@@ -182,7 +182,12 @@ class SupportDashboardChat {
 				show_completed: this.show_completed_tasks ? 1 : 0,
 			},
 			callback: (r) => {
-				this.jobs = r.message || [];
+				const jobs = r.message || [];
+				this.jobs = jobs.filter(job => {
+					return this.show_completed_tasks
+						? job.status === 'Completed'
+						: job.status !== 'Completed';
+				});
 				$('#sd-jobs-count').text(`${this.jobs.length} job${this.jobs.length !== 1 ? 's' : ''}`);
 				this._render_jobs();
 				if (auto_unread) {
