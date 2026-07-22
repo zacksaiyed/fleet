@@ -759,7 +759,8 @@ class SupportDashboardChat {
 		.sd-jobs-header {
 			min-height: 36px;
 			padding: 8px 14px; border-bottom: 1px solid var(--border-color);
-			display: flex; align-items: center; gap: 10px;
+			display: grid; grid-template-columns: minmax(0, 1fr) auto auto;
+			align-items: center; column-gap: 12px;
 			font-weight: 600; font-size: 13px; color: var(--text-color); flex-shrink: 0;
 		}
 		#sd-jobs-title {
