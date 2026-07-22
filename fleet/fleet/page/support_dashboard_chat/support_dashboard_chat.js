@@ -794,20 +794,11 @@ class SupportDashboardChat {
 			white-space: nowrap; cursor: pointer;
 		}
 		.sd-completed-toggle input {
-			appearance: none;
-			-webkit-appearance: none;
 			display: block;
-			width: 14px; height: 14px; margin: 0;
-			border: 1.5px solid var(--border-color);
-			border-radius: 4px;
-			background: var(--fg-color);
+			width: 14px; height: 14px;
+			margin: 0;
 			accent-color: var(--primary);
 			cursor: pointer;
-		}
-		.sd-completed-toggle input:checked {
-			background: var(--primary);
-			border-color: var(--primary);
-			box-shadow: inset 0 0 0 3px var(--fg-color);
 		}
 		.sd-jobs-count {
 			display: block;
