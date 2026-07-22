@@ -777,7 +777,7 @@ class SupportDashboardChat {
 			grid-template-columns: 14px max-content;
 			align-items: center;
 			column-gap: 6px;
-			height: 18px;
+			height: 8px;
 			line-height: 18px;
 			font-size: 11px; font-weight: 600; color: var(--text-muted);
 			white-space: nowrap; cursor: pointer;
