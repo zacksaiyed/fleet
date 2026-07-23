@@ -542,7 +542,7 @@ class SupportDashboardChat {
 		});
 
 		flushSection();
-		return parts.join('');
+		return parts.join('<br>');
 	}
 
 	_scroll_to_bottom() {
@@ -926,10 +926,13 @@ class SupportDashboardChat {
 		.sd-bubble-mine   { background: var(--primary); color: white; border-radius: 14px 14px 2px 14px; }
 		.sd-bubble-theirs { background: var(--fg-color); color: var(--text-color); border: 1px solid var(--border-color); border-radius: 14px 14px 14px 2px; }
 		.sd-update-section {
-			margin: 3px 0;
+			margin: 6px 0;
 			padding: 7px 10px;
 			border-radius: 8px;
 			border: 1px solid transparent;
+		}
+		.sd-update-section + .sd-update-section {
+			margin-top: -3px;
 		}
 		.sd-update-section-title {
 			font-weight: 700;
