@@ -511,11 +511,14 @@ class SupportDashboardChat {
 
 	_render_update_message(content, renderLine) {
 		const parts = [];
+		const appendPart = (html, type = 'line') => {
+			parts.push({ html, type });
+		};
 		let activeSection = null;
 		const flushSection = () => {
 			if (!activeSection) return;
 			const className = activeSection.type === 'installed' ? 'sd-update-installed' : 'sd-update-removed';
-			parts.push(`<div class="sd-update-section ${className}">${activeSection.lines.join('')}</div>`);
+			appendPart(`<div class="sd-update-section ${className}">${activeSection.lines.join('')}</div>`, 'section');
 			activeSection = null;
 		};
 
@@ -537,12 +540,17 @@ class SupportDashboardChat {
 					activeSection.lines.push(`<div class="sd-update-line">${renderedLine}</div>`);
 				}
 			} else {
-				parts.push(renderedLine);
+				appendPart(renderedLine);
 			}
 		});
 
 		flushSection();
-		return parts.join('<br>');
+		return parts.map((part, index) => {
+			if (!index) return part.html;
+			const previous = parts[index - 1];
+			const separator = previous.type === 'section' && part.type === 'section' ? '' : '<br>';
+			return `${separator}${part.html}`;
+		}).join('');
 	}
 
 	_scroll_to_bottom() {
@@ -926,13 +934,13 @@ class SupportDashboardChat {
 		.sd-bubble-mine   { background: var(--primary); color: white; border-radius: 14px 14px 2px 14px; }
 		.sd-bubble-theirs { background: var(--fg-color); color: var(--text-color); border: 1px solid var(--border-color); border-radius: 14px 14px 14px 2px; }
 		.sd-update-section {
-			margin: 6px 0;
+			margin: 3px 0;
 			padding: 7px 10px;
 			border-radius: 8px;
 			border: 1px solid transparent;
 		}
 		.sd-update-section + .sd-update-section {
-			margin-top: -3px;
+			margin-top: 0;
 		}
 		.sd-update-section-title {
 			font-weight: 700;
