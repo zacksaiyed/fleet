@@ -246,14 +246,14 @@ doc_events = {
 # 	],
 # }
 
-#scheduler_events = {
-#    "cron": {
-#        # Run every 5 minutes — auto-reject tasks not accepted within 1 hour
-#        "*/5 * * * *": [
-#            "fleet.scheduled.task_auto_reject.auto_reject_unaccepted_tasks"
-#        ],
-#    },
-#}
+scheduler_events = {
+    "cron": {
+        # Run every 5 minutes — auto-reject tasks not accepted within 1 hour
+        "*/5 * * * *": [
+            "fleet.scheduled.task_auto_reject.auto_reject_unaccepted_tasks"
+        ],
+    },
+}
 
 # Testing
 # -------
