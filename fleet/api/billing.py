@@ -4,31 +4,21 @@ import calendar
 
 @frappe.whitelist()
 def get_vehicle_classification(vehicle_name, date):
-    classification = frappe.db.get_value(
-        "Vehicle Classification History",
-        {
-            "vehicle": vehicle_name,
-            "effective_date": ["<=", date]
-        },
-        "vehicle_classification",
-        order_by="effective_date desc, creation desc"
+    t_date = getdate(date)
+    month_start = getdate(f"{t_date.year}-{t_date.month:02d}-01")
+
+    # 1. Check if Vehicle Classification Log exists for this vehicle and month
+    log_val = frappe.db.get_value(
+        "Vehicle Classification Log",
+        filters={"vehicle": vehicle_name, "month": month_start},
+        fieldname="classification_type"
     )
-    if not classification:
-        # Fallback: check if there's any SIM item currently installed in the vehicle
-        sim_items = frappe.db.sql("""
-            SELECT vi.item, i.custom_sim_type
-            FROM `tabVehicle Item` vi
-            JOIN `tabItem` i ON vi.item = i.name
-            WHERE vi.parent = %s AND vi.status = 'Installed' AND vi.date <= %s
-        """, (vehicle_name, date), as_dict=True)
-        if sim_items:
-            sim_type = sim_items[0].custom_sim_type
-            if sim_type:
-                classification = "CB" if sim_type.upper() == "IOT" else "Local"
-    
-    if not classification:
-        classification = "Local" # Default fallback
-    return classification
+    if log_val:
+        return "CB" if (log_val or "").upper() == "CB" else "LOCAL"
+
+    # 2. Fallback to computing dynamically
+    from fleet.api.classification_scheduler import compute_vehicle_monthly_classification
+    return compute_vehicle_monthly_classification(vehicle_name, date)
 
 
 @frappe.whitelist()
@@ -407,7 +397,7 @@ def generate_customer_invoice(customer_id):
                 if not install_date:
                     install_date = month_start
                     
-                # Check if the item was removed on or before month_end
+                # Check if the item was removed on or before month_start
                 status_log = frappe.db.get_all(
                     "GPS Installation Status Log",
                     filters={
@@ -415,12 +405,54 @@ def generate_customer_invoice(customer_id):
                         "item": item,
                         "event_date": ["<=", month_end]
                     },
-                    fields=["event_type"],
+                    fields=["event_type", "event_date"],
                     order_by="event_date desc, creation desc, name desc",
                     limit=1
                 )
+
+                is_removed_in_month = 0
                 if status_log and status_log[0].event_type == "Removed":
-                    continue
+                    rem_date = getdate(status_log[0].event_date)
+                    if rem_date < month_start:
+                        continue
+                    else:
+                        is_removed_in_month = 1
+                else:
+                    for v_item_row in vehicle_doc.get("custom_vehicle_item", []):
+                        if v_item_row.item == item and getattr(v_item_row, "status", "") == "Removed" and v_item_row.date:
+                            rem_row_date = getdate(v_item_row.date)
+                            if rem_row_date < month_start:
+                                is_removed_in_month = -1
+                            elif month_start <= rem_row_date <= month_end:
+                                is_removed_in_month = 1
+                    if is_removed_in_month == -1:
+                        continue
+
+                # If item was removed in the billing month and replaced by a newer active item, skip the old removed item in this month
+                if is_removed_in_month == 1:
+                    has_newer_active_item = False
+                    for v_row in vehicle_doc.get("custom_vehicle_item", []):
+                        if v_row.item != item and getattr(v_row, "status", "") == "Installed":
+                            has_newer_active_item = True
+                            break
+                    if has_newer_active_item:
+                        continue
+
+                # Determine if item has a removal record to set custom_is_removed = 1 on its last billed entry
+                item_is_removed_flag = 0
+                all_removal_logs = frappe.db.get_all(
+                    "GPS Installation Status Log",
+                    filters={"vehicle": vehicle.name, "item": item, "event_type": "Removed"},
+                    fields=["event_date"], limit=1
+                )
+                if all_removal_logs:
+                    if getdate(all_removal_logs[0].event_date) >= month_start:
+                        item_is_removed_flag = 1
+                else:
+                    for v_item_row in vehicle_doc.get("custom_vehicle_item", []):
+                        if v_item_row.item == item and getattr(v_item_row, "status", "") == "Removed" and v_item_row.date:
+                            if getdate(v_item_row.date) >= month_start:
+                                item_is_removed_flag = 1
                     
                 inst_y = install_date.year
                 inst_m = install_date.month
@@ -455,7 +487,7 @@ def generate_customer_invoice(customer_id):
                             "vehicle_classification": v_class,
                             "invoice_item": {
                                 "custom_billing_month": target_date,
-                                "item_code": item, "qty": 1, "custom_is_installation": 1,
+                                "item_code": item, "qty": 1, "custom_is_installation": 1, "custom_is_removed": item_is_removed_flag,
                                 "custom_vehicle": vehicle.name,
                                 "custom_billing_month_label": b_month["label"], 
                                 "custom_original_rate": rate,
@@ -464,7 +496,9 @@ def generate_customer_invoice(customer_id):
                                 "custom_included": 1,
                                 "custom_waived": 0,
                                 "custom_waiver_reason": "",
-                                "custom_last_activity_date": last_act_date,
+                                "custom_vehicle_type": "CB" if v_class == "CB" else ("LOCAL" if v_class in ["Local", "LOCAL"] else ""),
+                                "custom_comment": "",
+                                "custom_last_activity_date": None,
                                 "description": f"Installation Charge ({b_month['label']}) - {vehicle.name}"
                             }
                         })
@@ -492,7 +526,7 @@ def generate_customer_invoice(customer_id):
                             
                             if (b_y > act_y) or (b_y == act_y and b_m > act_m):
                                 charge_subscription = False
-                                waiver_reason = "Last activity before cutoff"
+                                waiver_reason = "Last activity in prior month"
                             elif b_y == act_y and b_m == act_m:
                                 if last_act_date_val.day <= active_cutoff:
                                     charge_subscription = False
@@ -501,38 +535,39 @@ def generate_customer_invoice(customer_id):
                             charge_subscription = False
                             waiver_reason = "No activity recorded"
 
-                    final_rate = orig_rate if charge_subscription else 0.0
-                    billing_decision = "Chargeable" if charge_subscription else "Waived"
-                    included = 1 if charge_subscription else 0
-                    waived = 0 if charge_subscription else 1
+                    if charge_subscription:
+                        final_rate = orig_rate
+                        billing_decision = "Chargeable"
 
-                    billing_items.append({
-                        "v_customer_id": v_customer_id,
-                        "v_branch": v_branch,
-                        "tpin": tpin,
-                        "inv_currency_mode": inv_currency_mode,
-                        "inv_currency": inv_currency,
-                        "inv_vehicle_group": inv_vehicle_group,
-                        "vehicle_classification": v_class,
-                        "invoice_item": {
-                            "custom_billing_month": target_date,
-                            "item_code": item, 
-                            "qty": 1, 
-                            "custom_is_subscription": 1,  
-                            "custom_vehicle": vehicle.name,
-                            "custom_billing_month_label": b_month["label"], 
-                            "custom_original_rate": orig_rate,
-                            "custom_final_rate": final_rate,
-                            "custom_rate_code": rate_code,
-                            "custom_billing_decision": billing_decision,
-                            "custom_included": included,
-                            "custom_waived": waived,
-                            "custom_waiver_reason": waiver_reason,
-                            "custom_last_activity_date": last_act_date,
-                            "custom_active_status_cutoff_day": active_cutoff,
-                            "description": f"Subscription Charge ({b_month['label']}) - Vehicle: {vehicle.name}"
-                        }
-                    })
+                        billing_items.append({
+                            "v_customer_id": v_customer_id,
+                            "v_branch": v_branch,
+                            "tpin": tpin,
+                            "inv_currency_mode": inv_currency_mode,
+                            "inv_currency": inv_currency,
+                            "inv_vehicle_group": inv_vehicle_group,
+                            "vehicle_classification": v_class,
+                            "invoice_item": {
+                                "custom_billing_month": target_date,
+                                "item_code": item, 
+                                "qty": 1, 
+                                "custom_is_subscription": 1, "custom_is_removed": item_is_removed_flag,  
+                                "custom_vehicle": vehicle.name,
+                                "custom_billing_month_label": b_month["label"], 
+                                "custom_original_rate": orig_rate,
+                                "custom_final_rate": final_rate,
+                                "custom_rate_code": rate_code,
+                                "custom_billing_decision": billing_decision,
+                                "custom_included": 1,
+                                "custom_waived": 0,
+                                "custom_waiver_reason": "",
+                                "custom_vehicle_type": "CB" if v_class == "CB" else ("LOCAL" if v_class in ["Local", "LOCAL"] else ""),
+                                "custom_comment": "",
+                                "custom_last_activity_date": last_act_date,
+                                "custom_active_status_cutoff_day": active_cutoff,
+                                "description": f"Subscription Charge ({b_month['label']}) - Vehicle: {vehicle.name}"
+                            }
+                        })
 
     if not billing_items:
         return {"status": "error", "message": "No eligible items found for this period."}
@@ -611,7 +646,7 @@ def generate_customer_invoice(customer_id):
             if len(classes) > 1:
                 inv.custom_vehicle_group = "Mixed"
             elif len(classes) == 1:
-                inv.custom_vehicle_group = classes[0]
+                inv.custom_vehicle_group = "CB" if classes[0] == "CB" else "Local"
             else:
                 inv.custom_vehicle_group = "Mixed"
                 

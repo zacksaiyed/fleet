@@ -264,6 +264,9 @@ scheduler_events = {
             "fleet.scheduled.task_auto_reject.auto_reject_unaccepted_tasks"
         ],
     },
+    "monthly": [
+        "fleet.api.classification_scheduler.generate_vehicle_classification_logs"
+    ]
 }
 
 # Testing
