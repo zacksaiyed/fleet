@@ -100,7 +100,6 @@ frappe.ui.form.on('Sales Invoice', {
             item_type_datalist += '</datalist>';
 
             let table_html = `
-            <h4 style="font-weight: bold; margin-bottom: 10px; color: #333;">Installation</h4>
                 <style>
                     .inst-grid-wrapper { overflow-x: auto; border: 1px solid #d1d8dd; border-radius: 4px; margin-top: 10px; padding-top: 10px; }
                     .inst-grid { width: 100%; border-collapse: collapse; white-space: nowrap; font-size: 12px; }
@@ -338,7 +337,6 @@ frappe.ui.form.on('Sales Invoice', {
         }
 
         let table_html = `
-        <h4 style="font-weight: bold; margin-bottom: 10px; color: #333;">Local</h4>
             <style>
               .erp-grid-wrapper { 
                    overflow-x: auto;
@@ -625,7 +623,6 @@ frappe.ui.form.on('Sales Invoice', {
         }
 
         let table_html = `
-        <h4 style="font-weight: bold; margin-bottom: 10px; color: #333;">CB</h4>
             <div class="cb-erp-grid-wrapper erp-grid-wrapper">
               <table class="erp-grid-table">
                 <thead>
