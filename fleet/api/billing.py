@@ -177,9 +177,16 @@ def check_charge_subscription(customer, vehicle_name, item_code, b_y, b_m, inst_
 
 
 @frappe.whitelist()
-def generate_customer_invoice(customer_id):
+def generate_customer_invoice(customer_id, from_date=None, to_date=None, vehicles=None, is_partial=False):
     target_customer = frappe.get_doc("Customer", customer_id)
     current_date = getdate()
+    
+    if from_date:
+        from_date = getdate(from_date)
+    if to_date:
+        to_date = getdate(to_date)
+        
+    is_partial = True if (is_partial == True or is_partial in ["True", "1", 1]) else False
     
     # Billing frequency is taken from the parent customer if set, otherwise from target customer
     frequency_months = None
@@ -218,27 +225,47 @@ def generate_customer_invoice(customer_id):
         fields=["name", "model", "custom_branch", "custom_customer"]
     )
     
-    # FIXED START DATE LOGIC
-    earliest_install_date = None
-    vehicle_docs = {} 
+    # Filter linked_vehicles if specific vehicles are requested
+    if vehicles:
+        import json
+        if isinstance(vehicles, str):
+            try:
+                vehicles = json.loads(vehicles)
+            except Exception:
+                vehicles = [v.strip() for v in vehicles.split(",") if v.strip()]
+        linked_vehicles = [v for v in linked_vehicles if v.name in vehicles]
     
+    # Load vehicle docs
+    vehicle_docs = {}
+    earliest_install_date = None
     for vehicle in linked_vehicles:
         doc = frappe.get_doc("Vehicle", vehicle.name)
         vehicle_docs[vehicle.name] = doc
-        for row in doc.get("custom_vehicle_item", []):
-            if row.status == "Installed" and row.date:
-                r_date = getdate(row.date)
-                if not earliest_install_date or r_date < earliest_install_date:
-                    earliest_install_date = r_date
+        if not from_date or not to_date:
+            for row in doc.get("custom_vehicle_item", []):
+                if row.status == "Installed" and row.date:
+                    r_date = getdate(row.date)
+                    if not earliest_install_date or r_date < earliest_install_date:
+                        earliest_install_date = r_date
 
-    if last_billed_upto:
-        invoice_start_date = add_days(getdate(last_billed_upto), 1)
-    elif earliest_install_date:
-        invoice_start_date = earliest_install_date
+    if from_date and to_date:
+        invoice_start_date = from_date
+        invoice_end_date = to_date
+        
+        start_y = invoice_start_date.year
+        start_m = invoice_start_date.month
+        end_y = invoice_end_date.year
+        end_m = invoice_end_date.month
+        frequency_months = (end_y - start_y) * 12 + (end_m - start_m) + 1
     else:
-        invoice_start_date = current_date
+        if last_billed_upto:
+            invoice_start_date = add_days(getdate(last_billed_upto), 1)
+        elif earliest_install_date:
+            invoice_start_date = earliest_install_date
+        else:
+            invoice_start_date = current_date
 
-    invoice_end_date = add_days(add_months(invoice_start_date, frequency_months), -1)
+        invoice_end_date = add_days(add_months(invoice_start_date, frequency_months), -1)
 
     # INVOICE KE MAHINO KI LIST
     billing_months = []
@@ -322,6 +349,11 @@ def generate_customer_invoice(customer_id):
             
             month_start = getdate(target_date)
             month_end = add_days(add_months(month_start, 1), -1)
+            
+            # Skip if this vehicle has already been billed for this month
+            v_last_billed = frappe.db.get_value("Vehicle", vehicle.name, "custom_last_billed_upto_date")
+            if v_last_billed and getdate(v_last_billed) >= month_end:
+                continue
             
             # Determine vehicle classification for this month
             v_class = get_vehicle_classification(vehicle.name, month_end)
@@ -506,38 +538,67 @@ def generate_customer_invoice(customer_id):
                     # --- CONDITION B: SUBSCRIPTION CHARGE ---
                     orig_rate, rate_code = get_subscription_rate(v_customer, v_class, billing_currency, target_date)
                     active_cutoff = int(v_customer.custom_active_satus_cutoff_day or 15)
+                    is_partial_billing = True
                     
                     # Onboarding / Active cutoff checks
                     is_onboarding_month = (b_y == inst_y and b_m == inst_m)
                     charge_subscription = True
                     waiver_reason = ""
                     
-                    if is_onboarding_month:
-                        install_cutoff = int(v_customer.custom_installation_cutoff_day or 15)
-                        if install_date.day > install_cutoff:
+                    if is_partial_billing:
+                        total_days_in_month = (month_end - month_start).days + 1
+                        start_billing_date = max(month_start, install_date)
+                        
+                        removal_date = None
+                        if status_log and status_log[0].event_type == "Removed":
+                            r_dt = getdate(status_log[0].event_date)
+                            if month_start <= r_dt <= month_end:
+                                removal_date = r_dt
+                        if not removal_date:
+                            for v_item_row in vehicle_doc.get("custom_vehicle_item", []):
+                                if v_item_row.item == item and getattr(v_item_row, "status", "") == "Removed" and v_item_row.date:
+                                    r_dt = getdate(v_item_row.date)
+                                    if month_start <= r_dt <= month_end:
+                                        removal_date = r_dt
+                                        break
+                                        
+                        end_billing_date = removal_date if removal_date else month_end
+                        
+                        if start_billing_date > end_billing_date:
                             charge_subscription = False
-                            waiver_reason = "Installation date after cutoff"
-                            
-                    if charge_subscription:
-                        if last_act_date:
-                            last_act_date_val = getdate(last_act_date)
-                            act_y = last_act_date_val.year
-                            act_m = last_act_date_val.month
-                            
-                            if (b_y > act_y) or (b_y == act_y and b_m > act_m):
-                                charge_subscription = False
-                                waiver_reason = "Last activity in prior month"
-                            elif b_y == act_y and b_m == act_m:
-                                if last_act_date_val.day <= active_cutoff:
-                                    charge_subscription = False
-                                    waiver_reason = "Last activity before cutoff"
+                            waiver_reason = "Not active in this month"
                         else:
-                            charge_subscription = False
-                            waiver_reason = "No activity recorded"
-
-                    if charge_subscription:
+                            active_days = (end_billing_date - start_billing_date).days + 1
+                            final_rate = round(orig_rate * (float(active_days) / float(total_days_in_month)), 2)
+                            billing_decision = "Chargeable"
+                    else:
+                        if is_onboarding_month:
+                            install_cutoff = int(v_customer.custom_installation_cutoff_day or 15)
+                            if install_date.day > install_cutoff:
+                                charge_subscription = False
+                                waiver_reason = "Installation date after cutoff"
+                                
+                        if charge_subscription:
+                            if last_act_date:
+                                last_act_date_val = getdate(last_act_date)
+                                act_y = last_act_date_val.year
+                                act_m = last_act_date_val.month
+                                
+                                if (b_y > act_y) or (b_y == act_y and b_m > act_m):
+                                    charge_subscription = False
+                                    waiver_reason = "Last activity in prior month"
+                                elif b_y == act_y and b_m == act_m:
+                                    if last_act_date_val.day <= active_cutoff:
+                                        charge_subscription = False
+                                        waiver_reason = "Last activity before cutoff"
+                            else:
+                                charge_subscription = False
+                                waiver_reason = "No activity recorded"
+                                
                         final_rate = orig_rate
                         billing_decision = "Chargeable"
+
+                    if charge_subscription:
 
                         billing_items.append({
                             "v_customer_id": v_customer_id,
@@ -634,6 +695,7 @@ def generate_customer_invoice(customer_id):
         inv.custom_billing_end_date = invoice_end_date
         inv.custom_branch = group["branch"]
         inv.custom_tpin = group["tpin"]
+        inv.custom_partial_invoice = 1 if is_partial else 0
         
         # Set billing currency mode
         inv.custom_billing_currency_mode = group["currency_mode"]
@@ -720,14 +782,47 @@ def generate_customer_invoice(customer_id):
         inv.insert(ignore_permissions=True)
         created_invoices.append(inv.name)
         
+        # Update last billed date in vehicles
+        for item in inv.items:
+            if item.custom_vehicle:
+                frappe.db.set_value("Vehicle", item.custom_vehicle, "custom_last_billed_upto_date", invoice_end_date)
+        frappe.db.commit()
+        
     for c in customers_to_bill:
-        c.custom_last_billed_upto_date = invoice_end_date
-        c.save(ignore_permissions=True)
+        # Check if any invoice generated for this customer is a partial invoice
+        has_partial_inv = False
+        for inv_name in created_invoices:
+            inv_doc = frappe.get_doc("Sales Invoice", inv_name)
+            if inv_doc.customer == c.name and inv_doc.custom_partial_invoice == 1:
+                has_partial_inv = True
+                break
+        if not has_partial_inv:
+            c.custom_last_billed_upto_date = invoice_end_date
+            c.save(ignore_permissions=True)
     
     if not created_invoices:
         return {"status": "success", "message": "No invoices generated as all items in this period were waived."}
     
     return {"status": "success", "message": f"Invoices generated successfully: {', '.join(created_invoices)}"}
+
+
+@frappe.whitelist()
+def on_sales_invoice_submit(doc, method=None):
+    if not doc.custom_billing_end_date:
+        return
+
+    # Update Vehicle's custom_last_billed_upto_date
+    for item in doc.items:
+        if item.custom_vehicle:
+            v_date = frappe.db.get_value("Vehicle", item.custom_vehicle, "custom_last_billed_upto_date")
+            if not v_date or getdate(doc.custom_billing_end_date) > getdate(v_date):
+                frappe.db.set_value("Vehicle", item.custom_vehicle, "custom_last_billed_upto_date", doc.custom_billing_end_date)
+                
+    # Update Customer's custom_last_billed_upto_date if NOT a partial invoice
+    if not doc.custom_partial_invoice:
+        c_date = frappe.db.get_value("Customer", doc.customer, "custom_last_billed_upto_date")
+        if not c_date or getdate(doc.custom_billing_end_date) > getdate(c_date):
+            frappe.db.set_value("Customer", doc.customer, "custom_last_billed_upto_date", doc.custom_billing_end_date)
 
 
 @frappe.whitelist()
@@ -748,11 +843,30 @@ def before_sales_invoice_submit(doc, method=None):
             vehicle = vehicles[0]
             vehicle_doc = frappe.get_doc("Vehicle", vehicle.name)
             
+            # Get month start and end dates
+            month_start = getdate(f"{b_y}-{b_m:02d}-01")
+            month_end = add_days(add_months(month_start, 1), -1)
+            is_partial_billing = True
+            
             install_date = None
-            for v_item in vehicle_doc.get("custom_vehicle_item", []):
-                if v_item.item == item.item_code and v_item.status == "Installed" and v_item.date:
-                    install_date = getdate(v_item.date)
-                    break
+            first_install = frappe.db.get_all(
+                "GPS Installation Status Log",
+                filters={
+                    "vehicle": vehicle.name,
+                    "item": item.item_code,
+                    "event_type": "Installed"
+                },
+                fields=["event_date"],
+                order_by="event_date asc, creation asc, name asc",
+                limit=1
+            )
+            if first_install:
+                install_date = getdate(first_install[0].event_date)
+            else:
+                for v_item in vehicle_doc.get("custom_vehicle_item", []):
+                    if v_item.item == item.item_code and v_item.status == "Installed" and v_item.date:
+                        install_date = getdate(v_item.date)
+                        break
             
             if not install_date:
                 continue
@@ -776,50 +890,92 @@ def before_sales_invoice_submit(doc, method=None):
             )
             last_act_date = last_act_docs[0].last_activity_date if last_act_docs else None
             
-            # 1. Onboarding cutoff check
-            if is_onboarding_month:
-                install_cutoff = int(customer.custom_installation_cutoff_day or 15)
-                if install_date.day > install_cutoff:
+            if is_partial_billing:
+                total_days_in_month = (month_end - month_start).days + 1
+                start_billing_date = max(month_start, install_date)
+                
+                # Fetch removal date in this month if any
+                removal_date = None
+                status_log = frappe.db.get_all(
+                    "GPS Installation Status Log",
+                    filters={
+                        "vehicle": vehicle.name,
+                        "item": item.item_code,
+                        "event_date": ["<=", month_end]
+                    },
+                    fields=["event_type", "event_date"],
+                    order_by="event_date desc, creation desc, name desc",
+                    limit=1
+                )
+                if status_log and status_log[0].event_type == "Removed":
+                    r_dt = getdate(status_log[0].event_date)
+                    if month_start <= r_dt <= month_end:
+                        removal_date = r_dt
+                if not removal_date:
+                    for v_item_row in vehicle_doc.get("custom_vehicle_item", []):
+                        if v_item_row.item == item.item_code and getattr(v_item_row, "status", "") == "Removed" and v_item_row.date:
+                            r_dt = getdate(v_item_row.date)
+                            if month_start <= r_dt <= month_end:
+                                removal_date = r_dt
+                                break
+                                
+                end_billing_date = removal_date if removal_date else month_end
+                
+                if start_billing_date > end_billing_date:
                     charge_subscription = False
-                    waiver_reason = "Installation date after cutoff"
-                    
-            # 2. Active status cutoff check
-            if charge_subscription:
-                if last_act_date:
-                    last_act_date_val = getdate(last_act_date)
-                    act_y = last_act_date_val.year
-                    act_m = last_act_date_val.month
-                    
-                    # If billing month is after last activity month
-                    if (b_y > act_y) or (b_y == act_y and b_m > act_m):
+                    waiver_reason = "Not active in this month"
+                else:
+                    active_days = (end_billing_date - start_billing_date).days + 1
+                    item.custom_final_rate = round(item.custom_original_rate * (float(active_days) / float(total_days_in_month)), 2)
+                    item.custom_billing_decision = "Chargeable"
+                    item.custom_included = 1
+                    item.custom_waived = 0
+                    item.custom_waiver_reason = ""
+            else:
+                # 1. Onboarding cutoff check
+                if is_onboarding_month:
+                    install_cutoff = int(customer.custom_installation_cutoff_day or 15)
+                    if install_date.day > install_cutoff:
                         charge_subscription = False
-                        waiver_reason = "Last activity before cutoff"
-                    # If billing month is the same as last activity month
-                    elif b_y == act_y and b_m == act_m:
-                        if last_act_date_val.day <= active_cutoff:
+                        waiver_reason = "Installation date after cutoff"
+                        
+                # 2. Active status cutoff check
+                if charge_subscription:
+                    if last_act_date:
+                        last_act_date_val = getdate(last_act_date)
+                        act_y = last_act_date_val.year
+                        act_m = last_act_date_val.month
+                        
+                        # If billing month is after last activity month
+                        if (b_y > act_y) or (b_y == act_y and b_m > act_m):
                             charge_subscription = False
                             waiver_reason = "Last activity before cutoff"
+                        # If billing month is the same as last activity month
+                        elif b_y == act_y and b_m == act_m:
+                            if last_act_date_val.day <= active_cutoff:
+                                charge_subscription = False
+                                waiver_reason = "Last activity before cutoff"
+                    else:
+                        charge_subscription = False
+                        waiver_reason = "No activity recorded"
+                
+                if charge_subscription:
+                    item.custom_included = 1
+                    item.custom_waived = 0
+                    item.custom_waiver_reason = ""
+                    item.custom_billing_decision = "Chargeable"
+                    item.custom_final_rate = item.custom_original_rate
                 else:
-                    charge_subscription = False
-                    waiver_reason = "No activity recorded"
-            
+                    item.custom_included = 0
+                    item.custom_waived = 1
+                    item.custom_waiver_reason = waiver_reason
+                    item.custom_billing_decision = "Waived"
+                    item.custom_final_rate = 0.0
+
             # Update item properties based on evaluation
             item.custom_last_activity_date = last_act_date
             item.custom_active_status_cutoff_day = active_cutoff
             
-            if charge_subscription:
-                item.custom_included = 1
-                item.custom_waived = 0
-                item.custom_waiver_reason = ""
-                item.custom_billing_decision = "Chargeable"
-                item.custom_final_rate = item.custom_original_rate
-            else:
-                item.custom_included = 0
-                item.custom_waived = 1
-                item.custom_waiver_reason = waiver_reason
-                item.custom_billing_decision = "Waived"
-                item.custom_final_rate = 0.0
-                
             if item.custom_final_rate == 0.0:
                 item.price_list_rate = 0.0
             elif item.custom_original_rate is not None:
@@ -864,3 +1020,55 @@ def check_tpin_existence(tpin, docname=None, doc_type="Customer"):
         return {"exists": True, "type": "Customer Branch", "name": branches[0].name, "customer": branches[0].customer}
         
     return {"exists": False}
+
+
+@frappe.whitelist()
+def get_default_billing_start_date(customer_id):
+    customer = frappe.get_doc("Customer", customer_id)
+    if customer.custom_last_billed_upto_date:
+        return add_days(getdate(customer.custom_last_billed_upto_date), 1)
+        
+    # Otherwise, find the earliest installation date from vehicles linked to this customer
+    # (and child customers if any)
+    customer_ids = [customer_id]
+    child_customers = frappe.db.get_all("Customer", filters={"custom_parent_customer": customer_id}, fields=["name"])
+    customer_ids.extend([c.name for c in child_customers])
+    
+    vehicles = frappe.get_all("Vehicle", filters={"custom_customer": ["in", customer_ids]}, fields=["name"])
+    if not vehicles:
+        return None
+        
+    earliest_date = None
+    # Check GPS Installation logs first
+    logs = frappe.db.get_all(
+        "GPS Installation Status Log",
+        filters={"vehicle": ["in", [v.name for v in vehicles]], "event_type": "Installed"},
+        fields=["event_date"],
+        order_by="event_date asc",
+        limit=1
+    )
+    if logs:
+        earliest_date = getdate(logs[0].event_date)
+        
+    # Check custom_vehicle_item child tables
+    for v in vehicles:
+        v_doc = frappe.get_doc("Vehicle", v.name)
+        for row in v_doc.get("custom_vehicle_item", []):
+            if row.status == "Installed" and row.date:
+                r_date = getdate(row.date)
+                if not earliest_date or r_date < earliest_date:
+                    earliest_date = r_date
+                    
+    if earliest_date:
+        return earliest_date
+        
+    # Fallback to the earliest vehicle's creation date
+    earliest_creation = None
+    for v in vehicles:
+        v_creation = frappe.db.get_value("Vehicle", v.name, "creation")
+        if v_creation:
+            v_c_date = getdate(v_creation)
+            if not earliest_creation or v_c_date < earliest_creation:
+                earliest_creation = v_c_date
+                
+    return earliest_creation
