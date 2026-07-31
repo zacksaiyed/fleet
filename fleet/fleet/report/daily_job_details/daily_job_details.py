@@ -88,8 +88,8 @@ def get_data(filters=None):
 				temp["gps_device_no"] = i.item
 			elif i.item_type == "SIM":
 				if "sim_no" in temp:
-					temp["sim_no"] = f"{temp["sim_no"]}, {i.item}"
-					temp["type"] = f"{temp["type"]}, {i.type}"
+					temp["sim_no"] += f", {i.item}"
+					temp["type"] += f", {i.type}"
 				else:
 					temp["sim_no"] = i.item
 					temp["type"] = i.type
