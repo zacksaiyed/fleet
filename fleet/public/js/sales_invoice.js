@@ -4,6 +4,22 @@ frappe.ui.form.on('Sales Invoice', {
     // 1. FORM EVENTS
     // ==============================================================
     refresh: function(frm) {
+        
+        // Sidebar Auto-Collapse
+        setTimeout(function() {
+            let sidebar = $('.layout-side-section');
+            let toggle_btn = $('[title="Toggle Sidebar"]');
+            
+            if (sidebar.length && sidebar.is(':visible')) {
+                if (toggle_btn.length) {
+                    toggle_btn.click();
+                } else {
+                    sidebar.hide();
+                    $('.layout-main-section').removeClass('col-lg-10').addClass('col-lg-12');
+                }
+            }
+        }, 500);
+
         frm.trigger('split_vehicles_directly_from_items');
         frm.trigger('render_installation_table');
     },
@@ -46,7 +62,6 @@ frappe.ui.form.on('Sales Invoice', {
             let desc = row.description ? row.description.toLowerCase() : "";
             let v_type = row.custom_vehicle_type ? row.custom_vehicle_type.toUpperCase() : null;
             
-            // Previous Activity Date fetch karna
             let prev_act_date = row.custom_previous_activity_date || "";
 
             if (!reg_no || !v_type) return;
@@ -89,6 +104,14 @@ frappe.ui.form.on('Sales Invoice', {
     render_installation_table: function(frm) {
         if (!frm.fields_dict['custom_installation_table_html']) return;
 
+        let check_data = [];
+        try { check_data = JSON.parse(frm.doc.custom_installation_data_json || '[]'); } catch(e) {}
+        
+        if (check_data.length === 0) {
+            $(frm.fields_dict['custom_installation_table_html'].wrapper).empty();
+            return; 
+        }
+
         if (window.inst_current_page === undefined) {
             window.inst_current_page = 1;
         }
@@ -101,9 +124,9 @@ frappe.ui.form.on('Sales Invoice', {
 
             let table_html = `
                 <style>
-                    .inst-grid-wrapper { overflow-x: auto; border: 1px solid #d1d8dd; border-radius: 4px; margin-top: 10px; padding-top: 10px; }
+                    .inst-grid-wrapper { overflow-x: auto; border: 1px solid #d1d8dd; border-radius: 4px; margin-top: 10px; padding-top: 10px; padding-bottom: 90px; }
                     .inst-grid { width: 100%; border-collapse: collapse; white-space: nowrap; font-size: 12px; }
-                    .inst-grid td { border: 1px solid #d1d8dd; padding: 6px; text-align: center; vertical-align: middle; }
+                    .inst-grid td { border: 1px solid #d1d8dd; padding: 6px; text-align: center; vertical-align: middle; transition: background-color 0.3s ease;}
                     .inst-grid th { background-color: #ffff00 !important; font-weight: bold; color: black; border: 1px solid #d1d8dd; padding: 8px 6px; text-align: center; vertical-align: top; }
                     .inst-grid input:not([type="checkbox"]), .inst-grid select { width: 100%; border: 1px solid transparent; background: transparent; text-align: center; font-size: 12px; padding: 4px 0; outline: none; }
                     .inst-grid input:not([type="checkbox"]):not([readonly]):focus { border: 1px solid #5e9ed6; background: #fff; border-radius: 3px; }
@@ -115,7 +138,12 @@ frappe.ui.form.on('Sales Invoice', {
                     .inst-pagination { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; padding: 5px 10px; background: #f8f9fa; border: 1px solid #d1d8dd; border-radius: 4px; }
                     .inst-pagination button { padding: 4px 12px; font-size: 12px; }
                     .inst-pagination span { font-weight: 500; font-size: 12px; color: #333; }
+                    .decision-popup { position: absolute; top: 35px; left: 50%; transform: translateX(-50%); background: #ffffff; padding: 6px; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.15); border: 1px solid #5e9ed6; z-index: 100; width: 170px; text-align: left; display: none; }
+                    .decision-label { display: flex; align-items: center; font-size: 12px; margin-bottom: 2px; cursor: pointer; padding: 6px 8px; border-radius: 5px; }
+                    .decision-label:hover { background-color: #f0f4f8; }
+                    .color-indicator { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; border: 1px solid #d1d8dd; }
                 </style>
+                <h4 style="font-weight: bold; margin-bottom: 10px; color: #333;">Installation</h4>
                 ${item_type_datalist}
                 <div class="inst-grid-wrapper">
                     <table class="inst-grid">
@@ -165,6 +193,11 @@ frappe.ui.form.on('Sales Invoice', {
                         let val = $(this).attr('type') === 'checkbox' ? ($(this).is(':checked') ? 1 : 0) : $(this).val();
                         row_obj[col] = val;
                     });
+                    
+                    // Saath me original rate bhi save karke rakho
+                    let rate_input = $(this).find('.inst-amount');
+                    row_obj['original_rate'] = rate_input.attr('data-original-val');
+                    
                     current_saved[global_idx] = row_obj;
                 });
                 frm.set_value('custom_installation_data_json', JSON.stringify(current_saved));
@@ -202,11 +235,6 @@ frappe.ui.form.on('Sales Invoice', {
                 let all_data = [];
                 try { all_data = JSON.parse(frm.doc.custom_installation_data_json || '[]'); } catch(e) { all_data = []; }
 
-                if (all_data.length === 0) {
-                    all_data = [{}];
-                    frm.set_value('custom_installation_data_json', JSON.stringify(all_data));
-                }
-
                 let total_records = all_data.length;
                 let total_pages = Math.ceil(total_records / page_size) || 1;
                 
@@ -221,7 +249,10 @@ frappe.ui.form.on('Sales Invoice', {
                 page_data.forEach((data, local_idx) => {
                     let global_idx = start_idx + local_idx;
                     let is_active = (data.active === 1 || data.active === true) ? 'checked' : ''; 
+                    
                     let inst_charges = data.rate || 0;
+                    let original_rate = data.original_rate !== undefined ? data.original_rate : inst_charges;
+                    
                     let is_charged = (data.is_installation_charged === 1 || (inst_charges > 0 && data.is_installation_charged !== 0)) ? 'checked' : '';
                     let inst_decision = data.billing_decision || (is_charged ? 'Chargeable' : '');
                     let inst_bg = get_bg_color(inst_decision);
@@ -245,12 +276,31 @@ frappe.ui.form.on('Sales Invoice', {
                             <td><input type="text" class="inst-input" data-col="model" value="${data.model || ''}" placeholder="Model" readonly tabindex="-1"></td>
                             <td style="position: relative; background-color: ${inst_bg};">
                                 <div class="charges-flex-container">
-                                    <input type="checkbox" class="inst-input inst-checkbox" data-col="is_installation_charged" ${is_charged} onclick="return false;" tabindex="-1">
-                                    <input type="number" class="inst-input row-rate inst-amount" data-col="rate" data-original-val="${inst_charges}" value="${inst_charges}" style="width: 80px;">
+                                    <input type="checkbox" class="inst-input inst-checkbox" data-col="is_installation_charged" ${is_charged}>
+                                    <input type="number" class="inst-input row-rate inst-amount" data-col="rate" data-original-val="${original_rate}" value="${inst_charges}" style="width: 80px;">
+                                </div>
+                                <div class="decision-popup inst-popup" style="display: none;">
+                                    <input type="hidden" class="inst-input hidden-inst-decision" data-col="billing_decision" value="${inst_decision}">
+                                    <label class="decision-label disabled-option" style="opacity: 0.5;">
+                                        <input type="radio" name="inst_dec_${global_idx}" class="inst-decision-radio" value="Chargeable" ${inst_decision == 'Chargeable' ? 'checked' : ''} disabled> 
+                                        <span class="color-indicator" style="background-color: #ffffff;"></span> Chargeable
+                                    </label>
+                                    <label class="decision-label">
+                                        <input type="radio" name="inst_dec_${global_idx}" class="inst-decision-radio" value="Waived" ${inst_decision == 'Waived' ? 'checked' : ''}> 
+                                        <span class="color-indicator" style="background-color: #d1ecf1;"></span> Waived
+                                    </label>
+                                    <label class="decision-label">
+                                        <input type="radio" name="inst_dec_${global_idx}" class="inst-decision-radio" value="Non Chargeable" ${inst_decision == 'Non Chargeable' ? 'checked' : ''}> 
+                                        <span class="color-indicator" style="background-color: #f8d7da;"></span> Non Chargeable
+                                    </label>
+                                    <label class="decision-label">
+                                        <input type="radio" name="inst_dec_${global_idx}" class="inst-decision-radio" value="Under Warranty" ${inst_decision == 'Under Warranty' ? 'checked' : ''}> 
+                                        <span class="color-indicator" style="background-color: #fff3cd;"></span> Under Warranty
+                                    </label>
                                 </div>
                             </td>
                             <td><input type="date" class="inst-input" data-col="installation_date" value="${data.installation_date || ''}" readonly tabindex="-1"></td>
-                            <td><input type="checkbox" class="inst-input" data-col="active" ${is_active} onclick="return false;" tabindex="-1"></td>
+                            <td><input type="checkbox" class="inst-input" data-col="active" ${is_active}></td>
                             <td>
                                 <input type="hidden" class="inst-input hidden-row-total" data-col="total_cost" value="${data.total_cost || 0}">
                                 <input type="text" class="visible-group-total" value="" readonly tabindex="-1">
@@ -272,14 +322,70 @@ frappe.ui.form.on('Sales Invoice', {
                 update_group_totals();
             };
 
-            $('#btn-add-inst-row').off('click').on('click', function() {
+            // Installation Checkbox Untick / Tick Events
+            tbody.off('change', '.inst-checkbox').on('change', '.inst-checkbox', function(e) {
+                let td = $(this).closest('td');
+                let tr = td.closest('tr');
+                let popup = td.find('.inst-popup');
+                let hidden_decision = td.find('.hidden-inst-decision');
+                let rate_input = td.find('.inst-amount');
+                let is_checked = $(this).is(':checked') ? 1 : 0;
+                
+                let item_code = tr.find('[data-col="code"]').val();
+                let license_plate = tr.find('[data-col="license_plate"]').val();
+
+                if (!is_checked) {
+                    if (rate_input.val() > 0) { rate_input.attr('data-original-val', rate_input.val()); }
+                    hidden_decision.val('');
+                    popup.find('.inst-decision-radio').prop('checked', false);
+                    td.css('background-color', '#ffffff');
+                    popup.fadeIn(200);
+                } else {
+                    hidden_decision.val('Chargeable');
+                    popup.find('input[value="Chargeable"]').prop('checked', true);
+                    td.css('background-color', '#ffffff');
+                    
+                    // Original rate wapas grid me laayein
+                    let orig = rate_input.attr('data-original-val') || 0;
+                    rate_input.val(orig);
+                    popup.fadeOut(200);
+                    
+                    // Main Item Table me update trigger karein (Section 6 automatically rate theek karega)
+                    update_installation_item_decision(frm, item_code, license_plate, 'Chargeable');
+                }
                 save_installation_data();
-                let all_data = [];
-                try { all_data = JSON.parse(frm.doc.custom_installation_data_json || '[]'); } catch(e) {}
-                all_data.push({});
-                frm.set_value('custom_installation_data_json', JSON.stringify(all_data));
-                window.inst_current_page = Math.ceil(all_data.length / page_size);
-                render_table_rows();
+                update_group_totals();
+            });
+
+            // Installation Decision Radio Select
+            tbody.off('click', '.inst-decision-radio').on('click', '.inst-decision-radio', function() {
+                let td = $(this).closest('td');
+                let tr = td.closest('tr');
+                let hidden_decision = td.find('.hidden-inst-decision');
+                let rate_input = td.find('.inst-amount');
+                let selected_decision = $(this).val(); 
+                
+                hidden_decision.val(selected_decision); 
+                td.css('background-color', get_bg_color(selected_decision));
+                
+                if (rate_input.val() > 0) { rate_input.attr('data-original-val', rate_input.val()); }
+                rate_input.val(0); // Grid me rate 0 set kiya
+                
+                // Item Table me Sync
+                let item_code = tr.find('[data-col="code"]').val();
+                let license_plate = tr.find('[data-col="license_plate"]').val();
+                update_installation_item_decision(frm, item_code, license_plate, selected_decision);
+
+                save_installation_data();
+                update_group_totals();
+                td.find('.inst-popup').fadeOut(200);
+            });
+
+            // Outside click to hide popup
+            $(document).off('click.hide_inst_popup').on('click.hide_inst_popup', function(e) {
+                if (!$(e.target).closest('.decision-popup').length && !$(e.target).hasClass('inst-checkbox')) {
+                    $('.inst-popup').fadeOut(200);
+                }
             });
 
             $('#inst-prev-page').off('click').on('click', function() {
@@ -294,7 +400,7 @@ frappe.ui.form.on('Sales Invoice', {
                 if (window.inst_current_page < total_pages) { window.inst_current_page++; render_table_rows(); }
             });
 
-            tbody.off('input change', '.inst-input').on('input change', '.inst-input', function() {
+            tbody.off('input change', '.inst-input:not(.inst-checkbox)').on('input change', '.inst-input:not(.inst-checkbox)', function() {
                 save_installation_data();
                 update_group_totals();
             });
@@ -307,6 +413,16 @@ frappe.ui.form.on('Sales Invoice', {
     // 4. FLEET BILLING (LOCAL TABLE)
     // ==============================================================
     render_custom_fleet_table: function(frm) {
+        if (!frm.fields_dict['custom_item_table']) return;
+
+        let saved_data = [];
+        try { saved_data = JSON.parse(frm.doc.custom_fleet_data_json || '[]'); } catch(e) {}
+        
+        if (saved_data.length === 0) {
+            $(frm.fields_dict['custom_item_table'].wrapper).empty();
+            return;
+        }
+
         let dynamic_months = [];
         let month_headers_html = '';
         let months = []; 
@@ -346,40 +462,11 @@ frappe.ui.form.on('Sales Invoice', {
                    overflow-y: visible; 
                    padding-top: 10px; 
                    padding-bottom: 90px;
-                    }
-
-              .erp-grid-table {
-                    width: 100%; 
-                    border-collapse: collapse; 
-                    white-space: nowrap; 
-                    font-size: 12px; 
-                    }
-
-              .erp-grid-table td { 
-                    border: 1px solid #d1d8dd; 
-                    padding: 6px; 
-                    text-align: center; 
-                    vertical-align: middle; 
-                    transition: background-color 0.3s ease; 
-                    }
-
-              .erp-grid-table th { 
-                    background-color: #ffff00 !important; 
-                    font-weight: bold; 
-                    color: black; 
-                    border: 1px solid #d1d8dd; 
-                    padding: 8px 6px; 
-                    text-align: center; 
-                    vertical-align: top; 
-                    }
-
-              .header-rate { 
-                    display: block; 
-                    font-size: 11px; 
-                    font-weight: 900; 
-                    color: #333; 
-                    margin-top: 3px; 
-                    }
+              }
+              .erp-grid-table { width: 100%; border-collapse: collapse; white-space: nowrap; font-size: 12px; }
+              .erp-grid-table td { border: 1px solid #d1d8dd; padding: 6px; text-align: center; vertical-align: middle; transition: background-color 0.3s ease; }
+              .erp-grid-table th { background-color: #ffff00 !important; font-weight: bold; color: black; border: 1px solid #d1d8dd; padding: 8px 6px; text-align: center; vertical-align: top; }
+              .header-rate { display: block; font-size: 11px; font-weight: 900; color: #333; margin-top: 3px; }
               .erp-grid-table input:not([type="checkbox"]) { width: 100%; border: 1px solid transparent; background: transparent; text-align: center; font-size: 12px; padding: 4px 0; outline: none; }
               .erp-grid-table input:not([type="checkbox"])[readonly]:focus { border: 1px solid transparent; background: transparent; }
               .erp-grid-table input[type="checkbox"] { cursor: pointer; width: 14px; height: 14px; margin: 0; }
@@ -388,6 +475,7 @@ frappe.ui.form.on('Sales Invoice', {
               .decision-label:hover { background-color: #f0f4f8; }
               .color-indicator { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; border: 1px solid #d1d8dd; }
             </style>
+            <h4 style="font-weight: bold; margin-bottom: 10px; color: #333;">Local</h4>
             <div class="erp-grid-wrapper">
               <table class="erp-grid-table">
                 <thead>
@@ -407,192 +495,204 @@ frappe.ui.form.on('Sales Invoice', {
             </div>
         `;
 
-        if (frm.fields_dict['custom_item_table']) {
-            $(frm.fields_dict['custom_item_table'].wrapper).html(table_html);
-            let tbody = $(frm.fields_dict['custom_item_table'].wrapper).find('#fleet-billing-body');
+        $(frm.fields_dict['custom_item_table'].wrapper).html(table_html);
+        let tbody = $(frm.fields_dict['custom_item_table'].wrapper).find('#fleet-billing-body');
 
-            let get_bg_color = function(val) {
-                if (val === 'Under Warranty') return '#fff3cd'; 
-                if (val === 'Waived') return '#d1ecf1';        
-                if (val === 'Non Chargeable') return '#f8d7da';  
-                return '#ffffff';                                        
-            };
+        let get_bg_color = function(val) {
+            if (val === 'Under Warranty') return '#fff3cd'; 
+            if (val === 'Waived') return '#d1ecf1';        
+            if (val === 'Non Chargeable') return '#f8d7da';  
+            return '#ffffff';                                        
+        };
 
-            let add_row_to_dom = function(data = {}) {
-                let row_idx = Math.random().toString(36).substring(7);
-                let row_months_html = '';
-                
-                // NAYA LOGIC: 'Previous Activity Date: ' Text Add Kiya
-                let tooltip_text = data.previous_activity_date 
-                    ? `Previous Activity Date: ${data.previous_activity_date}` 
-                    : (data.date_of_installation ? `Install Date: ${data.date_of_installation}` : 'No Date Found');
+        let add_row_to_dom = function(data = {}) {
+            let row_idx = Math.random().toString(36).substring(7);
+            let row_months_html = '';
+            
+            let tooltip_text = data.previous_activity_date 
+                ? `Previous Activity Date: ${data.previous_activity_date}` 
+                : (data.date_of_installation ? `Install Date: ${data.date_of_installation}` : 'No Date Found');
 
-                dynamic_months.forEach(m_obj => {
-                    let m = m_obj.key;
-                    let is_m_checked = data[m] ? 'checked' : '';
-                    let m_decision = data[m + '_decision'] || (data[m] ? 'Chargeable' : '');
-                    let m_bg = get_bg_color(m_decision);
-                    let m_rate = data[m + '_rate'] !== undefined ? data[m + '_rate'] : ''; 
+            dynamic_months.forEach(m_obj => {
+                let m = m_obj.key;
+                let is_m_checked = data[m] ? 'checked' : '';
+                let m_decision = data[m + '_decision'] || (data[m] ? 'Chargeable' : '');
+                let m_bg = get_bg_color(m_decision);
+                let m_rate = data[m + '_rate'] !== undefined ? data[m + '_rate'] : ''; 
 
-                    row_months_html += `
-                        <td style="position: relative; background-color: ${m_bg}; text-align: center;" title="${tooltip_text}">
-                            <input type="hidden" class="grid-input" data-fieldname="${m}_rate" value="${m_rate}">
-                            <input type="checkbox" class="grid-input month-checkbox" data-fieldname="${m}" ${is_m_checked}>
-                            
-                            <div class="decision-popup month-popup" style="display: none;">
-                                <input type="hidden" class="grid-input hidden-month-decision" data-fieldname="${m}_decision" value="${m_decision}">
-                                <label class="decision-label disabled-option" style="opacity: 0.5;">
-                                    <input type="radio" name="${m}_dec_${row_idx}" class="month-decision-radio" value="Chargeable" ${m_decision == 'Chargeable' ? 'checked' : ''} disabled> 
-                                    <span class="color-indicator" style="background-color: #ffffff;"></span> Chargeable
-                                </label>
-                                <label class="decision-label">
-                                    <input type="radio" name="${m}_dec_${row_idx}" class="month-decision-radio" value="Waived" ${m_decision == 'Waived' ? 'checked' : ''}> 
-                                    <span class="color-indicator" style="background-color: #d1ecf1;"></span> Waived
-                                </label>
-                                <label class="decision-label">
-                                    <input type="radio" name="${m}_dec_${row_idx}" class="month-decision-radio" value="Non Chargeable" ${m_decision == 'Non Chargeable' ? 'checked' : ''}> 
-                                    <span class="color-indicator" style="background-color: #f8d7da;"></span> Non Chargeable
-                                </label>
-                            </div>
-                        </td>
-                    `;
-                });
-
-                let row = $(`
-                    <tr>
-                        <td class="sr-no"></td>
-                        <td><input type="text" class="grid-input" data-fieldname="device_number" value="${data.device_number || ''}" readonly tabindex="-1"></td>
-                        <td><input type="text" class="grid-input" data-fieldname="fleet_number" value="${data.fleet_number || ''}"></td>
-                        <td><input type="text" class="grid-input reg-sync-input" data-fieldname="registration_number" data-original-reg="${data.registration_number || ''}" value="${data.registration_number || ''}"></td>
-                        <td><input type="date" class="grid-input" data-fieldname="date_of_installation" value="${data.date_of_installation || ''}" readonly tabindex="-1"></td>
-                        <td><input type="text" class="grid-input" data-fieldname="vehicle_no" value="${data.vehicle_no || ''}" readonly tabindex="-1"></td>
-                        ${row_months_html}
-                        <td><input type="text" class="grid-input" data-fieldname="comments" value="${data.comments || ''}"></td>
-                    </tr>
-                `);
-                tbody.append(row);
-                recalculate_sr_no();
-            };
-
-            function recalculate_sr_no() {
-                tbody.find('tr').each(function(index) { $(this).find('.sr-no').text(index + 1); });
-            }
-
-            function save_table_data() {
-                let data_list = [];
-                tbody.find('tr').each(function() {
-                    let row_obj = {};
-                    $(this).find('.grid-input').each(function() {
-                        let fieldname = $(this).data('fieldname');
-                        let val = $(this).attr('type') === 'checkbox' ? ($(this).is(':checked') ? 1 : 0) : $(this).val();
-                        row_obj[fieldname] = val;
-                    });
-                    
-                    // Fixed logic for extracting the date accurately
-                    let title_text = $(this).find('td[title]').first().attr('title') || '';
-                    row_obj['previous_activity_date'] = title_text.replace('Previous Activity Date: ', '').replace('Install Date: ', '').replace('No Date Found', '').trim();
-                    
-                    data_list.push(row_obj);
-                });
-                frm.set_value('custom_fleet_data_json', JSON.stringify(data_list));
-                sync_comments_to_items(frm); 
-            }
-
-            tbody.on('change', '.reg-sync-input', function() {
-                let new_val = $(this).val();
-                let old_val = $(this).attr('data-original-reg');
-                let device_no = $(this).closest('tr').find('[data-fieldname="device_number"]').val();
-                
-                $.each(frm.doc.items || [], function(i, d) {
-                    if (d.item_code == device_no && d.custom_registration_number == old_val) {
-                        frappe.model.set_value(d.doctype, d.name, 'custom_registration_number', new_val);
-                    }
-                });
-                $(this).attr('data-original-reg', new_val);
-                save_table_data();
+                row_months_html += `
+                    <td style="position: relative; background-color: ${m_bg}; text-align: center;" title="${tooltip_text}">
+                        <input type="hidden" class="grid-input" data-fieldname="${m}_rate" value="${m_rate}">
+                        <input type="checkbox" class="grid-input month-checkbox" data-fieldname="${m}" ${is_m_checked}>
+                        
+                        <div class="decision-popup month-popup" style="display: none;">
+                            <input type="hidden" class="grid-input hidden-month-decision" data-fieldname="${m}_decision" value="${m_decision}">
+                            <label class="decision-label disabled-option" style="opacity: 0.5;">
+                                <input type="radio" name="${m}_dec_${row_idx}" class="month-decision-radio" value="Chargeable" ${m_decision == 'Chargeable' ? 'checked' : ''} disabled> 
+                                <span class="color-indicator" style="background-color: #ffffff;"></span> Chargeable
+                            </label>
+                            <label class="decision-label">
+                                <input type="radio" name="${m}_dec_${row_idx}" class="month-decision-radio" value="Waived" ${m_decision == 'Waived' ? 'checked' : ''}> 
+                                <span class="color-indicator" style="background-color: #d1ecf1;"></span> Waived
+                            </label>
+                            <label class="decision-label">
+                                <input type="radio" name="${m}_dec_${row_idx}" class="month-decision-radio" value="Non Chargeable" ${m_decision == 'Non Chargeable' ? 'checked' : ''}> 
+                                <span class="color-indicator" style="background-color: #f8d7da;"></span> Non Chargeable
+                            </label>
+                        </div>
+                    </td>
+                `;
             });
 
-            // MAIN CHECKBOX LOGIC (ADD/REMOVE ITEM)
-            tbody.on('change', '.month-checkbox', function(e) {
-                let td = $(this).closest('td');
-                let tr = td.closest('tr');
-                let popup = td.find('.month-popup');
-                let hidden_decision = td.find('.hidden-month-decision');
-                let is_checked = $(this).is(':checked') ? 1 : 0;
-                
-                let device_number = tr.find('[data-fieldname="device_number"]').val();
-                let reg_number = tr.find('[data-fieldname="registration_number"]').val();
-                let month_key = $(this).data('fieldname');
-                
-                let month_label = td.closest('table').find(`th[data-month="${month_key}"]`).contents().filter(function() { return this.nodeType == 3; }).text().trim();
+            let row = $(`
+                <tr>
+                    <td class="sr-no"></td>
+                    <td><input type="text" class="grid-input" data-fieldname="device_number" value="${data.device_number || ''}" readonly tabindex="-1"></td>
+                    <td><input type="text" class="grid-input" data-fieldname="fleet_number" value="${data.fleet_number || ''}"></td>
+                    <td><input type="text" class="grid-input reg-sync-input" data-fieldname="registration_number" data-original-reg="${data.registration_number || ''}" value="${data.registration_number || ''}"></td>
+                    <td><input type="date" class="grid-input" data-fieldname="date_of_installation" value="${data.date_of_installation || ''}" readonly tabindex="-1"></td>
+                    <td><input type="text" class="grid-input" data-fieldname="vehicle_no" value="${data.vehicle_no || ''}" readonly tabindex="-1"></td>
+                    ${row_months_html}
+                    <td><input type="text" class="grid-input" data-fieldname="comments" value="${data.comments || ''}"></td>
+                </tr>
+            `);
+            tbody.append(row);
+            recalculate_sr_no();
+        };
 
-                manage_subscription_item(frm, is_checked, device_number, reg_number, month_label);
-
-                $('.decision-popup').fadeOut(200);
-                if (!is_checked) {
-                    hidden_decision.val(''); 
-                    popup.find('.month-decision-radio').prop('checked', false); 
-                    td.css('background-color', '#ffffff'); 
-                    popup.fadeIn(200);
-                } else {
-                    hidden_decision.val('Chargeable');
-                    popup.find('input[value="Chargeable"]').prop('checked', true);
-                    td.css('background-color', '#ffffff');
-                    popup.fadeOut(200);
-                }
-                save_table_data();
-            });
-
-            tbody.on('click', '.month-decision-radio', function() {
-                let td = $(this).closest('td');
-                let hidden_decision = td.find('.hidden-month-decision');
-                let selected_decision = $(this).val(); 
-                
-                hidden_decision.val(selected_decision); 
-                td.css('background-color', get_bg_color(selected_decision));
-                save_table_data();
-                td.find('.month-popup').fadeOut(200);
-            });
-
-            $(document).off('click.hide_fleet_popup').on('click.hide_fleet_popup', function(e) {
-                if (!$(e.target).closest('.decision-popup').length && !$(e.target).hasClass('month-checkbox')) {
-                    $('.decision-popup').fadeOut(200);
-                }
-            });
-
-            tbody.on('change input', '.grid-input', function() { save_table_data(); });
-
-            try {
-                let saved_data = JSON.parse(frm.doc.custom_fleet_data_json || '[]');
-                tbody.empty();
-                let header_rates = {}; 
-
-                if (saved_data.length > 0) {
-                    saved_data.forEach(item => {
-                        months.forEach(m => {
-                            if (item[m + '_rate'] && !header_rates[m]) {
-                                header_rates[m] = item[m + '_rate'];
-                            }
-                        });
-                        add_row_to_dom(item);
-                    });
-                    months.forEach(m => {
-                        if (header_rates[m] > 0) {
-                            $(frm.fields_dict['custom_item_table'].wrapper)
-                                .find(`th[data-month="${m}"] .header-rate`)
-                                .text(`[${header_rates[m]}]`);
-                        }
-                    });
-                } else { add_row_to_dom(); }
-                save_table_data();
-            } catch (e) { tbody.empty(); add_row_to_dom(); }
+        function recalculate_sr_no() {
+            tbody.find('tr').each(function(index) { $(this).find('.sr-no').text(index + 1); });
         }
+
+        function save_table_data() {
+            let data_list = [];
+            tbody.find('tr').each(function() {
+                let row_obj = {};
+                $(this).find('.grid-input').each(function() {
+                    let fieldname = $(this).data('fieldname');
+                    let val = $(this).attr('type') === 'checkbox' ? ($(this).is(':checked') ? 1 : 0) : $(this).val();
+                    row_obj[fieldname] = val;
+                });
+                
+                let title_text = $(this).find('td[title]').first().attr('title') || '';
+                row_obj['previous_activity_date'] = title_text.replace('Previous Activity Date: ', '').replace('Install Date: ', '').replace('No Date Found', '').trim();
+                
+                data_list.push(row_obj);
+            });
+            frm.set_value('custom_fleet_data_json', JSON.stringify(data_list));
+            sync_comments_to_items(frm); 
+        }
+
+        tbody.on('change', '.reg-sync-input', function() {
+            let new_val = $(this).val();
+            let old_val = $(this).attr('data-original-reg');
+            let device_no = $(this).closest('tr').find('[data-fieldname="device_number"]').val();
+            
+            $.each(frm.doc.items || [], function(i, d) {
+                if (d.item_code == device_no && d.custom_registration_number == old_val) {
+                    frappe.model.set_value(d.doctype, d.name, 'custom_registration_number', new_val);
+                }
+            });
+            $(this).attr('data-original-reg', new_val);
+            save_table_data();
+        });
+
+        tbody.on('change', '.month-checkbox', function(e) {
+            let td = $(this).closest('td');
+            let tr = td.closest('tr');
+            let popup = td.find('.month-popup');
+            let hidden_decision = td.find('.hidden-month-decision');
+            let is_checked = $(this).is(':checked') ? 1 : 0;
+            
+            let device_number = tr.find('[data-fieldname="device_number"]').val();
+            let reg_number = tr.find('[data-fieldname="registration_number"]').val();
+            let month_key = $(this).data('fieldname');
+            let month_label = td.closest('table').find(`th[data-month="${month_key}"]`).contents().filter(function() { return this.nodeType == 3; }).text().trim();
+
+            let decision = is_checked ? 'Chargeable' : '';
+            
+            manage_subscription_item(frm, is_checked, device_number, reg_number, month_label, decision);
+
+            $('.decision-popup').fadeOut(200);
+            if (!is_checked) {
+                hidden_decision.val(''); 
+                popup.find('.month-decision-radio').prop('checked', false); 
+                td.css('background-color', '#ffffff'); 
+                popup.fadeIn(200);
+            } else {
+                hidden_decision.val('Chargeable');
+                popup.find('input[value="Chargeable"]').prop('checked', true);
+                td.css('background-color', '#ffffff');
+                popup.fadeOut(200);
+            }
+            save_table_data();
+        });
+
+        tbody.on('click', '.month-decision-radio', function() {
+            let td = $(this).closest('td');
+            let tr = td.closest('tr');
+            let hidden_decision = td.find('.hidden-month-decision');
+            let selected_decision = $(this).val(); 
+            
+            hidden_decision.val(selected_decision); 
+            td.css('background-color', get_bg_color(selected_decision));
+            
+            // Item Table Decision Sync
+            let device_number = tr.find('[data-fieldname="device_number"]').val();
+            let reg_number = tr.find('[data-fieldname="registration_number"]').val();
+            let month_key = td.find('.month-checkbox').data('fieldname');
+            let month_label = td.closest('table').find(`th[data-month="${month_key}"]`).contents().filter(function() { return this.nodeType == 3; }).text().trim();
+            
+            update_item_decision(frm, device_number, reg_number, month_label, selected_decision);
+
+            save_table_data();
+            td.find('.month-popup').fadeOut(200);
+        });
+
+        $(document).off('click.hide_fleet_popup').on('click.hide_fleet_popup', function(e) {
+            if (!$(e.target).closest('.decision-popup').length && !$(e.target).hasClass('month-checkbox')) {
+                $('.decision-popup').fadeOut(200);
+            }
+        });
+
+        tbody.on('change input', '.grid-input', function() { save_table_data(); });
+
+        tbody.empty();
+        let header_rates = {}; 
+
+        saved_data.forEach(item => {
+            months.forEach(m => {
+                if (item[m + '_rate'] && !header_rates[m]) {
+                    header_rates[m] = item[m + '_rate'];
+                }
+            });
+            add_row_to_dom(item);
+        });
+        
+        months.forEach(m => {
+            if (header_rates[m] > 0) {
+                $(frm.fields_dict['custom_item_table'].wrapper)
+                    .find(`th[data-month="${m}"] .header-rate`)
+                    .text(`[${header_rates[m]}]`);
+            }
+        });
+        save_table_data();
     },
 
     // ==============================================================
     // 5. CROSS BORDER (CB) FLEET BILLING TABLE
     // ==============================================================
     render_cb_fleet_table: function(frm) {
+        if (!frm.fields_dict['custom_cb_fleet_table_html']) return;
+
+        let saved_data = [];
+        try { saved_data = JSON.parse(frm.doc.custom_cb_fleet_data_json || '[]'); } catch(e) {}
+        
+        if (saved_data.length === 0) {
+            $(frm.fields_dict['custom_cb_fleet_table_html'].wrapper).empty();
+            return;
+        }
+
         let dynamic_months = [];
         let month_headers_html = '';
         let months = []; 
@@ -623,6 +723,29 @@ frappe.ui.form.on('Sales Invoice', {
         }
 
         let table_html = `
+            <style>
+              .erp-grid-wrapper { 
+                   overflow-x: auto;
+                   border: 1px solid #d1d8dd; 
+                   border-radius: 4px; 
+                   margin-top: 10px; 
+                   overflow-y: visible; 
+                   padding-top: 10px; 
+                   padding-bottom: 90px;
+              }
+              .erp-grid-table { width: 100%; border-collapse: collapse; white-space: nowrap; font-size: 12px; }
+              .erp-grid-table td { border: 1px solid #d1d8dd; padding: 6px; text-align: center; vertical-align: middle; transition: background-color 0.3s ease; }
+              .erp-grid-table th { background-color: #ffff00 !important; font-weight: bold; color: black; border: 1px solid #d1d8dd; padding: 8px 6px; text-align: center; vertical-align: top; }
+              .header-rate { display: block; font-size: 11px; font-weight: 900; color: #333; margin-top: 3px; }
+              .erp-grid-table input:not([type="checkbox"]) { width: 100%; border: 1px solid transparent; background: transparent; text-align: center; font-size: 12px; padding: 4px 0; outline: none; }
+              .erp-grid-table input:not([type="checkbox"])[readonly]:focus { border: 1px solid transparent; background: transparent; }
+              .erp-grid-table input[type="checkbox"] { cursor: pointer; width: 14px; height: 14px; margin: 0; }
+              .decision-popup { position: absolute; top: 35px; left: 50%; transform: translateX(-50%); background: #ffffff; padding: 6px; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.15); border: 1px solid #5e9ed6; z-index: 100; width: 170px; text-align: left; display: none; }
+              .decision-label { display: flex; align-items: center; font-size: 12px; margin-bottom: 2px; cursor: pointer; padding: 6px 8px; border-radius: 5px; }
+              .decision-label:hover { background-color: #f0f4f8; }
+              .color-indicator { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; border: 1px solid #d1d8dd; }
+            </style>
+            <h4 style="font-weight: bold; margin-bottom: 10px; color: #333;">CB</h4>
             <div class="cb-erp-grid-wrapper erp-grid-wrapper">
               <table class="erp-grid-table">
                 <thead>
@@ -642,191 +765,192 @@ frappe.ui.form.on('Sales Invoice', {
             </div>
         `;
 
-        if (frm.fields_dict['custom_cb_fleet_table_html']) {
-            $(frm.fields_dict['custom_cb_fleet_table_html'].wrapper).html(table_html);
-            let tbody = $(frm.fields_dict['custom_cb_fleet_table_html'].wrapper).find('#cb-fleet-billing-body');
+        $(frm.fields_dict['custom_cb_fleet_table_html'].wrapper).html(table_html);
+        let tbody = $(frm.fields_dict['custom_cb_fleet_table_html'].wrapper).find('#cb-fleet-billing-body');
 
-            let get_bg_color = function(val) {
-                if (val === 'Under Warranty') return '#fff3cd'; 
-                if (val === 'Waived') return '#d1ecf1';        
-                if (val === 'Non Chargeable') return '#f8d7da';  
-                return '#ffffff';                                        
-            };
+        let get_bg_color = function(val) {
+            if (val === 'Under Warranty') return '#fff3cd'; 
+            if (val === 'Waived') return '#d1ecf1';        
+            if (val === 'Non Chargeable') return '#f8d7da';  
+            return '#ffffff';                                        
+        };
 
-            let add_row_to_dom = function(data = {}) {
-                let row_idx = Math.random().toString(36).substring(7);
-                let row_months_html = '';
-                
-                // NAYA LOGIC: 'Previous Activity Date: ' Text Add Kiya (CB Table)
-                let tooltip_text = data.previous_activity_date 
-                    ? `Previous Activity Date: ${data.previous_activity_date}` 
-                    : (data.date_of_installation ? `Install Date: ${data.date_of_installation}` : 'No Date Found');
+        let add_row_to_dom = function(data = {}) {
+            let row_idx = Math.random().toString(36).substring(7);
+            let row_months_html = '';
+            
+            let tooltip_text = data.previous_activity_date 
+                ? `Previous Activity Date: ${data.previous_activity_date}` 
+                : (data.date_of_installation ? `Install Date: ${data.date_of_installation}` : 'No Date Found');
 
-                dynamic_months.forEach(m_obj => {
-                    let m = m_obj.key;
-                    let is_m_checked = data[m] ? 'checked' : '';
-                    let m_decision = data[m + '_decision'] || (data[m] ? 'Chargeable' : '');
-                    let m_bg = get_bg_color(m_decision);
-                    let m_rate = data[m + '_rate'] !== undefined ? data[m + '_rate'] : '';
+            dynamic_months.forEach(m_obj => {
+                let m = m_obj.key;
+                let is_m_checked = data[m] ? 'checked' : '';
+                let m_decision = data[m + '_decision'] || (data[m] ? 'Chargeable' : '');
+                let m_bg = get_bg_color(m_decision);
+                let m_rate = data[m + '_rate'] !== undefined ? data[m + '_rate'] : '';
 
-                    row_months_html += `
-                        <td style="position: relative; background-color: ${m_bg}; text-align: center;" title="${tooltip_text}">
-                            <input type="hidden" class="cb-grid-input" data-fieldname="${m}_rate" value="${m_rate}">
-                            <input type="checkbox" class="cb-grid-input month-checkbox" data-fieldname="${m}" ${is_m_checked}>
-                            
-                            <div class="decision-popup month-popup" style="display: none;">
-                                <input type="hidden" class="cb-grid-input hidden-month-decision" data-fieldname="${m}_decision" value="${m_decision}">
-                                <label class="decision-label disabled-option" style="opacity: 0.5;">
-                                    <input type="radio" name="cb_${m}_dec_${row_idx}" class="month-decision-radio" value="Chargeable" ${m_decision == 'Chargeable' ? 'checked' : ''} disabled> 
-                                    <span class="color-indicator" style="background-color: #ffffff;"></span> Chargeable
-                                </label>
-                                <label class="decision-label">
-                                    <input type="radio" name="cb_${m}_dec_${row_idx}" class="month-decision-radio" value="Waived" ${m_decision == 'Waived' ? 'checked' : ''}> 
-                                    <span class="color-indicator" style="background-color: #d1ecf1;"></span> Waived
-                                </label>
-                                <label class="decision-label">
-                                    <input type="radio" name="cb_${m}_dec_${row_idx}" class="month-decision-radio" value="Non Chargeable" ${m_decision == 'Non Chargeable' ? 'checked' : ''}> 
-                                    <span class="color-indicator" style="background-color: #f8d7da;"></span> Non Chargeable
-                                </label>
-                            </div>
-                        </td>
-                    `;
-                });
-
-                let row = $(`
-                    <tr>
-                        <td class="sr-no"></td>
-                        <td><input type="text" class="cb-grid-input" data-fieldname="device_number" value="${data.device_number || ''}" readonly tabindex="-1"></td>
-                        <td><input type="text" class="cb-grid-input" data-fieldname="fleet_number" value="${data.fleet_number || ''}"></td>
-                        <td><input type="text" class="cb-grid-input cb-reg-sync-input" data-fieldname="registration_number" data-original-reg="${data.registration_number || ''}" value="${data.registration_number || ''}"></td>
-                        <td><input type="date" class="cb-grid-input" data-fieldname="date_of_installation" value="${data.date_of_installation || ''}" readonly tabindex="-1"></td>
-                        <td><input type="text" class="cb-grid-input" data-fieldname="vehicle_no" value="${data.vehicle_no || ''}" readonly tabindex="-1"></td>
-                        ${row_months_html}
-                        <td><input type="text" class="cb-grid-input" data-fieldname="comments" value="${data.comments || ''}"></td>
-                    </tr>
-                `);
-                tbody.append(row);
-                recalculate_sr_no();
-            };
-
-            function recalculate_sr_no() {
-                tbody.find('tr').each(function(index) { $(this).find('.sr-no').text(index + 1); });
-            }
-
-            function save_table_data() {
-                let data_list = [];
-                tbody.find('tr').each(function() {
-                    let row_obj = {};
-                    $(this).find('.cb-grid-input').each(function() {
-                        let fieldname = $(this).data('fieldname');
-                        let val = $(this).attr('type') === 'checkbox' ? ($(this).is(':checked') ? 1 : 0) : $(this).val();
-                        row_obj[fieldname] = val;
-                    });
-
-                    // Fixed logic for extracting the date accurately
-                    let title_text = $(this).find('td[title]').first().attr('title') || '';
-                    row_obj['previous_activity_date'] = title_text.replace('Previous Activity Date: ', '').replace('Install Date: ', '').replace('No Date Found', '').trim();
-                    
-                    data_list.push(row_obj);
-                });
-                frm.set_value('custom_cb_fleet_data_json', JSON.stringify(data_list));
-                sync_comments_to_items(frm); 
-            }
-
-            tbody.on('change', '.cb-reg-sync-input', function() {
-                let new_val = $(this).val();
-                let old_val = $(this).attr('data-original-reg');
-                let device_no = $(this).closest('tr').find('[data-fieldname="device_number"]').val();
-                
-                $.each(frm.doc.items || [], function(i, d) {
-                    if (d.item_code == device_no && d.custom_registration_number == old_val) {
-                        frappe.model.set_value(d.doctype, d.name, 'custom_registration_number', new_val);
-                    }
-                });
-                $(this).attr('data-original-reg', new_val);
-                save_table_data();
+                row_months_html += `
+                    <td style="position: relative; background-color: ${m_bg}; text-align: center;" title="${tooltip_text}">
+                        <input type="hidden" class="cb-grid-input" data-fieldname="${m}_rate" value="${m_rate}">
+                        <input type="checkbox" class="cb-grid-input month-checkbox" data-fieldname="${m}" ${is_m_checked}>
+                        
+                        <div class="decision-popup month-popup" style="display: none;">
+                            <input type="hidden" class="cb-grid-input hidden-month-decision" data-fieldname="${m}_decision" value="${m_decision}">
+                            <label class="decision-label disabled-option" style="opacity: 0.5;">
+                                <input type="radio" name="cb_${m}_dec_${row_idx}" class="month-decision-radio" value="Chargeable" ${m_decision == 'Chargeable' ? 'checked' : ''} disabled> 
+                                <span class="color-indicator" style="background-color: #ffffff;"></span> Chargeable
+                            </label>
+                            <label class="decision-label">
+                                <input type="radio" name="cb_${m}_dec_${row_idx}" class="month-decision-radio" value="Waived" ${m_decision == 'Waived' ? 'checked' : ''}> 
+                                <span class="color-indicator" style="background-color: #d1ecf1;"></span> Waived
+                            </label>
+                            <label class="decision-label">
+                                <input type="radio" name="cb_${m}_dec_${row_idx}" class="month-decision-radio" value="Non Chargeable" ${m_decision == 'Non Chargeable' ? 'checked' : ''}> 
+                                <span class="color-indicator" style="background-color: #f8d7da;"></span> Non Chargeable
+                            </label>
+                        </div>
+                    </td>
+                `;
             });
 
-            // CB CHECKBOX LOGIC (ADD/REMOVE ITEM)
-            tbody.on('change', '.month-checkbox', function(e) {
-                let td = $(this).closest('td');
-                let tr = td.closest('tr');
-                let popup = td.find('.month-popup');
-                let hidden_decision = td.find('.hidden-month-decision');
-                let is_checked = $(this).is(':checked') ? 1 : 0;
-                
-                let device_number = tr.find('[data-fieldname="device_number"]').val();
-                let reg_number = tr.find('[data-fieldname="registration_number"]').val();
-                let month_key = $(this).data('fieldname');
-                
-                let month_label = td.closest('table').find(`th[data-month="${month_key}"]`).contents().filter(function() { return this.nodeType == 3; }).text().trim();
+            let row = $(`
+                <tr>
+                    <td class="sr-no"></td>
+                    <td><input type="text" class="cb-grid-input" data-fieldname="device_number" value="${data.device_number || ''}" readonly tabindex="-1"></td>
+                    <td><input type="text" class="cb-grid-input" data-fieldname="fleet_number" value="${data.fleet_number || ''}"></td>
+                    <td><input type="text" class="cb-grid-input cb-reg-sync-input" data-fieldname="registration_number" data-original-reg="${data.registration_number || ''}" value="${data.registration_number || ''}"></td>
+                    <td><input type="date" class="cb-grid-input" data-fieldname="date_of_installation" value="${data.date_of_installation || ''}" readonly tabindex="-1"></td>
+                    <td><input type="text" class="cb-grid-input" data-fieldname="vehicle_no" value="${data.vehicle_no || ''}" readonly tabindex="-1"></td>
+                    ${row_months_html}
+                    <td><input type="text" class="cb-grid-input" data-fieldname="comments" value="${data.comments || ''}"></td>
+                </tr>
+            `);
+            tbody.append(row);
+            recalculate_sr_no();
+        };
 
-                manage_subscription_item(frm, is_checked, device_number, reg_number, month_label);
-
-                $('.decision-popup').fadeOut(200);
-                if (!is_checked) {
-                    hidden_decision.val(''); 
-                    popup.find('.month-decision-radio').prop('checked', false); 
-                    td.css('background-color', '#ffffff'); 
-                    popup.fadeIn(200);
-                } else {
-                    hidden_decision.val('Chargeable');
-                    popup.find('input[value="Chargeable"]').prop('checked', true);
-                    td.css('background-color', '#ffffff');
-                    popup.fadeOut(200);
-                }
-                save_table_data();
-            });
-
-            tbody.on('click', '.month-decision-radio', function() {
-                let td = $(this).closest('td');
-                let hidden_decision = td.find('.hidden-month-decision');
-                let selected_decision = $(this).val(); 
-                
-                hidden_decision.val(selected_decision); 
-                td.css('background-color', get_bg_color(selected_decision));
-                save_table_data();
-                td.find('.month-popup').fadeOut(200);
-            });
-
-            $(document).off('click.hide_cb_fleet_popup').on('click.hide_cb_fleet_popup', function(e) {
-                if (!$(e.target).closest('.decision-popup').length && !$(e.target).hasClass('month-checkbox')) {
-                    $('.decision-popup').fadeOut(200);
-                }
-            });
-
-            tbody.on('change input', '.cb-grid-input', function() { save_table_data(); });
-
-            try {
-                let saved_data = JSON.parse(frm.doc.custom_cb_fleet_data_json || '[]');
-                tbody.empty();
-                let header_rates = {}; 
-
-                if (saved_data.length > 0) {
-                    saved_data.forEach(item => {
-                        months.forEach(m => {
-                            if (item[m + '_rate'] && !header_rates[m]) {
-                                header_rates[m] = item[m + '_rate'];
-                            }
-                        });
-                        add_row_to_dom(item);
-                    });
-                    months.forEach(m => {
-                        if (header_rates[m] > 0) {
-                            $(frm.fields_dict['custom_cb_fleet_table_html'].wrapper)
-                                .find(`th[data-month="${m}"] .header-rate`)
-                                .text(`[${header_rates[m]}]`);
-                        }
-                    });
-                } else { add_row_to_dom(); }
-                save_table_data();
-            } catch (e) { tbody.empty(); add_row_to_dom(); }
+        function recalculate_sr_no() {
+            tbody.find('tr').each(function(index) { $(this).find('.sr-no').text(index + 1); });
         }
+
+        function save_table_data() {
+            let data_list = [];
+            tbody.find('tr').each(function() {
+                let row_obj = {};
+                $(this).find('.cb-grid-input').each(function() {
+                    let fieldname = $(this).data('fieldname');
+                    let val = $(this).attr('type') === 'checkbox' ? ($(this).is(':checked') ? 1 : 0) : $(this).val();
+                    row_obj[fieldname] = val;
+                });
+
+                let title_text = $(this).find('td[title]').first().attr('title') || '';
+                row_obj['previous_activity_date'] = title_text.replace('Previous Activity Date: ', '').replace('Install Date: ', '').replace('No Date Found', '').trim();
+                
+                data_list.push(row_obj);
+            });
+            frm.set_value('custom_cb_fleet_data_json', JSON.stringify(data_list));
+            sync_comments_to_items(frm); 
+        }
+
+        tbody.on('change', '.cb-reg-sync-input', function() {
+            let new_val = $(this).val();
+            let old_val = $(this).attr('data-original-reg');
+            let device_no = $(this).closest('tr').find('[data-fieldname="device_number"]').val();
+            
+            $.each(frm.doc.items || [], function(i, d) {
+                if (d.item_code == device_no && d.custom_registration_number == old_val) {
+                    frappe.model.set_value(d.doctype, d.name, 'custom_registration_number', new_val);
+                }
+            });
+            $(this).attr('data-original-reg', new_val);
+            save_table_data();
+        });
+
+        tbody.on('change', '.month-checkbox', function(e) {
+            let td = $(this).closest('td');
+            let tr = td.closest('tr');
+            let popup = td.find('.month-popup');
+            let hidden_decision = td.find('.hidden-month-decision');
+            let is_checked = $(this).is(':checked') ? 1 : 0;
+            
+            let device_number = tr.find('[data-fieldname="device_number"]').val();
+            let reg_number = tr.find('[data-fieldname="registration_number"]').val();
+            let month_key = $(this).data('fieldname');
+            let month_label = td.closest('table').find(`th[data-month="${month_key}"]`).contents().filter(function() { return this.nodeType == 3; }).text().trim();
+
+            let decision = is_checked ? 'Chargeable' : '';
+            
+            manage_subscription_item(frm, is_checked, device_number, reg_number, month_label, decision);
+
+            $('.decision-popup').fadeOut(200);
+            if (!is_checked) {
+                hidden_decision.val(''); 
+                popup.find('.month-decision-radio').prop('checked', false); 
+                td.css('background-color', '#ffffff'); 
+                popup.fadeIn(200);
+            } else {
+                hidden_decision.val('Chargeable');
+                popup.find('input[value="Chargeable"]').prop('checked', true);
+                td.css('background-color', '#ffffff');
+                popup.fadeOut(200);
+            }
+            save_table_data();
+        });
+
+        tbody.on('click', '.month-decision-radio', function() {
+            let td = $(this).closest('td');
+            let tr = td.closest('tr');
+            let hidden_decision = td.find('.hidden-month-decision');
+            let selected_decision = $(this).val(); 
+            
+            hidden_decision.val(selected_decision); 
+            td.css('background-color', get_bg_color(selected_decision));
+            
+            // Item Table Decision Sync
+            let device_number = tr.find('[data-fieldname="device_number"]').val();
+            let reg_number = tr.find('[data-fieldname="registration_number"]').val();
+            let month_key = td.find('.month-checkbox').data('fieldname');
+            let month_label = td.closest('table').find(`th[data-month="${month_key}"]`).contents().filter(function() { return this.nodeType == 3; }).text().trim();
+            
+            update_item_decision(frm, device_number, reg_number, month_label, selected_decision);
+
+            save_table_data();
+            td.find('.month-popup').fadeOut(200);
+        });
+
+        $(document).off('click.hide_cb_fleet_popup').on('click.hide_cb_fleet_popup', function(e) {
+            if (!$(e.target).closest('.decision-popup').length && !$(e.target).hasClass('month-checkbox')) {
+                $('.decision-popup').fadeOut(200);
+            }
+        });
+
+        tbody.on('change input', '.cb-grid-input', function() { save_table_data(); });
+
+        tbody.empty();
+        let header_rates = {}; 
+
+        saved_data.forEach(item => {
+            months.forEach(m => {
+                if (item[m + '_rate'] && !header_rates[m]) {
+                    header_rates[m] = item[m + '_rate'];
+                }
+            });
+            add_row_to_dom(item);
+        });
+        
+        months.forEach(m => {
+            if (header_rates[m] > 0) {
+                $(frm.fields_dict['custom_cb_fleet_table_html'].wrapper)
+                    .find(`th[data-month="${m}"] .header-rate`)
+                    .text(`[${header_rates[m]}]`);
+            }
+        });
+        save_table_data();
     }
 });
-
 // ==============================================================
-// 6. CHILD TABLE EVENTS 
+// 6. CHILD TABLE EVENTS (GLOBAL RATE CONTROL FOR INSTALLATION & SUBSCRIPTION)
 // ==============================================================
 frappe.ui.form.on('Sales Invoice Item', {
     item_code: function(frm, cdt, cdn) {
@@ -842,9 +966,24 @@ frappe.ui.form.on('Sales Invoice Item', {
         frm.trigger('split_vehicles_directly_from_items');
         frm.trigger('render_custom_fleet_table');
         frm.trigger('render_cb_fleet_table');
+    },
+    custom_billing_decision: function(frm, cdt, cdn) {
+        let row = frappe.get_doc(cdt, cdn);
+        
+        // Jab bhi Waived ya Non-Chargeable ho -> Rate 0 karo
+        if (['Waived', 'Non Chargeable', 'Under Warranty'].includes(row.custom_billing_decision)) {
+            frappe.model.set_value(cdt, cdn, 'rate', 0);
+        } 
+        // Jab checkbox wapas TICK ho kar 'Chargeable' aaye -> Rate 30 (price_list_rate) wapas set karo
+        else if (row.custom_billing_decision === 'Chargeable') {
+            // flt() ensure karega ki proper number (30) aaye
+            let base_rate = flt(row.price_list_rate);
+            if (base_rate > 0) {
+                frappe.model.set_value(cdt, cdn, 'rate', base_rate);
+            }
+        }
     }
 });
-
 // ==============================================================
 // 7. SYNC COMMENTS TO MAIN ITEMS TABLE (Device + Reg No Check)
 // ==============================================================
@@ -888,7 +1027,43 @@ function sync_comments_to_items(frm) {
 // ==============================================================
 // 8. ADD/REMOVE SUBSCRIPTION ITEM AUTOMATICALLY
 // ==============================================================
-function manage_subscription_item(frm, is_checked, device_no, reg_no, month_label) {
+
+// Naya Helper function jo "July" aur "Jul-26" dono ko match kar lega
+function is_matching_sub_row(d, device_no, reg_no, month_label) {
+    if (d.item_code != device_no) return false;
+    if (d.custom_registration_number != reg_no) return false;
+
+    let doc_month = (d.custom_billing_month_label || "").trim().toLowerCase();
+    let grid_month = (month_label || "").trim().toLowerCase();
+
+    // Exact match (agar perfect spelling ho)
+    if (doc_month === grid_month) return true;
+
+    // Partial match (e.g. 'july' aur 'jul-26' dono 'jul' se start hote hain)
+    if (doc_month.length >= 3 && grid_month.length >= 3) {
+        if (doc_month.substring(0, 3) === grid_month.substring(0, 3)) {
+            // Confirm karne ke liye check karo ki ye subscription row hi hai
+            if (d.custom_is_subscription == 1) return true;
+        }
+    }
+    return false;
+}
+
+function update_item_decision(frm, device_no, reg_no, month_label, decision) {
+    if (!device_no) return;
+    
+    // Purana direct filter hata kar naya helper function lagaya
+    let existing_row = (frm.doc.items || []).find(d => 
+        is_matching_sub_row(d, device_no, reg_no, month_label)
+    );
+    
+    if (existing_row) {
+        frappe.model.set_value(existing_row.doctype, existing_row.name, 'custom_is_subscription', 1);
+        frappe.model.set_value(existing_row.doctype, existing_row.name, 'custom_billing_decision', decision);
+    }
+}
+
+function manage_subscription_item(frm, is_checked, device_no, reg_no, month_label, decision) {
     if (!device_no) {
         frappe.msgprint(__("Device Number missing for Registration No: ") + reg_no);
         return;
@@ -896,25 +1071,47 @@ function manage_subscription_item(frm, is_checked, device_no, reg_no, month_labe
     
     let items = frm.doc.items || [];
     
+    // Naya helper function use kiya row dhundhne ke liye
     let existing_row = items.find(d => 
-        d.item_code == device_no && 
-        d.custom_registration_number == reg_no && 
-        d.custom_billing_month_label == month_label
+        is_matching_sub_row(d, device_no, reg_no, month_label)
     );
 
     if (is_checked && !existing_row) {
         let new_row = frm.add_child("items");
         
         new_row.custom_registration_number = reg_no;
-        new_row.custom_billing_month_label = month_label;
+        new_row.custom_billing_month_label = month_label; 
         new_row.qty = 1;
         
         frm.refresh_field("items");
-        frappe.model.set_value(new_row.doctype, new_row.name, 'item_code', device_no);
         
-    } else if (!is_checked && existing_row) {
-        frappe.model.clear_doc(existing_row.doctype, existing_row.name);
-        frm.refresh_field("items");
-        frm.script_manager.trigger("items_remove", existing_row.doctype, existing_row.name);
+        frappe.model.set_value(new_row.doctype, new_row.name, 'item_code', device_no).then(() => {
+            frappe.model.set_value(new_row.doctype, new_row.name, 'custom_is_subscription', 1);
+            frappe.model.set_value(new_row.doctype, new_row.name, 'custom_billing_decision', 'Chargeable');
+        });
+        
+    } 
+    else if (!is_checked && existing_row) {
+        frappe.model.set_value(existing_row.doctype, existing_row.name, 'custom_billing_decision', decision);
+    } 
+    else if (is_checked && existing_row) {
+        frappe.model.set_value(existing_row.doctype, existing_row.name, 'custom_billing_decision', 'Chargeable');
+    }
+}
+
+// ==============================================================
+// 9. UPDATE INSTALLATION DECISION TO MAIN ITEM TABLE
+// ==============================================================
+function update_installation_item_decision(frm, item_code, reg_no, decision) {
+    if (!item_code) return;
+    
+    let existing_row = (frm.doc.items || []).find(d => 
+        d.item_code == item_code && 
+        d.custom_registration_number == reg_no && 
+        d.custom_is_installation == 1
+    );
+    
+    if (existing_row) {
+        frappe.model.set_value(existing_row.doctype, existing_row.name, 'custom_billing_decision', decision);
     }
 }
