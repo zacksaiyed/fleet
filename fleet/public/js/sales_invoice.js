@@ -39,8 +39,7 @@ frappe.ui.form.on('Sales Invoice', {
         frm.trigger('render_custom_fleet_table');
         frm.trigger('render_cb_fleet_table');
     },
-
-    // ==============================================================
+// ==============================================================
     // 2. DIRECT SPLITTING FROM ITEMS TABLE
     // ==============================================================
     split_vehicles_directly_from_items: function(frm) {
@@ -69,24 +68,28 @@ frappe.ui.form.on('Sales Invoice', {
 
             if (v_type === "LOCAL") {
                 if (!local_data_map[reg_no]) {
+                    let old_row = old_local_map[reg_no];
                     let new_row = { 
                         device_number: item_code, 
                         registration_number: reg_no, 
-                        vehicle_no: reg_no,
+                        // Yahan change kiya hai: Agar purana vehicle no hai toh wahi rakho, warna reg_no dalo
+                        vehicle_no: (old_row && old_row.vehicle_no) ? old_row.vehicle_no : reg_no,
                         previous_activity_date: prev_act_date 
                     };
-                    local_data_map[reg_no] = old_local_map[reg_no] ? Object.assign({}, old_local_map[reg_no], new_row) : new_row;
+                    local_data_map[reg_no] = old_row ? Object.assign({}, old_row, new_row) : new_row;
                 }
             } 
             else if (v_type === "CB") {
                 if (!cb_data_map[reg_no]) {
+                    let old_row = old_cb_map[reg_no];
                     let new_row = { 
                         device_number: item_code, 
                         registration_number: reg_no, 
-                        vehicle_no: reg_no,
+                        // Yahan bhi same change kiya hai
+                        vehicle_no: (old_row && old_row.vehicle_no) ? old_row.vehicle_no : reg_no,
                         previous_activity_date: prev_act_date 
                     };
-                    cb_data_map[reg_no] = old_cb_map[reg_no] ? Object.assign({}, old_cb_map[reg_no], new_row) : new_row;
+                    cb_data_map[reg_no] = old_row ? Object.assign({}, old_row, new_row) : new_row;
                 }
             }
         });
@@ -194,7 +197,6 @@ frappe.ui.form.on('Sales Invoice', {
                         row_obj[col] = val;
                     });
                     
-                    // Saath me original rate bhi save karke rakho
                     let rate_input = $(this).find('.inst-amount');
                     row_obj['original_rate'] = rate_input.attr('data-original-val');
                     
@@ -322,7 +324,6 @@ frappe.ui.form.on('Sales Invoice', {
                 update_group_totals();
             };
 
-            // Installation Checkbox Untick / Tick Events
             tbody.off('change', '.inst-checkbox').on('change', '.inst-checkbox', function(e) {
                 let td = $(this).closest('td');
                 let tr = td.closest('tr');
@@ -345,19 +346,16 @@ frappe.ui.form.on('Sales Invoice', {
                     popup.find('input[value="Chargeable"]').prop('checked', true);
                     td.css('background-color', '#ffffff');
                     
-                    // Original rate wapas grid me laayein
                     let orig = rate_input.attr('data-original-val') || 0;
                     rate_input.val(orig);
                     popup.fadeOut(200);
                     
-                    // Main Item Table me update trigger karein (Section 6 automatically rate theek karega)
                     update_installation_item_decision(frm, item_code, license_plate, 'Chargeable');
                 }
                 save_installation_data();
                 update_group_totals();
             });
 
-            // Installation Decision Radio Select
             tbody.off('click', '.inst-decision-radio').on('click', '.inst-decision-radio', function() {
                 let td = $(this).closest('td');
                 let tr = td.closest('tr');
@@ -369,9 +367,8 @@ frappe.ui.form.on('Sales Invoice', {
                 td.css('background-color', get_bg_color(selected_decision));
                 
                 if (rate_input.val() > 0) { rate_input.attr('data-original-val', rate_input.val()); }
-                rate_input.val(0); // Grid me rate 0 set kiya
+                rate_input.val(0); 
                 
-                // Item Table me Sync
                 let item_code = tr.find('[data-col="code"]').val();
                 let license_plate = tr.find('[data-col="license_plate"]').val();
                 update_installation_item_decision(frm, item_code, license_plate, selected_decision);
@@ -381,7 +378,6 @@ frappe.ui.form.on('Sales Invoice', {
                 td.find('.inst-popup').fadeOut(200);
             });
 
-            // Outside click to hide popup
             $(document).off('click.hide_inst_popup').on('click.hide_inst_popup', function(e) {
                 if (!$(e.target).closest('.decision-popup').length && !$(e.target).hasClass('inst-checkbox')) {
                     $('.inst-popup').fadeOut(200);
@@ -410,7 +406,7 @@ frappe.ui.form.on('Sales Invoice', {
     },
 
     // ==============================================================
-    // 4. FLEET BILLING (LOCAL TABLE)
+    // 4. FLEET BILLING (LOCAL TABLE) - PAGINATION ADDED
     // ==============================================================
     render_custom_fleet_table: function(frm) {
         if (!frm.fields_dict['custom_item_table']) return;
@@ -422,6 +418,11 @@ frappe.ui.form.on('Sales Invoice', {
             $(frm.fields_dict['custom_item_table'].wrapper).empty();
             return;
         }
+
+        if (window.fleet_current_page === undefined) {
+            window.fleet_current_page = 1;
+        }
+        let page_size = 50;
 
         let dynamic_months = [];
         let month_headers_html = '';
@@ -454,15 +455,7 @@ frappe.ui.form.on('Sales Invoice', {
 
         let table_html = `
             <style>
-              .erp-grid-wrapper { 
-                   overflow-x: auto;
-                   border: 1px solid #d1d8dd; 
-                   border-radius: 4px; 
-                   margin-top: 10px; 
-                   overflow-y: visible; 
-                   padding-top: 10px; 
-                   padding-bottom: 90px;
-              }
+              .erp-grid-wrapper { overflow-x: auto; border: 1px solid #d1d8dd; border-radius: 4px; margin-top: 10px; overflow-y: visible; padding-top: 10px; padding-bottom: 90px; }
               .erp-grid-table { width: 100%; border-collapse: collapse; white-space: nowrap; font-size: 12px; }
               .erp-grid-table td { border: 1px solid #d1d8dd; padding: 6px; text-align: center; vertical-align: middle; transition: background-color 0.3s ease; }
               .erp-grid-table th { background-color: #ffff00 !important; font-weight: bold; color: black; border: 1px solid #d1d8dd; padding: 8px 6px; text-align: center; vertical-align: top; }
@@ -474,6 +467,9 @@ frappe.ui.form.on('Sales Invoice', {
               .decision-label { display: flex; align-items: center; font-size: 12px; margin-bottom: 2px; cursor: pointer; padding: 6px 8px; border-radius: 5px; }
               .decision-label:hover { background-color: #f0f4f8; }
               .color-indicator { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; border: 1px solid #d1d8dd; }
+              .fleet-pagination { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; padding: 5px 10px; background: #f8f9fa; border: 1px solid #d1d8dd; border-radius: 4px; }
+              .fleet-pagination button { padding: 4px 12px; font-size: 12px; }
+              .fleet-pagination span { font-weight: 500; font-size: 12px; color: #333; }
             </style>
             <h4 style="font-weight: bold; margin-bottom: 10px; color: #333;">Local</h4>
             <div class="erp-grid-wrapper">
@@ -493,6 +489,12 @@ frappe.ui.form.on('Sales Invoice', {
                 <tbody id="fleet-billing-body"></tbody>
               </table>
             </div>
+            
+            <div class="fleet-pagination" id="fleet-pagination-bar" style="display: none;">
+                <button type="button" class="btn btn-xs btn-default" id="fleet-prev-page">← Previous</button>
+                <span id="fleet-page-info">Page 1 of 1</span>
+                <button type="button" class="btn btn-xs btn-default" id="fleet-next-page">Next →</button>
+            </div>
         `;
 
         $(frm.fields_dict['custom_item_table'].wrapper).html(table_html);
@@ -505,7 +507,7 @@ frappe.ui.form.on('Sales Invoice', {
             return '#ffffff';                                        
         };
 
-        let add_row_to_dom = function(data = {}) {
+        let add_row_to_dom = function(data = {}, global_idx) {
             let row_idx = Math.random().toString(36).substring(7);
             let row_months_html = '';
             
@@ -545,7 +547,7 @@ frappe.ui.form.on('Sales Invoice', {
             });
 
             let row = $(`
-                <tr>
+                <tr data-index="${global_idx}">
                     <td class="sr-no"></td>
                     <td><input type="text" class="grid-input" data-fieldname="device_number" value="${data.device_number || ''}" readonly tabindex="-1"></td>
                     <td><input type="text" class="grid-input" data-fieldname="fleet_number" value="${data.fleet_number || ''}"></td>
@@ -557,17 +559,23 @@ frappe.ui.form.on('Sales Invoice', {
                 </tr>
             `);
             tbody.append(row);
-            recalculate_sr_no();
         };
 
         function recalculate_sr_no() {
-            tbody.find('tr').each(function(index) { $(this).find('.sr-no').text(index + 1); });
+            tbody.find('tr').each(function() { 
+                let global_idx = $(this).data('index');
+                $(this).find('.sr-no').text(global_idx + 1); 
+            });
         }
 
         function save_table_data() {
             let data_list = [];
+            try { data_list = JSON.parse(frm.doc.custom_fleet_data_json || '[]'); } catch(e) {}
+            
             tbody.find('tr').each(function() {
                 let row_obj = {};
+                let global_idx = $(this).data('index');
+                
                 $(this).find('.grid-input').each(function() {
                     let fieldname = $(this).data('fieldname');
                     let val = $(this).attr('type') === 'checkbox' ? ($(this).is(':checked') ? 1 : 0) : $(this).val();
@@ -577,11 +585,45 @@ frappe.ui.form.on('Sales Invoice', {
                 let title_text = $(this).find('td[title]').first().attr('title') || '';
                 row_obj['previous_activity_date'] = title_text.replace('Previous Activity Date: ', '').replace('Install Date: ', '').replace('No Date Found', '').trim();
                 
-                data_list.push(row_obj);
+                if (global_idx !== undefined) {
+                    data_list[global_idx] = Object.assign({}, data_list[global_idx], row_obj);
+                }
             });
             frm.set_value('custom_fleet_data_json', JSON.stringify(data_list));
             sync_comments_to_items(frm); 
         }
+
+        let render_fleet_table_rows = function() {
+            tbody.empty();
+            let all_data = [];
+            try { all_data = JSON.parse(frm.doc.custom_fleet_data_json || '[]'); } catch(e) {}
+
+            let total_records = all_data.length;
+            let total_pages = Math.ceil(total_records / page_size) || 1;
+            
+            if (window.fleet_current_page > total_pages) window.fleet_current_page = total_pages;
+            if (window.fleet_current_page < 1) window.fleet_current_page = 1;
+
+            let start_idx = (window.fleet_current_page - 1) * page_size;
+            let end_idx = start_idx + page_size;
+            let page_data = all_data.slice(start_idx, end_idx);
+
+            page_data.forEach((data, local_idx) => {
+                let global_idx = start_idx + local_idx;
+                add_row_to_dom(data, global_idx);
+            });
+            
+            recalculate_sr_no();
+
+            if (total_records > page_size) {
+                $('#fleet-pagination-bar').show();
+                $('#fleet-page-info').text(`Page ${window.fleet_current_page} of ${total_pages} (Total: ${total_records})`);
+                $('#fleet-prev-page').prop('disabled', window.fleet_current_page === 1);
+                $('#fleet-next-page').prop('disabled', window.fleet_current_page === total_pages);
+            } else {
+                $('#fleet-pagination-bar').hide();
+            }
+        };
 
         tbody.on('change', '.reg-sync-input', function() {
             let new_val = $(this).val();
@@ -637,7 +679,6 @@ frappe.ui.form.on('Sales Invoice', {
             hidden_decision.val(selected_decision); 
             td.css('background-color', get_bg_color(selected_decision));
             
-            // Item Table Decision Sync
             let device_number = tr.find('[data-fieldname="device_number"]').val();
             let reg_number = tr.find('[data-fieldname="registration_number"]').val();
             let month_key = td.find('.month-checkbox').data('fieldname');
@@ -654,19 +695,28 @@ frappe.ui.form.on('Sales Invoice', {
                 $('.decision-popup').fadeOut(200);
             }
         });
+        
+        $('#fleet-prev-page').off('click').on('click', function() {
+            save_table_data();
+            if (window.fleet_current_page > 1) { window.fleet_current_page--; render_fleet_table_rows(); }
+        });
+
+        $('#fleet-next-page').off('click').on('click', function() {
+            save_table_data();
+            let all_data = JSON.parse(frm.doc.custom_fleet_data_json || '[]');
+            let total_pages = Math.ceil(all_data.length / page_size);
+            if (window.fleet_current_page < total_pages) { window.fleet_current_page++; render_fleet_table_rows(); }
+        });
 
         tbody.on('change input', '.grid-input', function() { save_table_data(); });
 
-        tbody.empty();
         let header_rates = {}; 
-
         saved_data.forEach(item => {
             months.forEach(m => {
                 if (item[m + '_rate'] && !header_rates[m]) {
                     header_rates[m] = item[m + '_rate'];
                 }
             });
-            add_row_to_dom(item);
         });
         
         months.forEach(m => {
@@ -676,11 +726,12 @@ frappe.ui.form.on('Sales Invoice', {
                     .text(`[${header_rates[m]}]`);
             }
         });
-        save_table_data();
+        
+        render_fleet_table_rows();
     },
 
     // ==============================================================
-    // 5. CROSS BORDER (CB) FLEET BILLING TABLE
+    // 5. CROSS BORDER (CB) FLEET BILLING TABLE - PAGINATION ADDED
     // ==============================================================
     render_cb_fleet_table: function(frm) {
         if (!frm.fields_dict['custom_cb_fleet_table_html']) return;
@@ -692,6 +743,11 @@ frappe.ui.form.on('Sales Invoice', {
             $(frm.fields_dict['custom_cb_fleet_table_html'].wrapper).empty();
             return;
         }
+
+        if (window.cb_fleet_current_page === undefined) {
+            window.cb_fleet_current_page = 1;
+        }
+        let page_size = 50;
 
         let dynamic_months = [];
         let month_headers_html = '';
@@ -724,15 +780,7 @@ frappe.ui.form.on('Sales Invoice', {
 
         let table_html = `
             <style>
-              .erp-grid-wrapper { 
-                   overflow-x: auto;
-                   border: 1px solid #d1d8dd; 
-                   border-radius: 4px; 
-                   margin-top: 10px; 
-                   overflow-y: visible; 
-                   padding-top: 10px; 
-                   padding-bottom: 90px;
-              }
+              .erp-grid-wrapper { overflow-x: auto; border: 1px solid #d1d8dd; border-radius: 4px; margin-top: 10px; overflow-y: visible; padding-top: 10px; padding-bottom: 90px; }
               .erp-grid-table { width: 100%; border-collapse: collapse; white-space: nowrap; font-size: 12px; }
               .erp-grid-table td { border: 1px solid #d1d8dd; padding: 6px; text-align: center; vertical-align: middle; transition: background-color 0.3s ease; }
               .erp-grid-table th { background-color: #ffff00 !important; font-weight: bold; color: black; border: 1px solid #d1d8dd; padding: 8px 6px; text-align: center; vertical-align: top; }
@@ -744,6 +792,9 @@ frappe.ui.form.on('Sales Invoice', {
               .decision-label { display: flex; align-items: center; font-size: 12px; margin-bottom: 2px; cursor: pointer; padding: 6px 8px; border-radius: 5px; }
               .decision-label:hover { background-color: #f0f4f8; }
               .color-indicator { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; border: 1px solid #d1d8dd; }
+              .cb-fleet-pagination { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; padding: 5px 10px; background: #f8f9fa; border: 1px solid #d1d8dd; border-radius: 4px; }
+              .cb-fleet-pagination button { padding: 4px 12px; font-size: 12px; }
+              .cb-fleet-pagination span { font-weight: 500; font-size: 12px; color: #333; }
             </style>
             <h4 style="font-weight: bold; margin-bottom: 10px; color: #333;">CB</h4>
             <div class="cb-erp-grid-wrapper erp-grid-wrapper">
@@ -763,6 +814,12 @@ frappe.ui.form.on('Sales Invoice', {
                 <tbody id="cb-fleet-billing-body"></tbody>
               </table>
             </div>
+            
+            <div class="cb-fleet-pagination" id="cb-fleet-pagination-bar" style="display: none;">
+                <button type="button" class="btn btn-xs btn-default" id="cb-fleet-prev-page">← Previous</button>
+                <span id="cb-fleet-page-info">Page 1 of 1</span>
+                <button type="button" class="btn btn-xs btn-default" id="cb-fleet-next-page">Next →</button>
+            </div>
         `;
 
         $(frm.fields_dict['custom_cb_fleet_table_html'].wrapper).html(table_html);
@@ -775,7 +832,7 @@ frappe.ui.form.on('Sales Invoice', {
             return '#ffffff';                                        
         };
 
-        let add_row_to_dom = function(data = {}) {
+        let add_row_to_dom = function(data = {}, global_idx) {
             let row_idx = Math.random().toString(36).substring(7);
             let row_months_html = '';
             
@@ -815,7 +872,7 @@ frappe.ui.form.on('Sales Invoice', {
             });
 
             let row = $(`
-                <tr>
+                <tr data-index="${global_idx}">
                     <td class="sr-no"></td>
                     <td><input type="text" class="cb-grid-input" data-fieldname="device_number" value="${data.device_number || ''}" readonly tabindex="-1"></td>
                     <td><input type="text" class="cb-grid-input" data-fieldname="fleet_number" value="${data.fleet_number || ''}"></td>
@@ -827,17 +884,23 @@ frappe.ui.form.on('Sales Invoice', {
                 </tr>
             `);
             tbody.append(row);
-            recalculate_sr_no();
         };
 
         function recalculate_sr_no() {
-            tbody.find('tr').each(function(index) { $(this).find('.sr-no').text(index + 1); });
+            tbody.find('tr').each(function() { 
+                let global_idx = $(this).data('index');
+                $(this).find('.sr-no').text(global_idx + 1); 
+            });
         }
 
         function save_table_data() {
             let data_list = [];
+            try { data_list = JSON.parse(frm.doc.custom_cb_fleet_data_json || '[]'); } catch(e) {}
+            
             tbody.find('tr').each(function() {
                 let row_obj = {};
+                let global_idx = $(this).data('index');
+                
                 $(this).find('.cb-grid-input').each(function() {
                     let fieldname = $(this).data('fieldname');
                     let val = $(this).attr('type') === 'checkbox' ? ($(this).is(':checked') ? 1 : 0) : $(this).val();
@@ -847,11 +910,45 @@ frappe.ui.form.on('Sales Invoice', {
                 let title_text = $(this).find('td[title]').first().attr('title') || '';
                 row_obj['previous_activity_date'] = title_text.replace('Previous Activity Date: ', '').replace('Install Date: ', '').replace('No Date Found', '').trim();
                 
-                data_list.push(row_obj);
+                if (global_idx !== undefined) {
+                    data_list[global_idx] = Object.assign({}, data_list[global_idx], row_obj);
+                }
             });
             frm.set_value('custom_cb_fleet_data_json', JSON.stringify(data_list));
             sync_comments_to_items(frm); 
         }
+
+        let render_cb_table_rows = function() {
+            tbody.empty();
+            let all_data = [];
+            try { all_data = JSON.parse(frm.doc.custom_cb_fleet_data_json || '[]'); } catch(e) {}
+
+            let total_records = all_data.length;
+            let total_pages = Math.ceil(total_records / page_size) || 1;
+            
+            if (window.cb_fleet_current_page > total_pages) window.cb_fleet_current_page = total_pages;
+            if (window.cb_fleet_current_page < 1) window.cb_fleet_current_page = 1;
+
+            let start_idx = (window.cb_fleet_current_page - 1) * page_size;
+            let end_idx = start_idx + page_size;
+            let page_data = all_data.slice(start_idx, end_idx);
+
+            page_data.forEach((data, local_idx) => {
+                let global_idx = start_idx + local_idx;
+                add_row_to_dom(data, global_idx);
+            });
+            
+            recalculate_sr_no();
+
+            if (total_records > page_size) {
+                $('#cb-fleet-pagination-bar').show();
+                $('#cb-fleet-page-info').text(`Page ${window.cb_fleet_current_page} of ${total_pages} (Total: ${total_records})`);
+                $('#cb-fleet-prev-page').prop('disabled', window.cb_fleet_current_page === 1);
+                $('#cb-fleet-next-page').prop('disabled', window.cb_fleet_current_page === total_pages);
+            } else {
+                $('#cb-fleet-pagination-bar').hide();
+            }
+        };
 
         tbody.on('change', '.cb-reg-sync-input', function() {
             let new_val = $(this).val();
@@ -907,7 +1004,6 @@ frappe.ui.form.on('Sales Invoice', {
             hidden_decision.val(selected_decision); 
             td.css('background-color', get_bg_color(selected_decision));
             
-            // Item Table Decision Sync
             let device_number = tr.find('[data-fieldname="device_number"]').val();
             let reg_number = tr.find('[data-fieldname="registration_number"]').val();
             let month_key = td.find('.month-checkbox').data('fieldname');
@@ -924,19 +1020,28 @@ frappe.ui.form.on('Sales Invoice', {
                 $('.decision-popup').fadeOut(200);
             }
         });
+        
+        $('#cb-fleet-prev-page').off('click').on('click', function() {
+            save_table_data();
+            if (window.cb_fleet_current_page > 1) { window.cb_fleet_current_page--; render_cb_table_rows(); }
+        });
+
+        $('#cb-fleet-next-page').off('click').on('click', function() {
+            save_table_data();
+            let all_data = JSON.parse(frm.doc.custom_cb_fleet_data_json || '[]');
+            let total_pages = Math.ceil(all_data.length / page_size);
+            if (window.cb_fleet_current_page < total_pages) { window.cb_fleet_current_page++; render_cb_table_rows(); }
+        });
 
         tbody.on('change input', '.cb-grid-input', function() { save_table_data(); });
 
-        tbody.empty();
         let header_rates = {}; 
-
         saved_data.forEach(item => {
             months.forEach(m => {
                 if (item[m + '_rate'] && !header_rates[m]) {
                     header_rates[m] = item[m + '_rate'];
                 }
             });
-            add_row_to_dom(item);
         });
         
         months.forEach(m => {
@@ -946,7 +1051,8 @@ frappe.ui.form.on('Sales Invoice', {
                     .text(`[${header_rates[m]}]`);
             }
         });
-        save_table_data();
+        
+        render_cb_table_rows();
     }
 });
 // ==============================================================
@@ -970,13 +1076,10 @@ frappe.ui.form.on('Sales Invoice Item', {
     custom_billing_decision: function(frm, cdt, cdn) {
         let row = frappe.get_doc(cdt, cdn);
         
-        // Jab bhi Waived ya Non-Chargeable ho -> Rate 0 karo
         if (['Waived', 'Non Chargeable', 'Under Warranty'].includes(row.custom_billing_decision)) {
             frappe.model.set_value(cdt, cdn, 'rate', 0);
         } 
-        // Jab checkbox wapas TICK ho kar 'Chargeable' aaye -> Rate 30 (price_list_rate) wapas set karo
         else if (row.custom_billing_decision === 'Chargeable') {
-            // flt() ensure karega ki proper number (30) aaye
             let base_rate = flt(row.price_list_rate);
             if (base_rate > 0) {
                 frappe.model.set_value(cdt, cdn, 'rate', base_rate);
@@ -1027,8 +1130,6 @@ function sync_comments_to_items(frm) {
 // ==============================================================
 // 8. ADD/REMOVE SUBSCRIPTION ITEM AUTOMATICALLY
 // ==============================================================
-
-// Naya Helper function jo "July" aur "Jul-26" dono ko match kar lega
 function is_matching_sub_row(d, device_no, reg_no, month_label) {
     if (d.item_code != device_no) return false;
     if (d.custom_registration_number != reg_no) return false;
@@ -1036,13 +1137,10 @@ function is_matching_sub_row(d, device_no, reg_no, month_label) {
     let doc_month = (d.custom_billing_month_label || "").trim().toLowerCase();
     let grid_month = (month_label || "").trim().toLowerCase();
 
-    // Exact match (agar perfect spelling ho)
     if (doc_month === grid_month) return true;
 
-    // Partial match (e.g. 'july' aur 'jul-26' dono 'jul' se start hote hain)
     if (doc_month.length >= 3 && grid_month.length >= 3) {
         if (doc_month.substring(0, 3) === grid_month.substring(0, 3)) {
-            // Confirm karne ke liye check karo ki ye subscription row hi hai
             if (d.custom_is_subscription == 1) return true;
         }
     }
@@ -1052,7 +1150,6 @@ function is_matching_sub_row(d, device_no, reg_no, month_label) {
 function update_item_decision(frm, device_no, reg_no, month_label, decision) {
     if (!device_no) return;
     
-    // Purana direct filter hata kar naya helper function lagaya
     let existing_row = (frm.doc.items || []).find(d => 
         is_matching_sub_row(d, device_no, reg_no, month_label)
     );
@@ -1071,7 +1168,6 @@ function manage_subscription_item(frm, is_checked, device_no, reg_no, month_labe
     
     let items = frm.doc.items || [];
     
-    // Naya helper function use kiya row dhundhne ke liye
     let existing_row = items.find(d => 
         is_matching_sub_row(d, device_no, reg_no, month_label)
     );
