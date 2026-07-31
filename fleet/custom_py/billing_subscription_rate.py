@@ -25,7 +25,7 @@ def validate_customer(doc, method=None):
                 val = flt(doc.get(f))
                 label = f.replace('custom_', '').upper()
                 log_details.append(f"• <b>{label}:</b> {val}")
-                
+
             create_history_log(
                 customer=doc.name,
                 rate_scope="Master",
@@ -33,8 +33,8 @@ def validate_customer(doc, method=None):
                 effective_to=eff_to,
                 usd_0=flt(doc.get("custom_usd_0")),
                 usd_1=flt(doc.get("custom_usd_1")),
-                local_0=flt(doc.get("custom_local0")), 
-                local_1=flt(doc.get("custom_local1")), 
+                local_0=flt(doc.get("custom_local0")),
+                local_1=flt(doc.get("custom_local1")),
                 log_msg=f"<b>New Rates Set via Customer Creation (Master):</b><br>" + "<br>".join(log_details)
             )
         return
@@ -110,8 +110,8 @@ def create_history_log(customer, rate_scope, effective_from, effective_to, usd_0
         "effective_to": effective_to,
         "usd_0": usd_0,
         "usd_1": usd_1,
-        "local_0": local_0, 
-        "local_1": local_1 ,
+        "local_0": local_0,
+        "local_1": local_1,
         "custom_changed_on": now_datetime()
     })
     history_doc.flags.ignore_links = True

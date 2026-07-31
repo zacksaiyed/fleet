@@ -1,6 +1,24 @@
 import frappe
 from frappe.utils import getdate, add_months, add_days, get_last_day
 import calendar
+import json
+
+@frappe.whitelist()
+def get_billing_data(docname=None):
+    if not docname:
+        return []
+        
+    json_data = frappe.db.get_value("Sales Invoice", docname, "custom_fleet_data_json")
+    
+    if json_data:
+        return json.loads(json_data)
+        
+    return []
+
+# NAYA FUNCTION: JS me Permission Error fix karne ke liye 
+@frappe.whitelist()
+def get_all_vehicles():
+    return frappe.get_all("Vehicle", fields=["license_plate"])
 
 @frappe.whitelist()
 def generate_customer_invoice(customer_id):
@@ -16,8 +34,11 @@ def generate_customer_invoice(customer_id):
     invoice.posting_date = current_date
     
     has_items = False
+    fleet_json_data = {}      # Local Fleet Data ke liye
+    cb_fleet_json_data = {}   # Cross Border (CB) Fleet Data ke liye
+    installation_json_data = [] 
     
-    linked_vehicles = frappe.get_all("Vehicle", filters={"custom_customer": customer_id}, fields=["name", "model"])
+    linked_vehicles = frappe.get_all("Vehicle", filters={"custom_customer": customer_id}, fields=["name", "model", "license_plate"])
     earliest_install_date = None
     vehicle_docs = {} 
     
@@ -57,8 +78,28 @@ def generate_customer_invoice(customer_id):
 
     gps_item_codes = ["03", "GPS Device", "GPS", "GPS Tracker"] 
     
+    # Vehicle Classification History fetch karna (Local / CB ke liye)
+    vehicles_list = [v.license_plate or v.name for v in linked_vehicles]
+    history_records = frappe.get_all(
+        'Vehicle Classification History',
+        filters={
+            'customer': customer_id,
+            'vehicle': ['in', vehicles_list]
+        },
+        fields=['vehicle', 'item', 'vehicle_classification'],
+        order_by='creation desc'
+    )
+    
+    class_map = {}
+    for rec in history_records:
+        if rec.vehicle not in class_map:
+            class_map[rec.vehicle] = {}
+        if rec.item not in class_map[rec.vehicle]:
+            class_map[rec.vehicle][rec.item] = rec.vehicle_classification.upper()
+
     for vehicle in linked_vehicles:
         vehicle_doc = vehicle_docs[vehicle.name]
+        vehicle_plate_or_name = vehicle.license_plate or vehicle.name
         
         removed_dates = {}
         for row in vehicle_doc.get("custom_vehicle_item", []):
@@ -73,8 +114,21 @@ def generate_customer_invoice(customer_id):
                 
                 remove_date = removed_dates.get(row.item)
                 
-                item_name = frappe.db.get_value("Item", row.item, "item_name") or ""
-                item_group = frappe.db.get_value("Item", row.item, "item_group") or ""
+                # Item master details fetch karna
+                item_details = frappe.db.get_value("Item", row.item, ["item_name", "item_group", "brand", "custom_model"], as_dict=True)
+                
+                item_name = ""
+                item_group = ""
+                item_brand = ""
+                item_model = ""
+                
+                if item_details:
+                    item_name = item_details.get("item_name") or ""
+                    item_group = item_details.get("item_group") or ""
+                    item_brand = item_details.get("brand") or ""
+                    item_model = item_details.get("custom_model") or ""
+
+                v_item_type = row.get("item_type") or row.get("custom_item_type") or item_group
                 
                 is_gps = (
                     row.item in gps_item_codes or 
@@ -83,6 +137,23 @@ def generate_customer_invoice(customer_id):
                     "GPS" in item_group.upper() or
                     "GTMS" in item_name.upper()
                 )
+
+                # History se classification pata lagana (LOCAL ya CB)
+                v_classification = class_map.get(vehicle_plate_or_name, {}).get(row.item, "LOCAL")
+
+                common_row_data = {
+                    "device_number": row.item,
+                    "fleet_number": vehicle_doc.get("custom_fleet_number", ""), 
+                    "registration_number": vehicle_plate_or_name, 
+                    "vehicle_no": vehicle_plate_or_name,
+                    "date_of_installation": str(install_date),
+                    "is_installation_charged": 0,
+                    "installation_charges": 0.0,
+                    "billing_decision": "", 
+                    "comments": "" 
+                }
+
+                row_key = f"{vehicle.name}_{row.item}"
 
                 for b_month in billing_months:
                     b_y = b_month["year"]
@@ -94,7 +165,6 @@ def generate_customer_invoice(customer_id):
                     if remove_date:
                         rem_y = remove_date.year
                         rem_m = remove_date.month
-                        # Agar billing month removal month ke BAAD ka hai (e.g. June), toh loop skip kardo
                         if (b_y > rem_y) or (b_y == rem_y and b_m > rem_m):
                             continue 
                             
@@ -112,20 +182,41 @@ def generate_customer_invoice(customer_id):
                             "qty": 1, 
                             "custom_is_installation": 1,
                             "custom_vehicle": vehicle.name,
+                            "custom_registration_number": vehicle_plate_or_name,
+                            "custom_vehicle_type": v_classification, # Items table me type set karna
                             "custom_billing_month_label": b_month["label"], 
                             "custom_original_rate": rate,
                             "description": f"Installation Charge ({b_month['label']}) - {vehicle.name}"
                         })
-                        has_items = True
                         
+                        installation_json_data.append({
+                            "license_plate": vehicle_plate_or_name,
+                            "item_type": v_item_type, 
+                            "code": row.item,
+                            "brand": item_brand,
+                            "model": item_model,
+                            "rate": rate,
+                            "installation_date": str(install_date),
+                            "active": 1,
+                            "total_cost": rate
+                        })
+                        
+                        has_items = True
+
                     # --- CONDITION B: SUBSCRIPTION CHARGE ---
                     if is_gps:
+                        # Target dictionary decide karna classification ke hisab se (Local ya CB)
+                        target_fleet_dict = cb_fleet_json_data if v_classification == "CB" else fleet_json_data
+                        
+                        if row_key not in target_fleet_dict:
+                            target_fleet_dict[row_key] = common_row_data.copy()
+                            
                         target_date = f"{b_y}-{str(b_m).zfill(2)}-01"
                         
                         latest_sub_rate = frappe.db.get_all("Billing Subscription Rate",
                             filters={"customer": customer_id, "custom_changed_on": ["<=", target_date]},
                             fields=["usd_0"], order_by="custom_changed_on desc", limit=1)
-                        rate = float(latest_sub_rate[0].usd_0) if latest_sub_rate else 0.0
+                        rate = int(float(latest_sub_rate[0].usd_0)) if latest_sub_rate else 0
 
                         invoice.append("items", {
                             "custom_billing_month": int(b_month["month"]),
@@ -133,15 +224,31 @@ def generate_customer_invoice(customer_id):
                             "qty": 1, 
                             "custom_is_subscription": 1,  
                             "custom_vehicle": vehicle.name,
+                            "custom_registration_number": vehicle_plate_or_name,
+                            "custom_vehicle_type": v_classification, # Items table me type set karna
                             "custom_billing_month_label": b_month["label"], 
                             "custom_original_rate": rate, 
                             "description": f"Subscription Charge ({b_month['label']}) - Vehicle: {vehicle.name}"
                         })
+
+                        month_str = calendar.month_abbr[b_m].lower()
+                        year_str = str(b_y)[-2:]
+                        month_key = f"{month_str}_{year_str}"
+                        
+                        target_fleet_dict[row_key][month_key] = 1 
+                        target_fleet_dict[row_key][f"{month_key}_rate"] = rate 
+                        target_fleet_dict[row_key][f"{month_key}_decision"] = "Chargeable"
                         has_items = True
 
     if not has_items:
         return {"status": "error", "message": "No eligible items found for this period."}
-        invoice.set_missing_values()
+    
+    # Dono JSON fields mein alag alag data store karna
+    invoice.custom_fleet_data_json = json.dumps(list(fleet_json_data.values()))
+    invoice.custom_cb_fleet_data_json = json.dumps(list(cb_fleet_json_data.values()))
+    invoice.custom_installation_data_json = json.dumps(installation_json_data) 
+    
+    invoice.set_missing_values()
     
     for item in invoice.items:
         if item.custom_original_rate:
@@ -154,7 +261,6 @@ def generate_customer_invoice(customer_id):
     
     if customer.custom_vat_applicable:
         default_tax_rate = frappe.db.get_single_value("Fleet Billing Settings", "default_vat_rate") or 0.0
-        
         final_account_head = vat_account if vat_account else "TDS - S"
 
         invoice.append("taxes", {

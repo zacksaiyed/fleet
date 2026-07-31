@@ -1,15 +1,16 @@
 {
  "actions": [],
  "allow_rename": 1,
- "autoname": "field:branch",
- "creation": "2026-06-15 22:17:29.800730",
+ "creation": "2026-06-23 22:33:14.912385",
  "doctype": "DocType",
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
   "customer",
-  "branch",
-  "billing_enabled"
+  "vehicle",
+  "last_activity_date",
+  "item",
+  "vehicle_activity"
  ],
  "fields": [
   {
@@ -20,28 +21,39 @@
    "options": "Customer"
   },
   {
-   "fieldname": "branch",
-   "fieldtype": "Data",
+   "fieldname": "vehicle",
+   "fieldtype": "Link",
    "in_list_view": 1,
-   "label": "Branch",
-   "unique": 1
+   "label": "Vehicle",
+   "options": "Vehicle"
   },
   {
-   "default": "0",
-   "fieldname": "billing_enabled",
-   "fieldtype": "Check",
+   "fieldname": "last_activity_date",
+   "fieldtype": "Date",
    "in_list_view": 1,
-   "label": "Billing Enabled"
+   "label": "Last Activity Date"
+  },
+  {
+   "fieldname": "item",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Item",
+   "options": "Item"
+  },
+  {
+   "fieldname": "vehicle_activity",
+   "fieldtype": "Link",
+   "label": "Vehicle Activity",
+   "options": "Vehicle Activities"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-07-02 09:18:08.886021",
+ "modified": "2026-06-25 14:23:40.762598",
  "modified_by": "Administrator",
  "module": "Fleet",
- "name": "Customer Branch",
- "naming_rule": "By fieldname",
+ "name": "Vehicle Activity Details",
  "owner": "Administrator",
  "permissions": [
   {

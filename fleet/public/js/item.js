@@ -1,10 +1,36 @@
 frappe.ui.form.on('Item', {
 
+custom_model(frm) {
+	console.log("custom_model changed", frm.doc.custom_model);
+
+
+		frappe.db.get_value(
+			"Item Model",
+			frm.doc.custom_model,
+			"price"
+		).then((r) => {
+			if (r.message) {
+				console.log(r.message.price);
+
+				frm.set_value(
+					"custom_default_billing_price",
+					r.message.price
+				);
+				console.log("custom_default_billing_price set to", r.message.default_billing_price);
+			}
+		});
+	}
+,
+
     refresh(frm) {
         if (!frm.doc.__islocal) {
             _load_tracking_timeline(frm);
         }
+
+
     },
+
+
 
     custom_item_type(frm) {
         frm.set_value("brand", "");
@@ -164,7 +190,7 @@ function set_barcode(frm, barcodeValue) {
     // Clear any previously auto-set barcode rows (rows without a barcode_type
     // that were added by this script) to avoid duplicates on field change
     const otherRows = barcodes.filter(row => row.barcode !== barcodeValue);
-    
+
     // Remove old rows that were auto-generated (identified by empty barcode_type)
     otherRows.forEach(row => {
         if (!row.barcode_type) {

@@ -1,4 +1,5 @@
 import frappe
+from frappe import _
 from fleet.custom_py.item_warehouse import update_item_warehouse
 
 
@@ -13,6 +14,11 @@ def validate_vehicle(doc, method=None):
             for df in doc.meta.get_table_fields():
                 for row in doc.get(df.fieldname) or []:
                     row.parent = normalized
+
+    # Clean and strip any accidental whitespace from item codes
+    for row in doc.get("custom_vehicle_item") or []:
+        if row.item:
+            row.item = row.item.strip()
 
     _remove_duplicate_vehicle_items(doc)
     _check_installed_items_exist(doc)
@@ -79,6 +85,10 @@ def after_insert_vehicle(doc, _method=None):
     if not customer_warehouse:
         return
 
+    if _is_data_import(doc):
+        _move_imported_installed_items_to_customer_warehouse(doc, customer_warehouse)
+        return
+
     # Query DB directly — child rows are committed before after_insert fires
     rows = frappe.get_all(
         "Vehicle Item",
@@ -88,6 +98,318 @@ def after_insert_vehicle(doc, _method=None):
     for row in rows:
         if row.item:
             update_item_warehouse(row.item, customer_warehouse)
+
+    create_vehicle_classification_history(doc.name, doc.custom_customer, doc.get("custom_vehicle_item") or [])
+    sync_gps_installation_status_logs(doc)
+
+
+def create_vehicle_classification_history(vehicle, customer, rows, effective_date=None):
+    if not vehicle or not customer or not rows:
+        return
+
+    for row in rows:
+        status = getattr(row, "installed_or_removed", None) or getattr(row, "status", None)
+        if status != "Installed":
+            continue
+        if (getattr(row, "item_type", "") or "").lower() != "sim":
+            continue
+        item = getattr(row, "item", None)
+        if not item:
+            continue
+
+        sim_type = frappe.db.get_value("Item", item, "custom_sim_type")
+        if not sim_type:
+            continue
+
+        classification = "CB" if sim_type.upper() == "IOT" else sim_type
+
+        row_effective_date = effective_date or getattr(row, "date", None) or frappe.utils.nowdate()
+        filters = {
+            "vehicle": vehicle,
+            "customer": customer,
+            "effective_date": row_effective_date,
+            "vehicle_classification": classification,
+            "item": item,
+        }
+        if frappe.db.exists("Vehicle Classification History", filters):
+            continue
+
+        frappe.get_doc({
+            "doctype": "Vehicle Classification History",
+            **filters,
+        }).insert(ignore_permissions=True)
+
+
+def _is_installed_sim_row(row):
+    status = getattr(row, "installed_or_removed", None) or getattr(row, "status", None)
+    item_type = (getattr(row, "item_type", "") or "").lower()
+    return status == "Installed" and item_type == "sim" and bool(row.item)
+
+
+def _get_classification_history_rows(doc):
+    before = doc.get_doc_before_save()
+    current_rows = [
+        row for row in doc.get("custom_vehicle_item") or []
+        if _is_installed_sim_row(row)
+    ]
+
+    if not before:
+        return current_rows
+
+    if before.get("custom_customer") != doc.custom_customer:
+        return current_rows
+
+    before_rows = {
+        (row.item, getattr(row, "installed_or_removed", None) or getattr(row, "status", None), (getattr(row, "item_type", "") or "").lower())
+        for row in before.get("custom_vehicle_item") or []
+        if row.item
+    }
+
+    new_rows = []
+    for row in current_rows:
+        status = getattr(row, "installed_or_removed", None) or getattr(row, "status", None)
+        item_type = (getattr(row, "item_type", "") or "").lower()
+        current_key = (row.item, status, item_type)
+        if current_key not in before_rows:
+            new_rows.append(row)
+
+    return new_rows
+
+
+def _get_gps_rows_to_log(doc):
+    before = doc.get_doc_before_save()
+    gps_rows = []
+    for row in doc.get("custom_vehicle_item") or []:
+        if (getattr(row, "item_type", "") or "").lower() != "gps device":
+            continue
+        if not row.item:
+            continue
+
+        if not before:
+            gps_rows.append(row)
+            continue
+
+        if before.get("custom_customer") != doc.custom_customer:
+            gps_rows.append(row)
+            continue
+
+        before_row = None
+        for b_row in before.get("custom_vehicle_item") or []:
+            if b_row.item == row.item:
+                before_row = b_row
+                break
+
+        if not before_row or before_row.status != row.status or before_row.date != row.date:
+            gps_rows.append(row)
+
+    return gps_rows
+
+
+def sync_gps_installation_status_logs(doc):
+    if not doc.custom_customer:
+        return
+
+    rows_to_log = _get_gps_rows_to_log(doc)
+    job_name = getattr(doc.flags, "from_job", None)
+
+    for row in rows_to_log:
+        event_type = row.status or "Installed"
+        event_date = row.date or frappe.utils.nowdate()
+        _create_gps_log(doc.name, doc.custom_customer, row.item, event_type, event_date, job_name)
+
+    # Detect deleted GPS rows
+    before = doc.get_doc_before_save()
+    if before:
+        current_items = {r.item for r in doc.get("custom_vehicle_item") or [] if r.item}
+        for b_row in before.get("custom_vehicle_item") or []:
+            if (getattr(b_row, "item_type", "") or "").lower() == "gps device" and b_row.item:
+                if b_row.item not in current_items:
+                    _create_gps_log(
+                        doc.name,
+                        doc.custom_customer,
+                        b_row.item,
+                        "Removed",
+                        frappe.utils.nowdate(),
+                        job_name
+                    )
+
+
+def _create_gps_log(vehicle, customer, item, event_type, event_date, job_name=None):
+    filters = {
+        "vehicle": vehicle,
+        "customer": customer,
+        "item": item,
+        "event_type": event_type,
+        "event_date": event_date,
+    }
+    if job_name:
+        filters["job"] = job_name
+
+    if frappe.db.exists("GPS Installation Status Log", filters):
+        return
+
+    frappe.get_doc({
+        "doctype": "GPS Installation Status Log",
+        **filters,
+    }).insert(ignore_permissions=True)
+
+
+def on_update_vehicle(doc, _method=None):
+    if not doc.custom_customer:
+        return
+
+    new_rows = _get_classification_history_rows(doc)
+    if new_rows:
+        create_vehicle_classification_history(doc.name, doc.custom_customer, new_rows)
+
+    sync_gps_installation_status_logs(doc)
+
+    if _is_data_import(doc):
+        customer_warehouse = frappe.db.get_value(
+            "Warehouse",
+            {"custom_customer_name": doc.custom_customer, "disabled": 0},
+            "name",
+        )
+        if customer_warehouse:
+            _move_imported_installed_items_to_customer_warehouse(
+                doc,
+                customer_warehouse,
+                only_newly_installed=True,
+            )
+
+
+def _is_data_import(doc=None):
+    if bool(getattr(frappe.flags, "in_import", False) or frappe.flags.get("in_import")):
+        return True
+
+    updater_reference = getattr(getattr(doc, "flags", None), "updater_reference", None) if doc else None
+    if updater_reference and updater_reference.get("doctype") == "Data Import":
+        return True
+
+    return False
+
+
+def _move_imported_installed_items_to_customer_warehouse(
+    doc,
+    customer_warehouse,
+    only_newly_installed=False,
+):
+    items = _get_installed_items_to_transfer(doc, only_newly_installed=only_newly_installed)
+    if not items:
+        return
+
+    store_warehouse = _get_store_warehouse()
+    if not store_warehouse:
+        frappe.throw(_("Default Warehouse is not set in Stock Settings. Cannot move imported vehicle items."))
+
+    items_to_move = []
+    for item_code in items:
+        if _item_already_in_customer_warehouse(item_code, customer_warehouse):
+            update_item_warehouse(item_code, customer_warehouse)
+            continue
+        items_to_move.append(item_code)
+
+    if not items_to_move:
+        return
+
+    _validate_items_available_in_store(items_to_move, store_warehouse)
+    _create_vehicle_import_stock_entry(items_to_move, store_warehouse, customer_warehouse, doc.name)
+
+    for item_code in items_to_move:
+        update_item_warehouse(item_code, customer_warehouse)
+
+
+def _get_installed_items_to_transfer(doc, only_newly_installed=False):
+    current_installed = {
+        row.item
+        for row in doc.get("custom_vehicle_item") or []
+        if row.status == "Installed" and row.item
+    }
+    if not current_installed and doc.name:
+        current_installed = {
+            row.item
+            for row in frappe.get_all(
+                "Vehicle Item",
+                filters={"parent": doc.name, "status": "Installed"},
+                fields=["item"],
+            )
+            if row.item
+        }
+
+    if not current_installed or not only_newly_installed:
+        return sorted(current_installed)
+
+    before = doc.get_doc_before_save()
+    before_installed = {
+        row.item
+        for row in (before.get("custom_vehicle_item") if before else []) or []
+        if row.status == "Installed" and row.item
+    }
+    return sorted(current_installed - before_installed)
+
+
+def _get_store_warehouse():
+    return frappe.db.get_single_value("Stock Settings", "default_warehouse")
+
+
+def _item_already_in_customer_warehouse(item_code, customer_warehouse):
+
+    qty = frappe.db.get_value(
+        "Bin",
+        {"item_code": item_code, "warehouse": customer_warehouse},
+        "actual_qty",
+    ) or 0
+    return qty > 0
+
+
+def _validate_items_available_in_store(items, store_warehouse):
+    missing = []
+    for item_code in items:
+        qty = frappe.db.get_value(
+            "Bin",
+            {"item_code": item_code, "warehouse": store_warehouse},
+            "actual_qty",
+        ) or 0
+        if qty <= 0:
+            missing.append(item_code)
+
+    if missing:
+        frappe.throw(
+            _(
+                "Cannot import vehicle item installation. The following item(s) "
+                "are not available in Store warehouse {0}:<br>{1}"
+            ).format(store_warehouse, "<br>".join(missing))
+        )
+
+
+def _create_vehicle_import_stock_entry(items, store_warehouse, customer_warehouse, vehicle):
+    company = frappe.db.get_value("Warehouse", store_warehouse, "company")
+    if not company:
+        frappe.throw(_("Company is not set on Store warehouse {0}.").format(store_warehouse))
+
+    stock_entry = frappe.get_doc({
+        "doctype": "Stock Entry",
+        "stock_entry_type": "Material Transfer",
+        "purpose": "Material Transfer",
+        "company": company,
+        "from_warehouse": store_warehouse,
+        "to_warehouse": customer_warehouse,
+        "remarks": _("Auto-created from Vehicle data import for {0}").format(vehicle),
+        "items": [
+            {
+                "item_code": item_code,
+                "qty": 1,
+                "s_warehouse": store_warehouse,
+                "t_warehouse": customer_warehouse,
+                "uom": frappe.db.get_value("Item", item_code, "stock_uom") or "Nos",
+                "stock_uom": frappe.db.get_value("Item", item_code, "stock_uom") or "Nos",
+                "conversion_factor": 1,
+            }
+            for item_code in items
+        ],
+    })
+    stock_entry.insert(ignore_permissions=True)
+    stock_entry.submit()
 
 
 @frappe.whitelist()
