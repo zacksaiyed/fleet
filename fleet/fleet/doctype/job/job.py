@@ -2,7 +2,7 @@ import re
 
 import frappe
 from frappe.model.document import Document
-from frappe.utils import getdate, now, nowdate
+from frappe.utils import flt, getdate, now, nowdate
 
 # _VEH_RE = re.compile(r"^[A-Z]{3}\d{3,4}$")
 GPS_ITEM_TYPE = "GPS Device"
@@ -473,14 +473,29 @@ class Job(Document):
 				if row.installed_or_removed != "Installed":
 					continue
 
-				model = frappe.db.get_value("Item", row.item, "custom_model")
+				item_doc = frappe.db.get_value(
+					"Item",
+					row.item,
+					["custom_model", "custom_default_billing_price", "brand", "item_name"],
+					as_dict=True
+				) or {}
+
+				model = item_doc.get("custom_model")
+				if not model and item_doc.get("brand"):
+					model = frappe.db.get_value("Item Model", {"brand": item_doc.get("brand")}, "name")
+				if not model:
+					model = frappe.db.get_value("Item Model", row.item, "name") or frappe.db.get_value("Item Model", item_doc.get("item_name"), "name")
+
 				if not model:
 					continue
 
-				default_price = frappe.db.get_value("Item", row.item, "custom_default_billing_price") or 0
+				item_price = flt(item_doc.get("custom_default_billing_price") or 0)
 				model_price = 0
 				if frappe.db.exists("DocType", "Item Model"):
-					model_price = frappe.db.get_value("Item Model", model, "price") or 0
+					model_price = flt(frappe.db.get_value("Item Model", model, "price") or 0)
+
+				default_price = model_price or item_price
+				customer_price = item_price or model_price
 
 				existing_rows = customer.get("custom_customer_component_price", {"model": model})
 
@@ -489,19 +504,17 @@ class Job(Document):
 					existing_row.last_vehicle = self.vehicle_number
 					existing_row.last_job = self.name
 					existing_row.effective_from = self.completed_on_support or nowdate()
-					if model_price:
-						existing_row.default_price = model_price
-					if default_price and not existing_row.customer_price:
-						existing_row.customer_price = default_price
+					existing_row.default_price = default_price
+					existing_row.customer_price = customer_price
 					updated = True
 				else:
 					customer.append("custom_customer_component_price", {
 						"model": model,
-						"default_price": model_price,
+						"default_price": default_price,
 						"effective_from": self.completed_on_support or nowdate(),
 						"last_vehicle": self.vehicle_number,
 						"last_job": self.name,
-						"customer_price": default_price
+						"customer_price": customer_price
 					})
 					updated = True
 
