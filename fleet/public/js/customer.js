@@ -133,7 +133,7 @@ function show_vehicle_invoice_dialog(frm) {
         // Fetch vehicles
         frappe.db.get_list("Vehicle", {
             filters: { custom_customer: ["in", customers] },
-            fields: ["name", "custom_last_billed_upto_date"],
+            fields: ["name", "custom_customer", "custom_branch", "custom_last_billed_upto_date"],
             limit: 2000
         }).then(vehicles => {
             if (!vehicles || vehicles.length === 0) {
@@ -222,8 +222,18 @@ function show_vehicle_invoice_dialog(frm) {
                         }
                         
                         d.set_df_property("vehicles", "options", filtered.map(v => {
+                            let label = v.name;
+                            if (v.custom_branch) {
+                                label += ` | Branch: ${v.custom_branch}`;
+                            }
+                            if (v.custom_customer) {
+                                label += ` | Customer: ${v.custom_customer}`;
+                            }
+                            if (v.custom_last_billed_upto_date) {
+                                label += ` (Billed upto ${v.custom_last_billed_upto_date})`;
+                            }
                             return {
-                                label: v.name + (v.custom_last_billed_upto_date ? ` (Billed upto ${v.custom_last_billed_upto_date})` : ""),
+                                label: label,
                                 value: v.name,
                                 checked: true
                             };
