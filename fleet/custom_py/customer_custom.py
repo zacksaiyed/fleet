@@ -123,11 +123,12 @@ def create_history_log(customer, model, customer_price, effective_from, effectiv
 
 def set_default_fleet_billing_settings(doc):
     """Fleet Billing Settings se values auto-fetch karna"""
-    settings = frappe.get_cached_doc("Fleet Billing Settings")
-    if not doc.get("custom_usd_0"): doc.custom_usd_0 = flt(settings.get("usd0") or 0)
-    if not doc.get("custom_usd_1"): doc.custom_usd_1 = flt(settings.get("usd1") or 0)
-    if not doc.get("custom_local0"): doc.custom_local0 = flt(settings.get("local0") or 0)
-    if not doc.get("custom_local1"): doc.custom_local1 = flt(settings.get("local1") or 0)
+    if frappe.db.exists("DocType", "Fleet Billing Settings"):
+        settings = frappe.get_cached_doc("Fleet Billing Settings")
+        if not doc.get("custom_usd_0"): doc.custom_usd_0 = flt(settings.get("usd0") or 0)
+        if not doc.get("custom_usd_1"): doc.custom_usd_1 = flt(settings.get("usd1") or 0)
+        if not doc.get("custom_local0"): doc.custom_local0 = flt(settings.get("local0") or 0)
+        if not doc.get("custom_local1"): doc.custom_local1 = flt(settings.get("local1") or 0)
 
 
 def check_cutoff_days(doc):
@@ -142,5 +143,7 @@ def check_cutoff_days(doc):
 
 @frappe.whitelist()
 def get_default_billing_settings():
-    settings = frappe.get_cached_doc("Fleet Billing Settings")
-    return {"usd0": flt(settings.get("usd0")), "usd1": flt(settings.get("usd1")), "local0": flt(settings.get("local0")), "local1": flt(settings.get("local1"))}
+    if frappe.db.exists("DocType", "Fleet Billing Settings"):
+        settings = frappe.get_cached_doc("Fleet Billing Settings")
+        return {"usd0": flt(settings.get("usd0")), "usd1": flt(settings.get("usd1")), "local0": flt(settings.get("local0")), "local1": flt(settings.get("local1"))}
+    return {"usd0": 0, "usd1": 0, "local0": 0, "local1": 0}
