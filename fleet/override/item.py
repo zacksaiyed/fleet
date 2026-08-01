@@ -147,3 +147,57 @@ def set_barcode(doc, barcode_value):
         "barcode_type": "",
         "uom": "Nos"
     })
+
+
+def on_item_update(doc, method=None):
+    # Changing Item default billing price does not affect Item Model or Customer default_price
+    pass
+
+
+def on_item_model_update(doc, method=None):
+    if not doc.get("price"):
+        return
+
+    new_price = frappe.utils.flt(doc.price)
+    if new_price <= 0:
+        return
+
+    old_doc = doc.get_doc_before_save()
+    old_price = frappe.utils.flt(old_doc.get("price")) if old_doc else 0
+
+    if old_doc and old_price == new_price:
+        return
+
+    items = frappe.get_all("Item", filters={"custom_model": doc.name}, fields=["name"])
+    for item in items:
+        frappe.db.set_value("Item", item.name, "custom_default_billing_price", new_price, update_modified=False)
+
+    sync_component_price_to_customers(doc.name, new_price, old_price)
+
+
+def sync_component_price_to_customers(model, new_price, old_price=0):
+    if not model or new_price <= 0:
+        return
+
+    customer_names = frappe.db.sql_list("""
+        SELECT DISTINCT parent 
+        FROM `tabCustomer Component Price`
+        WHERE model = %s
+    """, (model,))
+
+    for customer_name in customer_names:
+        try:
+            customer = frappe.get_doc("Customer", customer_name)
+            updated = False
+            for row in customer.get("custom_customer_component_price", []):
+                if row.model == model:
+                    row.default_price = new_price
+                    current_c_price = frappe.utils.flt(row.customer_price)
+                    if current_c_price == 0 or (old_price > 0 and current_c_price == old_price):
+                        row.customer_price = new_price
+                    updated = True
+            if updated:
+                customer.save(ignore_permissions=True)
+        except Exception:
+            frappe.log_error(frappe.get_traceback(), f"Failed to sync component price to customer {customer_name}")
+
