@@ -287,7 +287,14 @@ function _job_action_with_comment(frm, action, label, field) {
             fieldname: "branch",
             label: __("Branch"),
             options: "Customer Branch", 
-            reqd: 0 
+            reqd: 0,
+            get_query: function() {
+                return {
+                    filters: {
+                        customer: frm.doc.customer || ""
+                    }
+                };
+            }
         });
     }
 
@@ -307,46 +314,16 @@ function _job_action_with_comment(frm, action, label, field) {
         __("Submit")
     );
 
-    if (action === "complete" && d) {
-        d.fields_dict['branch'].get_query = function() {
+    if (action === "complete" && d && d.fields_dict && d.fields_dict["branch"]) {
+        d.fields_dict["branch"].get_query = function() {
             return {
                 filters: {
-                    'customer': frm.doc.customer
+                    customer: frm.doc.customer || ""
                 }
             };
         };
     }
 }
-function _job_action_with_comment(frm, action, label, field) {
-    let prompt_fields = [];
-    
-    if (action === "complete") {
-        prompt_fields.push({
-            fieldtype: "Link",
-            fieldname: "branch",
-            label: __("Branch"),
-            options: "Customer Branch", 
-            reqd: 0 
-        });
-    }
-
-    prompt_fields.push({
-        fieldtype: "Small Text",
-        fieldname: "comment",
-        label: label,
-        reqd: 1
-    });
-
-    frappe.prompt(
-        prompt_fields,
-        (values) => {
-            // Yahan se branch ki value _job_action function me bheji ja rahi hai
-            _job_action(frm, action, values.comment, field, values.branch);
-        },
-        __(label),
-        __("Submit")
-    );
-}
 
 function _job_action(frm, action, comment, comment_field, branch_value = null) {
     frappe.call({
@@ -356,27 +333,7 @@ function _job_action(frm, action, comment, comment_field, branch_value = null) {
             action: action, 
             comment: comment, 
             comment_field: comment_field, 
-            branch: branch_value // Backend Python file ke liye branch yahan se ja raha hai
-        },
-        freeze: true,
-        freeze_message: __("Updating…"),
-        callback(r) {
-            if (r.exc) return;
-            frappe.show_alert({ message: r.message.msg, indicator: "green" }, 4);
-            frm.reload_doc();
-        },
-    });
-}
-
-function _job_action(frm, action, comment, comment_field, branch_value = null) {
-    frappe.call({
-        method: "fleet.fleet.doctype.job.job.job_action",
-        args: { 
-            job: frm.doc.name, 
-            action: action, 
-            comment: comment, 
-            comment_field: comment_field, 
-            branch: branch_value 
+            branch: branch_value
         },
         freeze: true,
         freeze_message: __("Updating…"),
