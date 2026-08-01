@@ -239,7 +239,7 @@ frappe.ui.form.on('Sales Invoice', {
                 });
                 let new_inst_json = JSON.stringify(current_saved);
                 if (frm.doc.custom_installation_data_json !== new_inst_json) {
-                    frm.set_value('custom_installation_data_json', new_inst_json);
+                    frm.doc.custom_installation_data_json = new_inst_json;
                 }
             };
 
@@ -394,7 +394,8 @@ frappe.ui.form.on('Sales Invoice', {
                 update_group_totals();
             });
 
-            tbody.off('click', '.inst-decision-radio').on('click', '.inst-decision-radio', function() {
+            tbody.off('click change', '.inst-decision-radio').on('click change', '.inst-decision-radio', function(e) {
+                e.stopPropagation();
                 let td = $(this).closest('td');
                 let tr = td.closest('tr');
                 let hidden_decision = td.find('.hidden-inst-decision');
@@ -413,7 +414,8 @@ frappe.ui.form.on('Sales Invoice', {
 
                 save_installation_data();
                 update_group_totals();
-                td.find('.inst-popup').fadeOut(200);
+                frm.dirty();
+                $('.decision-popup').hide();
             });
 
             $(document).off('click.hide_inst_popup').on('click.hide_inst_popup', function(e) {
@@ -632,7 +634,7 @@ frappe.ui.form.on('Sales Invoice', {
             });
             let new_fleet_json = JSON.stringify(data_list);
             if (frm.doc.custom_fleet_data_json !== new_fleet_json) {
-                frm.set_value('custom_fleet_data_json', new_fleet_json);
+                frm.doc.custom_fleet_data_json = new_fleet_json;
             }
             sync_comments_to_items(frm); 
         }
@@ -714,7 +716,8 @@ frappe.ui.form.on('Sales Invoice', {
             save_table_data();
         });
 
-        tbody.on('click', '.month-decision-radio', function() {
+        tbody.off('click change', '.month-decision-radio').on('click change', '.month-decision-radio', function(e) {
+            e.stopPropagation();
             let td = $(this).closest('td');
             let tr = td.closest('tr');
             let hidden_decision = td.find('.hidden-month-decision');
@@ -731,7 +734,8 @@ frappe.ui.form.on('Sales Invoice', {
             update_item_decision(frm, device_number, reg_number, month_label, selected_decision);
 
             save_table_data();
-            td.find('.month-popup').fadeOut(200);
+            frm.dirty();
+            $('.decision-popup').hide();
         });
 
         $(document).off('click.hide_fleet_popup').on('click.hide_fleet_popup', function(e) {
@@ -963,7 +967,7 @@ frappe.ui.form.on('Sales Invoice', {
             });
             let new_cb_json = JSON.stringify(data_list);
             if (frm.doc.custom_cb_fleet_data_json !== new_cb_json) {
-                frm.set_value('custom_cb_fleet_data_json', new_cb_json);
+                frm.doc.custom_cb_fleet_data_json = new_cb_json;
             }
             sync_comments_to_items(frm); 
         }
@@ -1045,7 +1049,8 @@ frappe.ui.form.on('Sales Invoice', {
             save_table_data();
         });
 
-        tbody.on('click', '.month-decision-radio', function() {
+        tbody.off('click change', '.month-decision-radio').on('click change', '.month-decision-radio', function(e) {
+            e.stopPropagation();
             let td = $(this).closest('td');
             let tr = td.closest('tr');
             let hidden_decision = td.find('.hidden-month-decision');
@@ -1062,7 +1067,8 @@ frappe.ui.form.on('Sales Invoice', {
             update_item_decision(frm, device_number, reg_number, month_label, selected_decision);
 
             save_table_data();
-            td.find('.month-popup').fadeOut(200);
+            frm.dirty();
+            $('.decision-popup').hide();
         });
 
         $(document).off('click.hide_cb_fleet_popup').on('click.hide_cb_fleet_popup', function(e) {
