@@ -59,12 +59,34 @@ def get_date(filters=None):
 		i.name: employee_map.get(i.custom_employee)
 		for i in frappe.get_all("Warehouse",{"custom_employee":technician_name_condition},["custom_employee","name"])
 	}
+
+	items = [i.asset for i in data]
+	item_warehouse_detatils = frappe.get_all(
+	    "Bin",
+	    filters={
+	        "item_code": ["in", items],
+	        "actual_qty": [">", 0]
+	    },
+	    fields=[
+	        "item_code",
+	        "warehouse",
+	        "warehouse.warehouse_type as warehouse_type"
+	    ]
+	)
+
+	item_warehouse_type = {
+	    d.item_code: d.warehouse_type
+	    for d in item_warehouse_detatils
+	}
 	
 	final_data = []
 	for i in data:
 		if i.target in techicial_warehouse_map:
 			i.technician_name = techicial_warehouse_map[i.target]
-			i.status = "CONSUMED IN"
+			if item_warehouse_type.get(i.asset)=="Customer":
+				i.status = "CONSUMED IN"
+			else:
+				i.status = "ISSUING TO TECHNICIAN"
 			final_data.append(i)
 
 		if i.source in techicial_warehouse_map:
