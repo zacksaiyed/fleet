@@ -52,6 +52,16 @@ frappe.ui.form.on('Sales Invoice', {
         frm.trigger('render_custom_fleet_table');
         frm.trigger('render_cb_fleet_table');
     },
+
+    custom_billing_from: function(frm) {
+        frm.trigger('render_custom_fleet_table');
+        frm.trigger('render_cb_fleet_table');
+    },
+
+    custom_billing_to: function(frm) {
+        frm.trigger('render_custom_fleet_table');
+        frm.trigger('render_cb_fleet_table');
+    },
 // ==============================================================
     // 2. DIRECT SPLITTING FROM ITEMS TABLE
     // ==============================================================
@@ -107,13 +117,18 @@ frappe.ui.form.on('Sales Invoice', {
             }
         });
 
-        let new_local_json = JSON.stringify(Object.values(local_data_map));
-        let new_cb_json = JSON.stringify(Object.values(cb_data_map));
+        let new_local_json = Object.keys(local_data_map).length > 0 
+            ? JSON.stringify(Object.values(local_data_map)) 
+            : frm.doc.custom_fleet_data_json;
 
-        if (frm.doc.custom_fleet_data_json !== new_local_json) {
+        let new_cb_json = Object.keys(cb_data_map).length > 0 
+            ? JSON.stringify(Object.values(cb_data_map)) 
+            : frm.doc.custom_cb_fleet_data_json;
+
+        if (new_local_json && frm.doc.custom_fleet_data_json !== new_local_json) {
             frm.set_value('custom_fleet_data_json', new_local_json);
         }
-        if (frm.doc.custom_cb_fleet_data_json !== new_cb_json) {
+        if (new_cb_json && frm.doc.custom_cb_fleet_data_json !== new_cb_json) {
             frm.set_value('custom_cb_fleet_data_json', new_cb_json);
         }
 
@@ -451,11 +466,14 @@ frappe.ui.form.on('Sales Invoice', {
         let month_headers_html = '';
         let months = []; 
         
-        if (frm.doc.custom_billing_start_date && frm.doc.custom_billing_end_date) {
-            let sy = parseInt(frm.doc.custom_billing_start_date.split('-')[0]);
-            let sm = parseInt(frm.doc.custom_billing_start_date.split('-')[1]) - 1; 
-            let ey = parseInt(frm.doc.custom_billing_end_date.split('-')[0]);
-            let em = parseInt(frm.doc.custom_billing_end_date.split('-')[1]) - 1;
+        let b_start = frm.doc.custom_billing_start_date || frm.doc.custom_billing_from;
+        let b_end = frm.doc.custom_billing_end_date || frm.doc.custom_billing_to;
+
+        if (b_start && b_end) {
+            let sy = parseInt(b_start.split('-')[0]);
+            let sm = parseInt(b_start.split('-')[1]) - 1; 
+            let ey = parseInt(b_end.split('-')[0]);
+            let em = parseInt(b_end.split('-')[1]) - 1;
             
             let current_date = new Date(sy, sm, 1);
             let end_limit = new Date(ey, em, 1);
@@ -779,11 +797,14 @@ frappe.ui.form.on('Sales Invoice', {
         let month_headers_html = '';
         let months = []; 
         
-        if (frm.doc.custom_billing_start_date && frm.doc.custom_billing_end_date) {
-            let sy = parseInt(frm.doc.custom_billing_start_date.split('-')[0]);
-            let sm = parseInt(frm.doc.custom_billing_start_date.split('-')[1]) - 1; 
-            let ey = parseInt(frm.doc.custom_billing_end_date.split('-')[0]);
-            let em = parseInt(frm.doc.custom_billing_end_date.split('-')[1]) - 1;
+        let b_start = frm.doc.custom_billing_start_date || frm.doc.custom_billing_from;
+        let b_end = frm.doc.custom_billing_end_date || frm.doc.custom_billing_to;
+
+        if (b_start && b_end) {
+            let sy = parseInt(b_start.split('-')[0]);
+            let sm = parseInt(b_start.split('-')[1]) - 1; 
+            let ey = parseInt(b_end.split('-')[0]);
+            let em = parseInt(b_end.split('-')[1]) - 1;
             
             let current_date = new Date(sy, sm, 1);
             let end_limit = new Date(ey, em, 1);
