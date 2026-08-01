@@ -25,15 +25,16 @@ frappe.ui.form.on('Sales Invoice', {
         frm.trigger('render_custom_fleet_table');
         frm.trigger('render_cb_fleet_table');
         
-        // Ensure all 3 sections stay OPEN by default
-        ['custom_section_break_dshfi', 'custom_section_break_vudhs', 'custom_section_break_ubm3j'].forEach(fn => {
-            let f = frm.get_field(fn);
-            if (f && typeof f.collapse === 'function') {
-                f.collapse(false);
-            } else {
-                frm.set_df_property(fn, 'collapsed', 0);
-            }
-        });
+        // Ensure the single main section break stays OPEN by default
+        let main_section = frm.get_field('custom_section_break_dshfi');
+        if (main_section && typeof main_section.collapse === 'function') {
+            main_section.collapse(false);
+        } else {
+            frm.set_df_property('custom_section_break_dshfi', 'collapsed', 0);
+        }
+        
+        frm.set_df_property('custom_section_break_vudhs', 'hidden', 1);
+        frm.set_df_property('custom_section_break_ubm3j', 'hidden', 1);
     },
     
     customer: function(frm) {
