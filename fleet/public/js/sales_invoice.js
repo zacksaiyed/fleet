@@ -25,13 +25,17 @@ frappe.ui.form.on('Sales Invoice', {
         frm.trigger('render_custom_fleet_table');
         frm.trigger('render_cb_fleet_table');
         
-        // Ensure the single main section break stays OPEN by default
+        // Ensure the single main section break stays OPEN by default, tracking manual toggles
         let main_section = frm.get_field('custom_section_break_dshfi');
-        if (main_section && typeof main_section.collapse === 'function') {
-            main_section.collapse(false);
-        } else {
-            frm.set_df_property('custom_section_break_dshfi', 'collapsed', 0);
+        if (main_section && main_section.wrapper) {
+            $(main_section.wrapper).find('.section-head, .collapse-btn, .collapse-indicator').off('click.fleet_manual_toggle').on('click.fleet_manual_toggle', function() {
+                setTimeout(function() {
+                    let is_closed = main_section.is_collapsed ? main_section.is_collapsed() : $(main_section.wrapper).find('.section-body').is(':hidden');
+                    window.fleet_section_manually_collapsed = is_closed;
+                }, 150);
+            });
         }
+        keep_fleet_section_open(frm);
         
         frm.set_df_property('custom_section_break_vudhs', 'hidden', 1);
         frm.set_df_property('custom_section_break_ubm3j', 'hidden', 1);
@@ -392,6 +396,7 @@ frappe.ui.form.on('Sales Invoice', {
                 }
                 save_installation_data();
                 update_group_totals();
+                keep_fleet_section_open(frm);
             });
 
             tbody.off('click change', '.inst-decision-radio').on('click change', '.inst-decision-radio', function(e) {
@@ -405,17 +410,24 @@ frappe.ui.form.on('Sales Invoice', {
                 hidden_decision.val(selected_decision); 
                 td.css('background-color', get_bg_color(selected_decision));
                 
-                if (rate_input.val() > 0) { rate_input.attr('data-original-val', rate_input.val()); }
-                rate_input.val(0); 
-                
                 let item_code = tr.find('[data-col="code"]').val();
                 let license_plate = tr.find('[data-col="license_plate"]').val();
+
+                if (selected_decision !== 'Chargeable') {
+                    if (rate_input.val() > 0) { rate_input.attr('data-original-val', rate_input.val()); }
+                    rate_input.val(0); 
+                } else {
+                    let orig = rate_input.attr('data-original-val') || 0;
+                    rate_input.val(orig);
+                }
+                
                 update_installation_item_decision(frm, item_code, license_plate, selected_decision);
 
                 save_installation_data();
                 update_group_totals();
                 frm.dirty();
                 $('.decision-popup').hide();
+                keep_fleet_section_open(frm);
             });
 
             $(document).off('click.hide_inst_popup').on('click.hide_inst_popup', function(e) {
@@ -714,6 +726,7 @@ frappe.ui.form.on('Sales Invoice', {
                 popup.fadeOut(200);
             }
             save_table_data();
+            keep_fleet_section_open(frm);
         });
 
         tbody.off('click change', '.month-decision-radio').on('click change', '.month-decision-radio', function(e) {
@@ -736,6 +749,7 @@ frappe.ui.form.on('Sales Invoice', {
             save_table_data();
             frm.dirty();
             $('.decision-popup').hide();
+            keep_fleet_section_open(frm);
         });
 
         $(document).off('click.hide_fleet_popup').on('click.hide_fleet_popup', function(e) {
@@ -1047,6 +1061,7 @@ frappe.ui.form.on('Sales Invoice', {
                 popup.fadeOut(200);
             }
             save_table_data();
+            keep_fleet_section_open(frm);
         });
 
         tbody.off('click change', '.month-decision-radio').on('click change', '.month-decision-radio', function(e) {
@@ -1069,6 +1084,7 @@ frappe.ui.form.on('Sales Invoice', {
             save_table_data();
             frm.dirty();
             $('.decision-popup').hide();
+            keep_fleet_section_open(frm);
         });
 
         $(document).off('click.hide_cb_fleet_popup').on('click.hide_cb_fleet_popup', function(e) {
@@ -1260,5 +1276,16 @@ function update_installation_item_decision(frm, item_code, reg_no, decision) {
     
     if (existing_row) {
         existing_row.custom_billing_decision = decision;
+    }
+}
+
+function keep_fleet_section_open(frm) {
+    let main_section = frm.get_field('custom_section_break_dshfi');
+    if (main_section && !window.fleet_section_manually_collapsed) {
+        if (typeof main_section.collapse === 'function') {
+            main_section.collapse(false);
+        } else if (frm.fields_dict['custom_section_break_dshfi']) {
+            frm.set_df_property('custom_section_break_dshfi', 'collapsed', 0);
+        }
     }
 }
