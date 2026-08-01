@@ -84,6 +84,7 @@ class Job(Document):
 		self._recompute_task_status()
 		if self.status == "Completed":
 			self._handle_warehouse_movement()
+			self._update_customer_component_price()
 
 	def on_trash(self):
 		if self.task:
@@ -456,6 +457,50 @@ class Job(Document):
 				"is_private":          0,
 			}).insert(ignore_permissions=True)
 
+	def _update_customer_component_price(self):
+		if not self.customer or not self.item_installed_removed:
+			return
+
+		try:
+			customer = frappe.get_doc("Customer", self.customer)
+			updated = False
+			for row in self.item_installed_removed:
+				if row.installed_or_removed != "Installed":
+					continue
+
+				model = frappe.db.get_value("Item", row.item, "custom_model")
+				if not model:
+					continue
+
+				default_price = frappe.db.get_value("Item", row.item, "custom_default_billing_price") or 0
+				model_price = 0
+				if frappe.db.exists("DocType", "Item Model"):
+					model_price = frappe.db.get_value("Item Model", model, "price") or 0
+
+				existing_rows = customer.get("custom_customer_component_price", {"model": model})
+
+				if existing_rows:
+					existing_row = existing_rows[0]
+					existing_row.last_vehicle = self.vehicle_number
+					existing_row.last_job = self.name
+					existing_row.effective_from = self.completed_on_support or nowdate()
+					updated = True
+				else:
+					customer.append("custom_customer_component_price", {
+						"model": model,
+						"default_price": model_price,
+						"effective_from": self.completed_on_support or nowdate(),
+						"last_vehicle": self.vehicle_number,
+						"last_job": self.name,
+						"customer_price": default_price
+					})
+					updated = True
+
+			if updated:
+				customer.save(ignore_permissions=True)
+		except Exception:
+			frappe.log_error(frappe.get_traceback(), "Failed to update customer component price on job completion")
+
 
 # Item search by warehouse
 
@@ -641,8 +686,11 @@ def job_action(job, action, comment=None, comment_field=None, branch=None):
 
 @frappe.whitelist()
 def add_in_customer_row(job: str, comment: str | None = None):
-    # This is now handled automatically in the server-side on_update hook.
-    # We keep this dummy method to prevent errors on cached browsers.
+    doc = frappe.get_doc("Job", job)
+    if not doc.customer:
+        frappe.throw("Customer is required in Job")
+    
+    doc._update_customer_component_price()
     return {
         "status": True,
         "message": "Customer component price updated successfully"
