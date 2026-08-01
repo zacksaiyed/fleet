@@ -1,6 +1,7 @@
 import frappe
 from frappe import _
 from collections import defaultdict
+from frappe.utils import get_datetime
 
 
 # helpers
@@ -324,19 +325,20 @@ def get_all_technicians_summary():
 
 
 @frappe.whitelist()
-def get_technician_jobs(technician):
+def get_technician_jobs(technician, show_completed=0):
     """All jobs for a technician (by User email), grouped by task with position info."""
     employee = _employee_from_user(technician)
     if not employee:
         return []
 
+    show_completed = str(show_completed).lower() in ("1", "true", "yes")
     jobs = frappe.get_all(
         "Job",
         filters={"assigned_technician": employee},
         fields=["name", "title", "task", "status", "vehicle_number",
                 "task_type", "unread_count_support",
                 "unread_count_tech", "creation", "modified"],
-        order_by="task asc, modified desc",
+        order_by="creation desc",
     )
 
     if not jobs:
@@ -350,7 +352,7 @@ def get_technician_jobs(technician):
         rows = frappe.get_all(
             "Task",
             filters={"name": ["in", task_names]},
-            fields=["name", "subject", "custom_date", "status"],
+            fields=["name", "subject", "custom_date", "status", "creation"],
         )
         task_info = {r.name: r for r in rows}
 
@@ -373,16 +375,31 @@ def get_technician_jobs(technician):
                 for r in task_rows_list
             }
 
+    visible_jobs = []
     for j in jobs:
         info     = task_info.get(j.task, {})
+        if show_completed and j.status != "Completed":
+            continue
+        if not show_completed and j.status == "Completed":
+            continue
         pos_data = task_job_map.get(j.task, {}).get(j.name)
         j["task_subject"]        = info.get("subject") or j.task
         j["task_date"]           = str(info.get("custom_date") or "")
         j["task_workflow_state"] = info.get("status") or ""
+        j["task_creation"]       = str(info.get("creation") or "")
         j["job_position"]        = pos_data["position"] if pos_data else 1
         j["task_job_count"]      = pos_data["total"]    if pos_data else 1
+        visible_jobs.append(j)
 
-    return jobs
+    visible_jobs.sort(
+        key=lambda j: (
+            get_datetime(j.get("task_creation") or j.get("creation")),
+            get_datetime(j.get("creation")),
+        ),
+        reverse=True,
+    )
+
+    return visible_jobs
 
 
 @frappe.whitelist()

@@ -1532,7 +1532,7 @@ def _post_job_update_message(job_doc, employee, changed_scalars: dict, set_items
                     serial_no = details.get("custom_serial_no") or "—"
                     mobile_no = details.get("custom_mobile_number") or "—"
                     lines.append(f"  {item_type}: {item_code} - {brand}")
-                    lines.append(f"  SIM Serial No: {serial_no}")
+                    # lines.append(f"  SIM Serial No: {serial_no}")
                     lines.append(f"  SIM Mobile No: {mobile_no}")
                     lines.append(f"  SIM Type: {sim_type}")
                 else:
@@ -1557,7 +1557,7 @@ def _post_job_update_message(job_doc, employee, changed_scalars: dict, set_items
                     serial_no = details.get("custom_serial_no") or "—"
                     mobile_no = details.get("custom_mobile_number") or "—"
                     lines.append(f"  {item_type}: {item_code} - {brand}")
-                    lines.append(f"  SIM Serial No: {serial_no}")
+                    # lines.append(f"  SIM Serial No: {serial_no}")
                     lines.append(f"  SIM Mobile No: {mobile_no}")
                     lines.append(f"  SIM Type: {sim_type}")
                 else:

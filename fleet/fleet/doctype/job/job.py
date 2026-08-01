@@ -11,6 +11,7 @@ GPS_ITEM_TYPE = "GPS Device"
 class Job(Document):
 
 	def before_save(self):
+		self._vehicle_strip()
 		self._fetch_technician_warehouse()
 		self._fetch_customer_warehouse()
 		self._set_date_from_task()
@@ -127,6 +128,10 @@ class Job(Document):
 			task_date = frappe.db.get_value("Task", self.task, "custom_date")
 			if task_date:
 				self.date = task_date
+
+	def _vehicle_strip(self):
+		if self.vehicle_number and self.task_type == "Installation":
+			self.vehicle_number = self.vehicle_number.strip()
 
 	def _fetch_technician_warehouse(self):
 		if not self.assigned_technician:

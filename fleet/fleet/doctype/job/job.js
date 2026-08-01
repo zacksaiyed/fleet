@@ -62,7 +62,9 @@ frappe.ui.form.on("Job Item", {
 });
 
 function _attachVehicleNumberMask(frm) {
-	const field = frm.get_field("vehicle_number");
+	const field = frm.get_field("vehicle_number");		
+	// if (e.key === " ") { e.preventDefault(); return; }
+
 	if (!field || !field.$input) return;
 
 	field.$input.off("keydown.vnr input.vnr blur.vnr");
@@ -259,7 +261,8 @@ frappe.ui.form.on("Job", {
 
 	async validate(frm) {
 		if (!frm.doc.vehicle_number || !frm.doc.customer || frm.doc.task_type === "Installation") return;
-		const vnum = frm.doc.vehicle_number.replace(/\s+/g, "").toUpperCase();
+		// const vnum = frm.doc.vehicle_number.replace(/\s+/g, "").toUpperCase();
+		const vnum = frm.doc.vehicle_number.toUpperCase();
 		const r = await frappe.db.get_value("Vehicle", vnum, "custom_customer");
 		const vc = r?.message?.custom_customer;
 		if (vc && vc !== frm.doc.customer) {
@@ -447,7 +450,8 @@ function fetch_vehicle_details(frm) {
         return;
     }
 
-    const normalized = vehicle_number.replace(/\s+/g, "").toUpperCase();
+    // const normalized = vehicle_number.replace(/\s+/g, "").toUpperCase();
+	   const normalized = vehicle_number.toUpperCase();
 
     frappe.db.get_value(
         "Vehicle",
