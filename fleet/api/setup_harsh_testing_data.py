@@ -11,18 +11,33 @@ def setup_harsh_demo_data():
             ig.parent_item_group = "All Item Groups"
             ig.insert(ignore_permissions=True)
 
-        for item_type_name in ["GPS Device", "Fuel Sensor", "Camera"]:
+        item_types = ["GPS Device", "Fuel Sensor", "Camera", "Temperature Sensor"]
+        for item_type_name in item_types:
             if not frappe.db.exists("Item Type", item_type_name):
                 it = frappe.new_doc("Item Type")
                 it.name = item_type_name
                 it.insert(ignore_permissions=True)
 
         items_list = [
-            {"code": "GPS-HARSH-01", "name": "GPS Tracker 01", "type": "GPS Device"},
-            {"code": "GPS-HARSH-02", "name": "GPS Tracker 02", "type": "GPS Device"},
-            {"code": "GPS-HARSH-03", "name": "GPS Tracker 03", "type": "GPS Device"},
-            {"code": "FS-HARSH-01", "name": "Fuel Sensor 01", "type": "Fuel Sensor"},
-            {"code": "DC-HARSH-01", "name": "Dashcam 01", "type": "Camera"}
+            {"code": "GPS-101", "name": "GPS Tracker 101", "type": "GPS Device"},
+            {"code": "GPS-102", "name": "GPS Tracker 102", "type": "GPS Device"},
+            {"code": "GPS-103", "name": "GPS Tracker 103", "type": "GPS Device"},
+            {"code": "GPS-104", "name": "GPS Tracker 104", "type": "GPS Device"},
+            {"code": "GPS-105", "name": "GPS Tracker 105", "type": "GPS Device"},
+            {"code": "GPS-106", "name": "GPS Tracker 106", "type": "GPS Device"},
+            {"code": "GPS-107", "name": "GPS Tracker 107", "type": "GPS Device"},
+            {"code": "GPS-108", "name": "GPS Tracker 108", "type": "GPS Device"},
+            {"code": "GPS-109", "name": "GPS Tracker 109", "type": "GPS Device"},
+            {"code": "GPS-110", "name": "GPS Tracker 110", "type": "GPS Device"},
+            {"code": "FS-101", "name": "Fuel Sensor 101", "type": "Fuel Sensor"},
+            {"code": "FS-102", "name": "Fuel Sensor 102", "type": "Fuel Sensor"},
+            {"code": "FS-103", "name": "Fuel Sensor 103", "type": "Fuel Sensor"},
+            {"code": "FS-104", "name": "Fuel Sensor 104", "type": "Fuel Sensor"},
+            {"code": "DC-101", "name": "Dashcam 101", "type": "Camera"},
+            {"code": "DC-102", "name": "Dashcam 102", "type": "Camera"},
+            {"code": "DC-103", "name": "Dashcam 103", "type": "Camera"},
+            {"code": "TS-101", "name": "Temp Sensor 101", "type": "Temperature Sensor"},
+            {"code": "TS-102", "name": "Temp Sensor 102", "type": "Temperature Sensor"}
         ]
 
         for item_info in items_list:
@@ -47,7 +62,7 @@ def setup_harsh_demo_data():
         cg = frappe.db.get_value("Customer Group", {"is_group": 0}, "name") or "_Test Customer Group 1"
         terr = frappe.db.get_value("Territory", {"is_group": 0}, "name") or "_Test Territory"
         
-        cust_name = "Harsh 6-Month Test Fleet"
+        cust_name = "Harsh 10-Vehicle Test Fleet"
         if not frappe.db.exists("Customer", cust_name):
             cust = frappe.new_doc("Customer")
             cust.customer_name = cust_name
@@ -64,37 +79,22 @@ def setup_harsh_demo_data():
         else:
             cust = frappe.get_doc("Customer", cust_name)
 
-        # 3. Setup Vehicles with multiple items & 6-Month Classification
+        # 3. Setup 10 Fleet Vehicles
         vehicles_spec = [
-            {
-                "plate": "LOC-6M-01", 
-                "fleet": "FL-601", 
-                "class": "Local", 
-                "items": [
-                    {"code": "GPS-HARSH-01", "inst_date": "2026-01-05"},
-                    {"code": "FS-HARSH-01", "inst_date": "2026-01-05"}
-                ]
-            },
-            {
-                "plate": "CB-6M-02", 
-                "fleet": "FL-602", 
-                "class": "CB", 
-                "items": [
-                    {"code": "GPS-HARSH-02", "inst_date": "2026-01-10"},
-                    {"code": "DC-HARSH-01", "inst_date": "2026-01-10"}
-                ]
-            },
-            {
-                "plate": "MIX-6M-03", 
-                "fleet": "FL-603", 
-                "class": "Local", 
-                "items": [
-                    {"code": "GPS-HARSH-03", "inst_date": "2026-01-12"}
-                ]
-            }
+            {"plate": "LOC-FL-01", "fleet": "FL-001", "class": "Local", "items": [{"code": "GPS-101", "inst_date": "2026-01-05"}, {"code": "FS-101", "inst_date": "2026-01-05"}]},
+            {"plate": "LOC-FL-02", "fleet": "FL-002", "class": "Local", "items": [{"code": "GPS-102", "inst_date": "2026-01-06"}, {"code": "DC-101", "inst_date": "2026-01-06"}]},
+            {"plate": "LOC-FL-03", "fleet": "FL-003", "class": "Local", "items": [{"code": "GPS-103", "inst_date": "2026-01-08"}]},
+            {"plate": "LOC-FL-04", "fleet": "FL-004", "class": "Local", "items": [{"code": "GPS-104", "inst_date": "2026-01-10"}, {"code": "FS-102", "inst_date": "2026-01-10"}]},
+            {"plate": "LOC-FL-05", "fleet": "FL-005", "class": "Local", "items": [{"code": "GPS-105", "inst_date": "2026-01-12"}, {"code": "TS-101", "inst_date": "2026-01-12"}]},
+            {"plate": "CB-FL-06", "fleet": "FL-006", "class": "CB", "items": [{"code": "GPS-106", "inst_date": "2026-01-05"}, {"code": "FS-103", "inst_date": "2026-01-05"}]},
+            {"plate": "CB-FL-07", "fleet": "FL-007", "class": "CB", "items": [{"code": "GPS-107", "inst_date": "2026-01-07"}, {"code": "DC-102", "inst_date": "2026-01-07"}]},
+            {"plate": "CB-FL-08", "fleet": "FL-008", "class": "CB", "items": [{"code": "GPS-108", "inst_date": "2026-01-09"}]},
+            {"plate": "CB-FL-09", "fleet": "FL-009", "class": "CB", "items": [{"code": "GPS-109", "inst_date": "2026-01-11"}, {"code": "TS-102", "inst_date": "2026-01-11"}]},
+            {"plate": "CB-FL-10", "fleet": "FL-010", "class": "CB", "items": [{"code": "GPS-110", "inst_date": "2026-01-14"}, {"code": "FS-104", "inst_date": "2026-01-14"}, {"code": "DC-103", "inst_date": "2026-01-14"}]}
         ]
 
         months = ["2026-01-01", "2026-02-01", "2026-03-01", "2026-04-01", "2026-05-01", "2026-06-01"]
+        activity_dates = ["2026-01-25", "2026-02-25", "2026-03-25", "2026-04-25", "2026-05-25", "2026-06-25"]
 
         for spec in vehicles_spec:
             v_plate = spec["plate"]
@@ -134,8 +134,7 @@ def setup_harsh_demo_data():
                     "event_date": inst_date
                 }).insert(ignore_permissions=True, ignore_if_duplicate=True)
 
-                # Log activity details for all 6 months (day 25 to pass cutoff day 15)
-                activity_dates = ["2026-01-25", "2026-02-25", "2026-03-25", "2026-04-25", "2026-05-25", "2026-06-25"]
+                # Log activity details for all 6 months
                 for act_d in activity_dates:
                     frappe.get_doc({
                         "doctype": "Vehicle Activity Details",
@@ -161,12 +160,12 @@ def setup_harsh_demo_data():
         frappe.db.commit()
         return {
             "status": "success",
-            "message": "6-Month Harsh Demo Fleet Data setup successfully!",
+            "message": "10-Vehicle Fleet Demo Data setup successfully!",
             "customer": cust.name,
             "period": "2026-01-01 to 2026-06-30",
             "invoice_result": res
         }
     except Exception as e:
         frappe.db.rollback()
-        frappe.log_error("Setup 6-Month Harsh Demo Data Failed", str(e))
+        frappe.log_error("Setup 10-Vehicle Demo Data Failed", str(e))
         return {"status": "error", "message": str(e)}
