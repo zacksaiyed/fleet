@@ -293,6 +293,7 @@ class Job(Document):
 			"color" : self.color,
 			"custom_vehicle_type": self.type or None,
 			"custom_customer": self.customer or None,
+			"custom_branch": self.flags.selected_branch or None,
 		})
 		for row in self.item_installed_removed:
 			vehicle.append("custom_vehicle_item", {
@@ -332,6 +333,8 @@ class Job(Document):
 			)
 
 		vehicle = frappe.get_doc("Vehicle", self.vehicle_number)
+		if self.flags.selected_branch:
+			vehicle.custom_branch = self.flags.selected_branch
 		vehicle_items = {r.item: r for r in vehicle.get("custom_vehicle_item", [])}
 
 		# Validate all items exist on vehicle before making any changes
@@ -372,6 +375,8 @@ class Job(Document):
 			)
 
 		vehicle = frappe.get_doc("Vehicle", self.vehicle_number)
+		if self.flags.selected_branch:
+			vehicle.custom_branch = self.flags.selected_branch
 		vehicle_items = {r.item: r for r in vehicle.get("custom_vehicle_item", [])}
 
 		# Validate removals first — fail before making any changes
@@ -427,6 +432,8 @@ class Job(Document):
 			)
 
 		vehicle = frappe.get_doc("Vehicle", self.vehicle_number)
+		if self.flags.selected_branch:
+			vehicle.custom_branch = self.flags.selected_branch
 		vehicle_items = {r.item: r for r in vehicle.get("custom_vehicle_item", [])}
 
 		for row in self.item_installed_removed:
