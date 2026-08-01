@@ -489,6 +489,10 @@ class Job(Document):
 					existing_row.last_vehicle = self.vehicle_number
 					existing_row.last_job = self.name
 					existing_row.effective_from = self.completed_on_support or nowdate()
+					if model_price:
+						existing_row.default_price = model_price
+					if default_price and not existing_row.customer_price:
+						existing_row.customer_price = default_price
 					updated = True
 				else:
 					customer.append("custom_customer_component_price", {
