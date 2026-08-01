@@ -99,10 +99,11 @@ frappe.ui.form.on('Sales Invoice', {
                     let new_row = { 
                         device_number: item_code, 
                         registration_number: reg_no, 
-                        // Yahan change kiya hai: Agar purana vehicle no hai toh wahi rakho, warna reg_no dalo
-                        vehicle_no: (old_row && old_row.vehicle_no) ? old_row.vehicle_no : reg_no,
-                        previous_activity_date: prev_act_date 
+                        vehicle_no: (old_row && old_row.vehicle_no) ? old_row.vehicle_no : reg_no
                     };
+                    if (prev_act_date) {
+                        new_row.previous_activity_date = prev_act_date;
+                    }
                     local_data_map[reg_no] = old_row ? Object.assign({}, old_row, new_row) : new_row;
                 }
             } 
@@ -112,10 +113,11 @@ frappe.ui.form.on('Sales Invoice', {
                     let new_row = { 
                         device_number: item_code, 
                         registration_number: reg_no, 
-                        // Yahan bhi same change kiya hai
-                        vehicle_no: (old_row && old_row.vehicle_no) ? old_row.vehicle_no : reg_no,
-                        previous_activity_date: prev_act_date 
+                        vehicle_no: (old_row && old_row.vehicle_no) ? old_row.vehicle_no : reg_no
                     };
+                    if (prev_act_date) {
+                        new_row.previous_activity_date = prev_act_date;
+                    }
                     cb_data_map[reg_no] = old_row ? Object.assign({}, old_row, new_row) : new_row;
                 }
             }
@@ -130,10 +132,10 @@ frappe.ui.form.on('Sales Invoice', {
             : frm.doc.custom_cb_fleet_data_json;
 
         if (new_local_json && frm.doc.custom_fleet_data_json !== new_local_json) {
-            frm.set_value('custom_fleet_data_json', new_local_json);
+            frm.doc.custom_fleet_data_json = new_local_json;
         }
         if (new_cb_json && frm.doc.custom_cb_fleet_data_json !== new_cb_json) {
-            frm.set_value('custom_cb_fleet_data_json', new_cb_json);
+            frm.doc.custom_cb_fleet_data_json = new_cb_json;
         }
 
         frm.trigger('render_custom_fleet_table');
