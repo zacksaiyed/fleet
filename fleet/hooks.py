@@ -232,7 +232,8 @@ doc_events = {
         "before_insert": "fleet.override.item.generate_item_details"
     },
     "Sales Invoice": {
-        "before_submit": "fleet.api.billing.before_sales_invoice_submit"
+        "before_submit": "fleet.api.billing.before_sales_invoice_submit",
+        "on_submit": "fleet.api.billing.on_sales_invoice_submit"
     }
 }
 

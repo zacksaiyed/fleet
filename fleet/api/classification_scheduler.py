@@ -10,6 +10,7 @@ def compute_vehicle_monthly_classification(vehicle_name, date):
     - If CB == LOCAL (Tie): returns classification from Vehicle Master (custom_vehicle_type), 
       or fallback to installed SIM item custom_sim_type, or latest classification as of month end.
     """
+
     t_date = getdate(date)
     month_start = getdate(f"{t_date.year}-{t_date.month:02d}-01")
     month_end = add_days(add_months(month_start, 1), -1)
