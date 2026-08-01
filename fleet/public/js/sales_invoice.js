@@ -56,7 +56,7 @@ frappe.ui.form.on('Sales Invoice', {
         existing_cb.forEach(r => { if(r.registration_number) old_cb_map[r.registration_number] = r; });
 
         $.each(frm.doc.items || [], function(i, row) {
-            let reg_no = row.custom_registration_number;
+            let reg_no = row.custom_registration_number || row.custom_vehicle;
             let item_code = row.item_code;
             let desc = row.description ? row.description.toLowerCase() : "";
             let v_type = row.custom_vehicle_type ? row.custom_vehicle_type.toUpperCase() : null;

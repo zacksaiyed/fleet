@@ -498,6 +498,7 @@ def generate_customer_invoice(customer_id, from_date=None, to_date=None, vehicle
                                 "custom_billing_month": target_date,
                                 "item_code": item, "qty": 1, "custom_is_installation": 1, "custom_is_removed": item_is_removed_flag,
                                 "custom_vehicle": vehicle.name,
+                                "custom_registration_number": vehicle.license_plate or vehicle.name,
                                 "custom_billing_month_label": b_month["label"], 
                                 "custom_original_rate": rate,
                                 "custom_final_rate": rate,
@@ -599,6 +600,7 @@ def generate_customer_invoice(customer_id, from_date=None, to_date=None, vehicle
                                 "qty": 1, 
                                 "custom_is_subscription": 1, "custom_is_removed": item_is_removed_flag,  
                                 "custom_vehicle": vehicle.name,
+                                "custom_registration_number": vehicle.license_plate or vehicle.name,
                                 "custom_billing_month_label": b_month["label"], 
                                 "custom_original_rate": orig_rate,
                                 "custom_final_rate": final_rate,
@@ -813,7 +815,7 @@ def generate_customer_invoice(customer_id, from_date=None, to_date=None, vehicle
                 if reg_no and reg_no not in fleet_json_data:
                     fleet_json_data[reg_no] = {
                         "device_number": item_code,
-                        "fleet_number": frappe.db.get_value("Vehicle", {"license_plate": reg_no}, "custom_fleet_number") or "",
+                        "fleet_number": "",
                         "registration_number": reg_no,
                         "vehicle_no": reg_no,
                         "date_of_installation": str(invoice_start_date),
@@ -823,7 +825,7 @@ def generate_customer_invoice(customer_id, from_date=None, to_date=None, vehicle
                 if reg_no and reg_no not in cb_fleet_json_data:
                     cb_fleet_json_data[reg_no] = {
                         "device_number": item_code,
-                        "fleet_number": frappe.db.get_value("Vehicle", {"license_plate": reg_no}, "custom_fleet_number") or "",
+                        "fleet_number": "",
                         "registration_number": reg_no,
                         "vehicle_no": reg_no,
                         "date_of_installation": str(invoice_start_date),
