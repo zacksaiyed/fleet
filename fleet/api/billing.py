@@ -784,6 +784,56 @@ def generate_customer_invoice(customer_id, from_date=None, to_date=None, vehicle
         else:
             inv.custom_local_equivalent_amount = inv.grand_total
             
+        fleet_json_data = {}
+        cb_fleet_json_data = {}
+        installation_json_data = []
+
+        for item_row in inv.items:
+            reg_no = getattr(item_row, "custom_registration_number", None) or ""
+            item_code = item_row.item_code
+            v_type = (getattr(item_row, "custom_vehicle_type", "") or "").upper()
+            is_inst = getattr(item_row, "custom_is_installation", 0)
+
+            if is_inst:
+                item_details = frappe.db.get_value("Item", item_code, ["item_group", "brand", "custom_model"], as_dict=True) or {}
+                installation_json_data.append({
+                    "license_plate": reg_no,
+                    "item_type": item_details.get("item_group", ""),
+                    "code": item_code,
+                    "brand": item_details.get("brand", ""),
+                    "model": item_details.get("custom_model", ""),
+                    "rate": item_row.rate,
+                    "original_rate": getattr(item_row, "custom_original_rate", item_row.rate),
+                    "installation_date": str(invoice_start_date),
+                    "active": 1,
+                    "is_installation_charged": 1 if getattr(item_row, "custom_billing_decision", "") == "Chargeable" else 0,
+                    "billing_decision": getattr(item_row, "custom_billing_decision", "")
+                })
+            elif v_type == "LOCAL":
+                if reg_no and reg_no not in fleet_json_data:
+                    fleet_json_data[reg_no] = {
+                        "device_number": item_code,
+                        "fleet_number": frappe.db.get_value("Vehicle", {"license_plate": reg_no}, "custom_fleet_number") or "",
+                        "registration_number": reg_no,
+                        "vehicle_no": reg_no,
+                        "date_of_installation": str(invoice_start_date),
+                        "comments": getattr(item_row, "custom_comment", "") or ""
+                    }
+            elif v_type == "CB":
+                if reg_no and reg_no not in cb_fleet_json_data:
+                    cb_fleet_json_data[reg_no] = {
+                        "device_number": item_code,
+                        "fleet_number": frappe.db.get_value("Vehicle", {"license_plate": reg_no}, "custom_fleet_number") or "",
+                        "registration_number": reg_no,
+                        "vehicle_no": reg_no,
+                        "date_of_installation": str(invoice_start_date),
+                        "comments": getattr(item_row, "custom_comment", "") or ""
+                    }
+
+        inv.custom_fleet_data_json = json.dumps(list(fleet_json_data.values()))
+        inv.custom_cb_fleet_data_json = json.dumps(list(cb_fleet_json_data.values()))
+        inv.custom_installation_data_json = json.dumps(installation_json_data)
+
         inv.insert(ignore_permissions=True)
         created_invoices.append(inv.name)
 

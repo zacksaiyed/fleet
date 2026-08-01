@@ -94,8 +94,15 @@ frappe.ui.form.on('Sales Invoice', {
             }
         });
 
-        frm.set_value('custom_fleet_data_json', JSON.stringify(Object.values(local_data_map)));
-        frm.set_value('custom_cb_fleet_data_json', JSON.stringify(Object.values(cb_data_map)));
+        let new_local_json = JSON.stringify(Object.values(local_data_map));
+        let new_cb_json = JSON.stringify(Object.values(cb_data_map));
+
+        if (frm.doc.custom_fleet_data_json !== new_local_json) {
+            frm.set_value('custom_fleet_data_json', new_local_json);
+        }
+        if (frm.doc.custom_cb_fleet_data_json !== new_cb_json) {
+            frm.set_value('custom_cb_fleet_data_json', new_cb_json);
+        }
 
         frm.trigger('render_custom_fleet_table');
         frm.trigger('render_cb_fleet_table');
@@ -202,7 +209,10 @@ frappe.ui.form.on('Sales Invoice', {
                     
                     current_saved[global_idx] = row_obj;
                 });
-                frm.set_value('custom_installation_data_json', JSON.stringify(current_saved));
+                let new_inst_json = JSON.stringify(current_saved);
+                if (frm.doc.custom_installation_data_json !== new_inst_json) {
+                    frm.set_value('custom_installation_data_json', new_inst_json);
+                }
             };
 
             let update_group_totals = function() {
@@ -589,7 +599,10 @@ frappe.ui.form.on('Sales Invoice', {
                     data_list[global_idx] = Object.assign({}, data_list[global_idx], row_obj);
                 }
             });
-            frm.set_value('custom_fleet_data_json', JSON.stringify(data_list));
+            let new_fleet_json = JSON.stringify(data_list);
+            if (frm.doc.custom_fleet_data_json !== new_fleet_json) {
+                frm.set_value('custom_fleet_data_json', new_fleet_json);
+            }
             sync_comments_to_items(frm); 
         }
 
@@ -914,7 +927,10 @@ frappe.ui.form.on('Sales Invoice', {
                     data_list[global_idx] = Object.assign({}, data_list[global_idx], row_obj);
                 }
             });
-            frm.set_value('custom_cb_fleet_data_json', JSON.stringify(data_list));
+            let new_cb_json = JSON.stringify(data_list);
+            if (frm.doc.custom_cb_fleet_data_json !== new_cb_json) {
+                frm.set_value('custom_cb_fleet_data_json', new_cb_json);
+            }
             sync_comments_to_items(frm); 
         }
 
