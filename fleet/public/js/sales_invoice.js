@@ -1211,8 +1211,8 @@ function update_item_decision(frm, device_no, reg_no, month_label, decision) {
     );
     
     if (existing_row) {
-        frappe.model.set_value(existing_row.doctype, existing_row.name, 'custom_is_subscription', 1);
-        frappe.model.set_value(existing_row.doctype, existing_row.name, 'custom_billing_decision', decision);
+        existing_row.custom_is_subscription = 1;
+        existing_row.custom_billing_decision = decision;
     }
 }
 
@@ -1234,20 +1234,15 @@ function manage_subscription_item(frm, is_checked, device_no, reg_no, month_labe
         new_row.custom_registration_number = reg_no;
         new_row.custom_billing_month_label = month_label; 
         new_row.qty = 1;
-        
-        frm.refresh_field("items");
-        
-        frappe.model.set_value(new_row.doctype, new_row.name, 'item_code', device_no).then(() => {
-            frappe.model.set_value(new_row.doctype, new_row.name, 'custom_is_subscription', 1);
-            frappe.model.set_value(new_row.doctype, new_row.name, 'custom_billing_decision', 'Chargeable');
-        });
-        
+        new_row.item_code = device_no;
+        new_row.custom_is_subscription = 1;
+        new_row.custom_billing_decision = 'Chargeable';
     } 
     else if (!is_checked && existing_row) {
-        frappe.model.set_value(existing_row.doctype, existing_row.name, 'custom_billing_decision', decision);
+        existing_row.custom_billing_decision = decision;
     } 
     else if (is_checked && existing_row) {
-        frappe.model.set_value(existing_row.doctype, existing_row.name, 'custom_billing_decision', 'Chargeable');
+        existing_row.custom_billing_decision = 'Chargeable';
     }
 }
 
@@ -1264,6 +1259,6 @@ function update_installation_item_decision(frm, item_code, reg_no, decision) {
     );
     
     if (existing_row) {
-        frappe.model.set_value(existing_row.doctype, existing_row.name, 'custom_billing_decision', decision);
+        existing_row.custom_billing_decision = decision;
     }
 }
