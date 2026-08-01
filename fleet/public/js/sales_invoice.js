@@ -22,6 +22,8 @@ frappe.ui.form.on('Sales Invoice', {
 
         frm.trigger('split_vehicles_directly_from_items');
         frm.trigger('render_installation_table');
+        frm.trigger('render_custom_fleet_table');
+        frm.trigger('render_cb_fleet_table');
     },
     
     customer: function(frm) {
