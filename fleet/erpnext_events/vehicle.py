@@ -143,6 +143,12 @@ def create_vehicle_classification_history(vehicle, customer, rows, effective_dat
             **filters,
         }).insert(ignore_permissions=True)
 
+        try:
+            from fleet.api.classification_scheduler import sync_single_vehicle_classification_log
+            sync_single_vehicle_classification_log(vehicle, row_effective_date)
+        except Exception:
+            frappe.log_error(frappe.get_traceback(), f"Failed to sync classification log for {vehicle}")
+
 
 def _is_installed_sim_row(row):
     status = getattr(row, "installed_or_removed", None) or getattr(row, "status", None)

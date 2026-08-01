@@ -122,3 +122,52 @@ def generate_vehicle_classification_logs(target_date=None):
         
     frappe.db.commit()
     return {"status": "success", "processed_vehicles": logged_count, "month": target_date}
+
+
+def sync_single_vehicle_classification_log(vehicle_name, target_date=None):
+    """
+    Creates or updates the Vehicle Classification Log for a single vehicle immediately upon update/job completion.
+    """
+    if not vehicle_name:
+        return
+
+    v_doc = frappe.db.get_value("Vehicle", vehicle_name, ["name", "custom_customer"], as_dict=True)
+    if not v_doc or not v_doc.get("custom_customer"):
+        return
+
+    if not target_date:
+        today = getdate(nowdate())
+        target_date = getdate(f"{today.year}-{today.month:02d}-01")
+    else:
+        t_date = getdate(target_date)
+        target_date = getdate(f"{t_date.year}-{t_date.month:02d}-01")
+
+    cust = v_doc.custom_customer
+    classification = compute_vehicle_monthly_classification(vehicle_name, target_date)
+
+    existing_log = frappe.db.get_value(
+        "Vehicle Classification Log",
+        filters={
+            "vehicle": vehicle_name,
+            "month": target_date
+        },
+        fieldname="name"
+    )
+
+    if existing_log:
+        log_doc = frappe.get_doc("Vehicle Classification Log", existing_log)
+        log_doc.customer = cust
+        log_doc.classification_type = "CB" if classification == "CB" else "Local"
+        log_doc.save(ignore_permissions=True)
+    else:
+        log_doc = frappe.get_doc({
+            "doctype": "Vehicle Classification Log",
+            "customer": cust,
+            "vehicle": vehicle_name,
+            "month": target_date,
+            "classification_type": "CB" if classification == "CB" else "Local"
+        })
+        log_doc.insert(ignore_permissions=True)
+
+    return log_doc
+

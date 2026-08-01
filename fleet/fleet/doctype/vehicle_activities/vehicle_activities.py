@@ -135,33 +135,19 @@ class VehicleActivities(Document):
 
 	def _read_csv_rows(self):
 		file_doc = self._get_upload_file_doc()
-		file_url = (file_doc.file_url or "").lower()
-		file_name = (file_doc.file_name or self.upload_file or "").lower()
-
-		is_excel = file_name.endswith((".xlsx", ".xls")) or file_url.endswith((".xlsx", ".xls"))
-
-		if is_excel:
-			import openpyxl
-			from io import BytesIO
-			raw_bytes = file_doc.get_content()
-			wb = openpyxl.load_workbook(BytesIO(raw_bytes), data_only=True)
-			sheet = wb.active
-			rows = []
-			for row in sheet.iter_rows(values_only=True):
-				if any(row):
-					rows.append([str(cell or "").strip() for cell in row])
-			return rows
-
 		content = file_doc.get_content()
 		if isinstance(content, bytes):
-			for encoding in ("utf-8-sig", "utf-8", "windows-1252", "latin1"):
+			for encoding in ("utf-8-sig", "utf-8", "windows-1252"):
 				try:
 					content = content.decode(encoding)
 					break
 				except UnicodeDecodeError:
 					continue
 			else:
-				frappe.throw("Unable to decode CSV file. Please upload a valid UTF-8 CSV or Excel file.")
+				frappe.throw("Unable to decode CSV file. Please upload UTF-8 CSV.")
+
+		if not (file_doc.file_name or self.upload_file or "").lower().endswith(".csv"):
+			frappe.throw("Please upload a CSV file.")
 
 		reader = csv.reader(StringIO(content))
 		return [[(cell or "").strip() for cell in row] for row in reader]
