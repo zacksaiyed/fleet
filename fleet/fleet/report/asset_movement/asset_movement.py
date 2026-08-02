@@ -43,7 +43,7 @@ def get_date(filters=None):
 		""".format(conditions),
 		filters,
 		as_dict=1,
-		debug=1
+		debug=0
 	)
 
 	employee_map = {
