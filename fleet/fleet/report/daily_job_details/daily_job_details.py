@@ -37,14 +37,18 @@ def get_data(filters=None):
 				j.name as job,
 				ts.custom_customer as customer,
 				j.vehicle_number as vehicle_no,
-				"" as gps_device_no,
-				"" as sim_no,
-				"" as type,
-				"" as accessories,
+				jitm.item as item,
+				jitm.item_name as item_name,
+				jitm.installed_or_removed as installed_or_removed,
+				jitm.item_type as item_type,
 				j.task_type as job_type,
 				j.technician_name as technician_name
 			FROM
 				`tabJob` j
+			JOIN
+				`tabJob Item` jitm
+			ON
+				jitm.parent = j.name
 			JOIN
 				`tabTask` ts
 			ON
@@ -55,68 +59,59 @@ def get_data(filters=None):
 	""".format(conditions),
 		filters,
 		as_dict=1,
-		debug=1
+		debug=0
 	)
 
-	vehicle_list = list(set( i.vehicle_no for i in data))
+	sim_nos = [
+		i.item
+		for i in data if i.item_type == "SIM"
+	]
 
-	vehicle_details = []
-	if vehicle_list:
-		vehicle_details = frappe.db.sql("""
-				SELECT
-					vi.item,
-					vi.item_type,
-					itm.custom_sim_type as type,
-					vi.parent as vehcile
-				FROM
-					`tabVehicle Item` vi
-				JOIN
-					`tabItem` itm
-				ON
-					itm.name = vi.item
-				WHERE
-					vi.parent in %(vehicles)s
-					and vi.status = "Installed"
-		""",{"vehicles":vehicle_list}, as_dict=1, debug=1 )
+	item_details = {
+		i.name: i.custom_sim_type
+		for i in frappe.get_all("Item", {"name":["in",sim_nos]},["name","custom_sim_type"])
+	}
 
-	vehicle_details_map = {}
-
-	for i in vehicle_details:
-		if i.vehcile in vehicle_details_map:
-			temp = vehicle_details_map[i.vehcile]
-			if i.item_type == "GPS Device":
-				temp["gps_device_no"] = i.item
-			elif i.item_type == "SIM":
-				if "sim_no" in temp:
-					temp["sim_no"] += f", {i.item}"
-					temp["type"] += f", {i.type}"
-				else:
-					temp["sim_no"] = i.item
-					temp["type"] = i.type
-			else:
-				if "accessories" in temp:
-					temp["accessories"] += f", {i.item_type}"
-				else:
-					temp["accessories"] = f"{i.item_type}"
-			vehicle_details_map[i.vehcile] = temp
-
-		else:
-			temp = {}
-			if i.item_type == "GPS Device":
-				temp["gps_device_no"] = i.item
-			elif i.item_type == "SIM":
-				temp["sim_no"] = i.item
-				temp["type"] = i.type
-			else:
-				temp["accessories"] = f"{i.item_type}"
-			
-			vehicle_details_map[i.vehcile] = temp
+	final_data = {}
 
 	for row in data:
-		if row.vehicle_no in vehicle_details_map:
-			row.update(vehicle_details_map[row.vehicle_no])
+		if row.installed_or_removed != "Installed" and row.job_type!="Removal":
+			continue
 
-	return data
+		temp_row = final_data.get(row.job) or {
+			"date_of_installation":row.date_of_installation,
+			"job":row.job,
+			"customer":row.customer,
+			"vehicle_no":row.vehicle_no,
+			"job_type":row.job_type,
+			"technician_name":row.technician_name,
+			"gps_device_no":"",
+			"sim_no":"",
+			"type":"",
+			"accessories":""
+		}
+
+		if row.item_type == "GPS Device":
+			if temp_row.get("gps_device_no"):
+				temp_row["gps_device_no"] += f", {row.item_name}"
+			else:
+				temp_row["gps_device_no"] = row.item_name
+		elif row.item_type == "SIM":
+			if temp_row.get("sim_no"):
+				temp_row["sim_no"] += f", {row.item_name}"
+				temp_row["type"] += f", {item_details.get(row.item)}"
+			else:
+				temp_row["sim_no"] = row.item_name
+				temp_row["type"] = item_details.get(row.item)
+		else:
+			if temp_row.get("accessories"):
+				temp_row["accessories"] += f", {row.item_name}"
+			else:
+				temp_row["accessories"] = row.item_name
+
+		final_data[row.job] = temp_row
+
+	return list(final_data.values())
 
 def get_columns(filters=None):
 	return  [
