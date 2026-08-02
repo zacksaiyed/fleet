@@ -348,11 +348,11 @@ def generate_customer_invoice(customer_id, from_date=None, to_date=None, vehicle
             
             if billing_currency == "BOTH":
                 if v_class == "CB":
-                    inv_currency_mode = "BOTH"
+                    inv_currency_mode = "USD"
                     inv_currency = "USD"
                     inv_vehicle_group = "CB"
                 else:
-                    inv_currency_mode = "BOTH"
+                    inv_currency_mode = "LOCAL"
                     inv_currency = "LOCAL"
                     inv_vehicle_group = "Local"
             elif billing_currency == "USD":
@@ -680,7 +680,10 @@ def generate_customer_invoice(customer_id, from_date=None, to_date=None, vehicle
         inv.custom_branch = group["branch"]
         inv.custom_tpin = group["tpin"]
         inv.custom_partial_invoice = 1 if is_partial else 0
-        inv.custom_billing_currency_mode = group["currency_mode"]
+        curr_mode = group["currency_mode"]
+        if curr_mode not in ["USD", "LOCAL"]:
+            curr_mode = group["currency_type"] if group["currency_type"] in ["USD", "LOCAL"] else "LOCAL"
+        inv.custom_billing_currency_mode = curr_mode
         
         if group["vehicle_group"]:
             inv.custom_vehicle_group = group["vehicle_group"]
