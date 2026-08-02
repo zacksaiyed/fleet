@@ -39,7 +39,7 @@ def get_date(filters=None):
 			where 
 				mt.docstatus = 1
 				{0}
-			order by mt.date, mt.name
+			order by mt.date desc, mt.name
 		""".format(conditions),
 		filters,
 		as_dict=1,

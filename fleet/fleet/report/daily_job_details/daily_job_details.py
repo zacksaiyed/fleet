@@ -55,7 +55,9 @@ def get_data(filters=None):
 				ts.name = j.task
 			WHERE
 				j.status = "Completed"
-				{0}				
+				{0}
+			order by
+				j.date desc
 	""".format(conditions),
 		filters,
 		as_dict=1,
