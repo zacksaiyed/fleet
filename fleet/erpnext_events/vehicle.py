@@ -264,6 +264,25 @@ def _create_gps_log(vehicle, customer, item, event_type, event_date, job_name=No
     }).insert(ignore_permissions=True)
 
 
+def sync_customer_last_billed_upto_date(doc):
+    if not doc.custom_customer:
+        return
+    c_last_billed = frappe.db.get_value("Customer", doc.custom_customer, "custom_last_billed_upto_date")
+    if not c_last_billed:
+        earliest_date = None
+        for row in doc.get("custom_vehicle_item") or []:
+            if row.date:
+                r_date = frappe.utils.getdate(row.date)
+                if not earliest_date or r_date < earliest_date:
+                    earliest_date = r_date
+        if not earliest_date and getattr(doc, "creation", None):
+            earliest_date = frappe.utils.getdate(doc.creation)
+        
+        if earliest_date:
+            init_date = frappe.utils.add_days(earliest_date, -1)
+            frappe.db.set_value("Customer", doc.custom_customer, "custom_last_billed_upto_date", init_date)
+
+
 def on_update_vehicle(doc, _method=None):
     if not doc.custom_customer:
         return
@@ -273,6 +292,7 @@ def on_update_vehicle(doc, _method=None):
         create_vehicle_classification_history(doc.name, doc.custom_customer, new_rows)
 
     sync_gps_installation_status_logs(doc)
+    sync_customer_last_billed_upto_date(doc)
 
     if _is_data_import(doc):
         customer_warehouse = frappe.db.get_value(
