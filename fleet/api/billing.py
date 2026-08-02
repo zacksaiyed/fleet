@@ -811,24 +811,37 @@ def generate_customer_invoice(customer_id, from_date=None, to_date=None, vehicle
                     "is_installation_charged": 1 if getattr(item_row, "custom_billing_decision", "") == "Chargeable" else 0,
                     "billing_decision": getattr(item_row, "custom_billing_decision", "")
                 })
-            elif v_type == "LOCAL":
-                if reg_no and reg_no not in fleet_json_data:
+            elif v_type in ["LOCAL", "CB"]:
+                v_name = getattr(item_row, "custom_vehicle", None) or reg_no
+                v_inst_date = None
+                if v_name and frappe.db.exists("Vehicle", v_name):
+                    v_item_dates = frappe.db.get_all("Vehicle Item", filters={"parent": v_name, "status": "Installed"}, fields=["date"], order_by="date asc", limit=1)
+                    if v_item_dates and v_item_dates[0].date:
+                        v_inst_date = str(v_item_dates[0].date)
+                    else:
+                        v_log = frappe.db.get_all("GPS Installation Status Log", filters={"vehicle": v_name, "event_type": "Installed"}, fields=["event_date"], order_by="event_date asc", limit=1)
+                        if v_log and v_log[0].event_date:
+                            v_inst_date = str(v_log[0].event_date)
+                
+                if not v_inst_date:
+                    v_inst_date = str(invoice_start_date)
+
+                if v_type == "LOCAL" and reg_no and reg_no not in fleet_json_data:
                     fleet_json_data[reg_no] = {
                         "device_number": item_code,
                         "fleet_number": "",
                         "registration_number": reg_no,
                         "vehicle_no": reg_no,
-                        "date_of_installation": str(invoice_start_date),
+                        "date_of_installation": v_inst_date,
                         "comments": getattr(item_row, "custom_comment", "") or ""
                     }
-            elif v_type == "CB":
-                if reg_no and reg_no not in cb_fleet_json_data:
+                elif v_type == "CB" and reg_no and reg_no not in cb_fleet_json_data:
                     cb_fleet_json_data[reg_no] = {
                         "device_number": item_code,
                         "fleet_number": "",
                         "registration_number": reg_no,
                         "vehicle_no": reg_no,
-                        "date_of_installation": str(invoice_start_date),
+                        "date_of_installation": v_inst_date,
                         "comments": getattr(item_row, "custom_comment", "") or ""
                     }
 
