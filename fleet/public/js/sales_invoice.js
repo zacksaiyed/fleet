@@ -1352,19 +1352,30 @@ function update_installation_item_decision(frm, item_code, reg_no, decision) {
 }
 
 function keep_fleet_section_open(frm) {
-    let main_section = frm.get_field('custom_section_break_dshfi');
-    if (main_section && !window.fleet_section_manually_collapsed) {
-        if (typeof main_section.collapse === 'function') {
-            main_section.collapse(false);
+    if (!frm) return;
+    if (window.fleet_section_manually_collapsed) return;
+
+    let apply_keep_open = function () {
+        if (window.fleet_section_manually_collapsed) return;
+        let main_section = frm.get_field('custom_section_break_dshfi');
+        if (main_section) {
+            if (typeof main_section.collapse === 'function') {
+                main_section.collapse(false);
+            }
+            if (frm.fields_dict['custom_section_break_dshfi']) {
+                frm.set_df_property('custom_section_break_dshfi', 'collapsed', 0);
+            }
+            if (main_section.wrapper) {
+                $(main_section.wrapper).find('.section-body').removeClass('collapse').removeClass('hidden').show();
+                $(main_section.wrapper).removeClass('collapsed');
+            }
         }
-        if (frm.fields_dict['custom_section_break_dshfi']) {
-            frm.set_df_property('custom_section_break_dshfi', 'collapsed', 0);
-        }
-        if (main_section.wrapper) {
-            $(main_section.wrapper).find('.section-body').removeClass('collapse').show();
-            $(main_section.wrapper).removeClass('collapsed');
-        }
-    }
+        $('[data-fieldname="custom_section_break_dshfi"]').removeClass('collapsed').find('.section-body').show();
+    };
+
+    apply_keep_open();
+    setTimeout(apply_keep_open, 50);
+    setTimeout(apply_keep_open, 250);
 }
 
 function get_billing_date_range(frm) {
