@@ -1254,11 +1254,14 @@ function manage_subscription_item(frm, is_checked, device_no, reg_no, month_labe
         new_row.custom_billing_decision = decision || 'Chargeable';
 
         frm.refresh_field("items");
+        keep_fleet_section_open(frm);
         frappe.model.set_value(new_row.doctype, new_row.name, 'item_code', device_no);
+        keep_fleet_section_open(frm);
     } 
     else if (!is_checked && existing_row) {
         frappe.model.clear_doc(existing_row.doctype, existing_row.name);
         frm.refresh_field("items");
+        keep_fleet_section_open(frm);
     } 
     else if (is_checked && existing_row) {
         existing_row.custom_billing_decision = decision || 'Chargeable';
@@ -1287,8 +1290,13 @@ function keep_fleet_section_open(frm) {
     if (main_section && !window.fleet_section_manually_collapsed) {
         if (typeof main_section.collapse === 'function') {
             main_section.collapse(false);
-        } else if (frm.fields_dict['custom_section_break_dshfi']) {
+        }
+        if (frm.fields_dict['custom_section_break_dshfi']) {
             frm.set_df_property('custom_section_break_dshfi', 'collapsed', 0);
+        }
+        if (main_section.wrapper) {
+            $(main_section.wrapper).find('.section-body').removeClass('collapse').show();
+            $(main_section.wrapper).removeClass('collapsed');
         }
     }
 }

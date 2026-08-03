@@ -472,16 +472,52 @@ def generate_customer_invoice(customer_id, from_date=None, to_date=None, vehicle
                     
                     # --- CONDITION A: INSTALLATION CHARGE ---
                     if b_y == inst_y and b_m == inst_m:
-                        latest_price_log = frappe.db.get_all("Customer Component Price History",
-                            filters={"customer": v_customer_id, "model": vehicle.model, "changed_on": ["<=", install_date]},
-                            fields=["rate"], order_by="changed_on desc", limit=1)
-                        
-                        rate = float(latest_price_log[0].rate) if latest_price_log else 0.0
-                        if rate == 0.0 and v_customer.custom_parent_customer:
-                            parent_price_log = frappe.db.get_all("Customer Component Price History",
-                                filters={"customer": v_customer.custom_parent_customer, "model": vehicle.model, "changed_on": ["<=", install_date]},
+                        item_model = frappe.db.get_value("Item", item, "custom_model") if item else None
+                        search_models = [m for m in [vehicle.model, item_model] if m]
+                        rate = 0.0
+
+                        # 1. Check Customer Component Price History
+                        for m_name in search_models:
+                            latest_price_log = frappe.db.get_all("Customer Component Price History",
+                                filters={"customer": v_customer_id, "model": m_name, "changed_on": ["<=", install_date]},
                                 fields=["rate"], order_by="changed_on desc", limit=1)
-                            rate = float(parent_price_log[0].rate) if parent_price_log else 0.0
+                            if latest_price_log and latest_price_log[0].get("rate"):
+                                rate = float(latest_price_log[0].rate)
+                                break
+
+                        # 2. Fallback: Check Customer Component Price UI table directly on Customer doc
+                        if rate == 0.0:
+                            for m_name in search_models:
+                                cust_p_rows = frappe.db.get_all("Customer Component Price",
+                                    filters={"parent": v_customer_id, "model": m_name},
+                                    fields=["customer_price", "effective_from"], order_by="idx asc", limit=1)
+                                if cust_p_rows and cust_p_rows[0].get("customer_price"):
+                                    eff_f = cust_p_rows[0].get("effective_from")
+                                    if not eff_f or getdate(eff_f) <= install_date:
+                                        rate = float(cust_p_rows[0].customer_price)
+                                        break
+
+                        # 3. Fallback: Check Parent Customer Price History
+                        if rate == 0.0 and v_customer.custom_parent_customer:
+                            for m_name in search_models:
+                                parent_price_log = frappe.db.get_all("Customer Component Price History",
+                                    filters={"customer": v_customer.custom_parent_customer, "model": m_name, "changed_on": ["<=", install_date]},
+                                    fields=["rate"], order_by="changed_on desc", limit=1)
+                                if parent_price_log and parent_price_log[0].get("rate"):
+                                    rate = float(parent_price_log[0].rate)
+                                    break
+
+                        # 4. Fallback: Check Parent Customer Component Price UI table directly
+                        if rate == 0.0 and v_customer.custom_parent_customer:
+                            for m_name in search_models:
+                                p_cust_p_rows = frappe.db.get_all("Customer Component Price",
+                                    filters={"parent": v_customer.custom_parent_customer, "model": m_name},
+                                    fields=["customer_price", "effective_from"], order_by="idx asc", limit=1)
+                                if p_cust_p_rows and p_cust_p_rows[0].get("customer_price"):
+                                    eff_f = p_cust_p_rows[0].get("effective_from")
+                                    if not eff_f or getdate(eff_f) <= install_date:
+                                        rate = float(p_cust_p_rows[0].customer_price)
+                                        break
                         
                         if inv_currency == "LOCAL":
                             rate = rate * usd_to_local
@@ -800,16 +836,37 @@ def generate_customer_invoice(customer_id, from_date=None, to_date=None, vehicle
             is_inst = getattr(item_row, "custom_is_installation", 0)
 
             if is_inst:
-                item_details = frappe.db.get_value("Item", item_code, ["item_group", "brand", "custom_model"], as_dict=True) or {}
+                v_name = getattr(item_row, "custom_vehicle", None) or reg_no
+                v_inst_date = None
+                v_model = ""
+                if v_name and frappe.db.exists("Vehicle", v_name):
+                    v_item_dates = frappe.db.get_all("Vehicle Item", filters={"parent": v_name, "item": item_code}, fields=["date"], order_by="date asc", limit=1)
+                    if not v_item_dates:
+                        v_item_dates = frappe.db.get_all("Vehicle Item", filters={"parent": v_name, "status": "Installed"}, fields=["date"], order_by="date asc", limit=1)
+                    if v_item_dates and v_item_dates[0].date:
+                        v_inst_date = str(v_item_dates[0].date)
+                    else:
+                        v_log = frappe.db.get_all("GPS Installation Status Log", filters={"vehicle": v_name, "event_type": "Installed"}, fields=["event_date"], order_by="event_date asc", limit=1)
+                        if v_log and v_log[0].event_date:
+                            v_inst_date = str(v_log[0].event_date)
+                    v_model = frappe.db.get_value("Vehicle", v_name, "model") or ""
+                
+                if not v_inst_date:
+                    v_inst_date = str(invoice_start_date)
+
+                item_details = frappe.db.get_value("Item", item_code, ["custom_item_type", "brand", "custom_model"], as_dict=True) or {}
+                item_type_val = item_details.get("custom_item_type") or frappe.db.get_value("Item", item_code, "item_group") or ""
+                model_val = v_model or item_details.get("custom_model") or ""
+
                 installation_json_data.append({
                     "license_plate": reg_no,
-                    "item_type": item_details.get("item_group", ""),
+                    "item_type": item_type_val,
                     "code": item_code,
                     "brand": item_details.get("brand", ""),
-                    "model": item_details.get("custom_model", ""),
+                    "model": model_val,
                     "rate": item_row.rate,
                     "original_rate": getattr(item_row, "custom_original_rate", item_row.rate),
-                    "installation_date": str(invoice_start_date),
+                    "installation_date": v_inst_date,
                     "active": 1,
                     "is_installation_charged": 1 if getattr(item_row, "custom_billing_decision", "") == "Chargeable" else 0,
                     "billing_decision": getattr(item_row, "custom_billing_decision", "")
@@ -935,9 +992,9 @@ def check_tpin_existence(tpin, docname=None, doc_type="Customer"):
     if doc_type == "Customer Branch" and docname:
         branch_filters["name"] = ["!=", docname]
         
-    existing_branch = frappe.db.get_value("Customer Branch", branch_filters, ["name", "parent"], as_dict=True)
+    existing_branch = frappe.db.get_value("Customer Branch", branch_filters, ["name", "customer"], as_dict=True)
     if existing_branch:
-        return {"exists": True, "doctype": "Customer Branch", "docname": existing_branch.name, "parent_customer": existing_branch.parent}
+        return {"exists": True, "doctype": "Customer Branch", "docname": existing_branch.name, "parent_customer": existing_branch.customer}
         
     return {"exists": False}
 
