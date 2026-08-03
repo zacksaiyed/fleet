@@ -1219,16 +1219,66 @@ function is_matching_sub_row(d, device_no, reg_no, month_label) {
     return false;
 }
 
+function get_device_subscription_rate(frm, device_no) {
+    let items = frm.doc.items || [];
+    for (let d of items) {
+        if (d.item_code == device_no && d.custom_is_subscription) {
+            if (d.custom_original_rate && parseFloat(d.custom_original_rate) > 0) {
+                return parseFloat(d.custom_original_rate);
+            }
+        }
+    }
+    for (let d of items) {
+        if (d.item_code == device_no && d.rate && parseFloat(d.rate) > 0) {
+            return parseFloat(d.rate);
+        }
+    }
+    for (let d of items) {
+        if (d.custom_is_subscription && d.rate && parseFloat(d.rate) > 0) {
+            return parseFloat(d.rate);
+        }
+    }
+    return 0.0;
+}
+
 function update_item_decision(frm, device_no, reg_no, month_label, decision) {
     if (!device_no) return;
 
-    let existing_row = (frm.doc.items || []).find(d =>
+    let items = frm.doc.items || [];
+    let existing_row = items.find(d =>
         is_matching_sub_row(d, device_no, reg_no, month_label)
     );
 
-    if (existing_row) {
+    if (!existing_row && decision) {
+        existing_row = frm.add_child("items");
+        existing_row.custom_registration_number = reg_no;
+        existing_row.custom_billing_month_label = month_label;
+        existing_row.qty = 1;
         existing_row.custom_is_subscription = 1;
-        existing_row.custom_billing_decision = decision;
+        frappe.model.set_value(existing_row.doctype, existing_row.name, 'item_code', device_no).then(() => {
+            frappe.model.set_value(existing_row.doctype, existing_row.name, 'custom_is_subscription', 1);
+            frappe.model.set_value(existing_row.doctype, existing_row.name, 'custom_billing_decision', decision);
+            if (decision !== 'Chargeable') {
+                frappe.model.set_value(existing_row.doctype, existing_row.name, 'rate', 0);
+            }
+            keep_fleet_section_open(frm);
+        });
+        return;
+    }
+
+    if (existing_row) {
+        frappe.model.set_value(existing_row.doctype, existing_row.name, 'custom_is_subscription', 1);
+        frappe.model.set_value(existing_row.doctype, existing_row.name, 'custom_billing_decision', decision);
+
+        let sub_rate = existing_row.custom_original_rate || get_device_subscription_rate(frm, device_no);
+        if (decision !== 'Chargeable') {
+            if (existing_row.rate > 0) existing_row.custom_original_rate = existing_row.rate;
+            frappe.model.set_value(existing_row.doctype, existing_row.name, 'rate', 0);
+        } else {
+            let orig = existing_row.custom_original_rate || sub_rate;
+            frappe.model.set_value(existing_row.doctype, existing_row.name, 'rate', orig);
+        }
+        keep_fleet_section_open(frm);
     }
 }
 
@@ -1239,10 +1289,11 @@ function manage_subscription_item(frm, is_checked, device_no, reg_no, month_labe
     }
     
     let items = frm.doc.items || [];
-    
     let existing_row = items.find(d => 
         is_matching_sub_row(d, device_no, reg_no, month_label)
     );
+
+    let sub_rate = get_device_subscription_rate(frm, device_no);
 
     if (is_checked && !existing_row) {
         let new_row = frm.add_child("items");
@@ -1250,21 +1301,36 @@ function manage_subscription_item(frm, is_checked, device_no, reg_no, month_labe
         new_row.custom_registration_number = reg_no;
         new_row.custom_billing_month_label = month_label; 
         new_row.qty = 1;
-        new_row.custom_is_subscription = 1;
-        new_row.custom_billing_decision = decision || 'Chargeable';
-
+        
         frm.refresh_field("items");
         keep_fleet_section_open(frm);
-        frappe.model.set_value(new_row.doctype, new_row.name, 'item_code', device_no);
-        keep_fleet_section_open(frm);
+
+        frappe.model.set_value(new_row.doctype, new_row.name, 'item_code', device_no).then(() => {
+            frappe.model.set_value(new_row.doctype, new_row.name, 'custom_is_subscription', 1);
+            frappe.model.set_value(new_row.doctype, new_row.name, 'custom_billing_decision', decision || 'Chargeable');
+            if (sub_rate > 0) {
+                new_row.custom_original_rate = sub_rate;
+                frappe.model.set_value(new_row.doctype, new_row.name, 'rate', sub_rate);
+            }
+            keep_fleet_section_open(frm);
+        });
     } 
     else if (!is_checked && existing_row) {
-        frappe.model.clear_doc(existing_row.doctype, existing_row.name);
-        frm.refresh_field("items");
+        let final_dec = decision || '';
+        frappe.model.set_value(existing_row.doctype, existing_row.name, 'custom_billing_decision', final_dec);
+        frappe.model.set_value(existing_row.doctype, existing_row.name, 'rate', 0);
         keep_fleet_section_open(frm);
     } 
     else if (is_checked && existing_row) {
-        existing_row.custom_billing_decision = decision || 'Chargeable';
+        let final_dec = decision || 'Chargeable';
+        frappe.model.set_value(existing_row.doctype, existing_row.name, 'custom_billing_decision', final_dec);
+        let orig = existing_row.custom_original_rate || sub_rate;
+        if (final_dec === 'Chargeable') {
+            frappe.model.set_value(existing_row.doctype, existing_row.name, 'rate', orig);
+        } else {
+            frappe.model.set_value(existing_row.doctype, existing_row.name, 'rate', 0);
+        }
+        keep_fleet_section_open(frm);
     }
 }
 
