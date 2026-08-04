@@ -106,6 +106,7 @@ frappe.ui.form.on('Sales Invoice', {
                     }
                     local_data_map[reg_no] = old_row ? Object.assign({}, old_row, new_row) : new_row;
                 }
+                sync_subscription_month(frm, row, local_data_map[reg_no]);
             }
             else if (v_type === "CB") {
                 if (!cb_data_map[reg_no]) {
@@ -120,6 +121,7 @@ frappe.ui.form.on('Sales Invoice', {
                     }
                     cb_data_map[reg_no] = old_row ? Object.assign({}, old_row, new_row) : new_row;
                 }
+                sync_subscription_month(frm, row, cb_data_map[reg_no]);
             }
         });
 
@@ -806,7 +808,7 @@ frappe.ui.form.on('Sales Invoice', {
         let header_rates = {};
         saved_data.forEach(item => {
             months.forEach(m => {
-                if (item[m + '_rate'] && !header_rates[m]) {
+                if (item[m] && item[m + '_rate'] && !header_rates[m]) {
                     header_rates[m] = item[m + '_rate'];
                 }
             });
@@ -1140,7 +1142,7 @@ frappe.ui.form.on('Sales Invoice', {
         let header_rates = {};
         saved_data.forEach(item => {
             months.forEach(m => {
-                if (item[m + '_rate'] && !header_rates[m]) {
+                if (item[m] && item[m + '_rate'] && !header_rates[m]) {
                     header_rates[m] = item[m + '_rate'];
                 }
             });
@@ -1230,6 +1232,48 @@ function sync_comments_to_items(frm) {
             }
         }
     });
+}
+
+function sync_subscription_month(frm, item_row, vehicle_data) {
+    if (!item_row.custom_is_subscription || !vehicle_data) return;
+
+    let month_key = get_subscription_month_key(frm, item_row);
+    if (!month_key) return;
+
+    let decision = item_row.custom_billing_decision || '';
+    vehicle_data[month_key] = decision === 'Chargeable' ? 1 : 0;
+    vehicle_data[`${month_key}_decision`] = decision;
+    vehicle_data[`${month_key}_rate`] = (
+        flt(item_row.custom_original_rate) ||
+        flt(item_row.price_list_rate) ||
+        flt(item_row.rate)
+    );
+}
+
+function get_subscription_month_key(frm, item_row) {
+    if (item_row.custom_billing_month) {
+        let [year, month] = item_row.custom_billing_month.split('-');
+        return `${get_month_abbreviation(month)}_${year.slice(-2)}`;
+    }
+
+    let label = (item_row.custom_billing_month_label || '').trim();
+    let label_match = label.match(/^([A-Za-z]{3})-(\d{2})$/);
+    if (label_match) {
+        return `${label_match[1].toLowerCase()}_${label_match[2]}`;
+    }
+
+    let billing_start = frm.doc.custom_billing_start_date || frm.doc.custom_billing_from;
+    if (!label || !billing_start) return '';
+
+    let month_number = new Date(`${label} 1, 2000`).getMonth() + 1;
+    if (!month_number) return '';
+
+    return `${get_month_abbreviation(month_number)}_${billing_start.slice(2, 4)}`;
+}
+
+function get_month_abbreviation(month) {
+    const month_names = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+    return month_names[parseInt(month, 10) - 1] || '';
 }
 
 // ==============================================================
