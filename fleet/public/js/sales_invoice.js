@@ -394,7 +394,13 @@ frappe.ui.form.on('Sales Invoice', {
                     rate_input.val(orig);
                     popup.fadeOut(200);
 
-                    update_installation_item_decision(frm, item_code, license_plate, 'Chargeable');
+                    update_installation_item_decision(
+                        frm,
+                        item_code,
+                        license_plate,
+                        'Chargeable',
+                        rate_input.val()
+                    );
                 }
                 save_installation_data();
                 update_group_totals();
@@ -423,7 +429,13 @@ frappe.ui.form.on('Sales Invoice', {
                     rate_input.val(orig);
                 }
 
-                update_installation_item_decision(frm, item_code, license_plate, selected_decision);
+                update_installation_item_decision(
+                    frm,
+                    item_code,
+                    license_plate,
+                    selected_decision,
+                    rate_input.attr('data-original-val')
+                );
 
                 save_installation_data();
                 update_group_totals();
@@ -451,6 +463,24 @@ frappe.ui.form.on('Sales Invoice', {
             });
 
             tbody.off('input change', '.inst-input:not(.inst-checkbox)').on('input change', '.inst-input:not(.inst-checkbox)', function () {
+                let input = $(this);
+                if (input.hasClass('inst-amount')) {
+                    let tr = input.closest('tr');
+                    let decision = tr.find('.hidden-inst-decision').val() || 'Chargeable';
+                    let rate = flt(input.val());
+
+                    if (decision === 'Chargeable') {
+                        input.attr('data-original-val', rate);
+                    }
+
+                    update_installation_item_decision(
+                        frm,
+                        tr.find('[data-col="code"]').val(),
+                        tr.find('[data-col="license_plate"]').val(),
+                        decision,
+                        rate
+                    );
+                }
                 save_installation_data();
                 update_group_totals();
             });
@@ -1149,10 +1179,13 @@ frappe.ui.form.on('Sales Invoice Item', {
         let row = frappe.get_doc(cdt, cdn);
 
         if (['Waived', 'Non Chargeable', 'Under Warranty'].includes(row.custom_billing_decision)) {
+            if (!flt(row.custom_original_rate) && flt(row.rate)) {
+                frappe.model.set_value(cdt, cdn, 'custom_original_rate', row.rate);
+            }
             frappe.model.set_value(cdt, cdn, 'rate', 0);
         }
         else if (row.custom_billing_decision === 'Chargeable') {
-            let base_rate = flt(row.price_list_rate);
+            let base_rate = flt(row.custom_original_rate) || flt(row.price_list_rate);
             if (base_rate > 0) {
                 frappe.model.set_value(cdt, cdn, 'rate', base_rate);
             }
@@ -1337,7 +1370,7 @@ function manage_subscription_item(frm, is_checked, device_no, reg_no, month_labe
 // ==============================================================
 // 9. UPDATE INSTALLATION DECISION TO MAIN ITEM TABLE
 // ==============================================================
-function update_installation_item_decision(frm, item_code, reg_no, decision) {
+function update_installation_item_decision(frm, item_code, reg_no, decision, dialog_rate) {
     if (!item_code) return;
 
     let existing_row = (frm.doc.items || []).find(d =>
@@ -1347,7 +1380,36 @@ function update_installation_item_decision(frm, item_code, reg_no, decision) {
     );
 
     if (existing_row) {
-        existing_row.custom_billing_decision = decision;
+        let current_rate = flt(existing_row.rate);
+        let original_rate = flt(existing_row.custom_original_rate) || current_rate;
+        let selected_rate = flt(dialog_rate);
+
+        if (decision === 'Chargeable' && selected_rate > 0) {
+            original_rate = selected_rate;
+        }
+
+        if (!flt(existing_row.custom_original_rate) && original_rate > 0) {
+            frappe.model.set_value(
+                existing_row.doctype,
+                existing_row.name,
+                'custom_original_rate',
+                original_rate
+            );
+        }
+
+        frappe.model.set_value(
+            existing_row.doctype,
+            existing_row.name,
+            'custom_billing_decision',
+            decision
+        );
+        frappe.model.set_value(
+            existing_row.doctype,
+            existing_row.name,
+            'rate',
+            decision === 'Chargeable' ? original_rate : 0
+        );
+        frm.refresh_field('items');
     }
 }
 

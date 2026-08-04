@@ -838,7 +838,6 @@ def generate_customer_invoice(customer_id, from_date=None, to_date=None, vehicle
             if is_inst:
                 v_name = getattr(item_row, "custom_vehicle", None) or reg_no
                 v_inst_date = None
-                v_model = ""
                 if v_name and frappe.db.exists("Vehicle", v_name):
                     v_item_dates = frappe.db.get_all("Vehicle Item", filters={"parent": v_name, "item": item_code}, fields=["date"], order_by="date asc", limit=1)
                     if not v_item_dates:
@@ -849,14 +848,13 @@ def generate_customer_invoice(customer_id, from_date=None, to_date=None, vehicle
                         v_log = frappe.db.get_all("GPS Installation Status Log", filters={"vehicle": v_name, "event_type": "Installed"}, fields=["event_date"], order_by="event_date asc", limit=1)
                         if v_log and v_log[0].event_date:
                             v_inst_date = str(v_log[0].event_date)
-                    v_model = frappe.db.get_value("Vehicle", v_name, "model") or ""
-                
+
                 if not v_inst_date:
                     v_inst_date = str(invoice_start_date)
 
                 item_details = frappe.db.get_value("Item", item_code, ["custom_item_type", "brand", "custom_model"], as_dict=True) or {}
                 item_type_val = item_details.get("custom_item_type") or frappe.db.get_value("Item", item_code, "item_group") or ""
-                model_val = v_model or item_details.get("custom_model") or ""
+                model_val = item_details.get("custom_model") or ""
 
                 installation_json_data.append({
                     "license_plate": reg_no,
