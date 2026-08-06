@@ -106,6 +106,12 @@ frappe.ui.form.on('Sales Invoice', {
                     }
                     local_data_map[reg_no] = old_row ? Object.assign({}, old_row, new_row) : new_row;
                 }
+                if (act_date) {
+                    let current = local_data_map[reg_no].last_activity_date || "";
+                    if (current === "" || act_date > current) {
+                        local_data_map[reg_no].last_activity_date = act_date;
+                    }
+                }
                 sync_subscription_month(frm, row, local_data_map[reg_no]);
             }
             else if (v_type === "CB") {
@@ -120,6 +126,12 @@ frappe.ui.form.on('Sales Invoice', {
                         new_row.last_activity_date = act_date;
                     }
                     cb_data_map[reg_no] = old_row ? Object.assign({}, old_row, new_row) : new_row;
+                }
+                if (act_date) {
+                    let current = cb_data_map[reg_no].last_activity_date || "";
+                    if (current === "" || act_date > current) {
+                        cb_data_map[reg_no].last_activity_date = act_date;
+                    }
                 }
                 sync_subscription_month(frm, row, cb_data_map[reg_no]);
             }
@@ -608,10 +620,20 @@ frappe.ui.form.on('Sales Invoice', {
                 let is_m_checked = data[m] ? 'checked' : '';
                 let m_decision = data[m + '_decision'] || (data[m] ? 'Chargeable' : '');
                 let m_bg = get_bg_color(m_decision);
-                let m_rate = data[m + '_rate'] !== undefined ? data[m + '_rate'] : '';
+                let m_rate = data[m + '_rate'];
+                if (m_rate === undefined || m_rate === '' || parseFloat(m_rate) === 0) {
+                    m_rate = get_device_subscription_rate(frm, data.device_number) || '';
+                }
+
+                let m_last_act = data[`${m}_last_activity_date`] || data[`${m}_previous_activity_date`];
+                let m_date = m_last_act || data.last_activity_date || data.previous_activity_date;
+
+                let m_tooltip = m_date
+                    ? `Last Activity Date: ${m_date}`
+                    : (data.date_of_installation ? `Install Date: ${data.date_of_installation}` : 'No Date Found');
 
                 row_months_html += `
-                    <td style="position: relative; background-color: ${m_bg}; text-align: center;" title="${tooltip_text}">
+                    <td style="position: relative; background-color: ${m_bg}; text-align: center;" title="${m_tooltip}">
                         <input type="hidden" class="grid-input" data-fieldname="${m}_rate" value="${m_rate}">
                         <input type="checkbox" class="grid-input month-checkbox" data-fieldname="${m}" ${is_m_checked}>
                         
@@ -670,8 +692,29 @@ frappe.ui.form.on('Sales Invoice', {
                     row_obj[fieldname] = val;
                 });
 
-                let title_text = $(this).find('td[title]').first().attr('title') || '';
-                row_obj['last_activity_date'] = title_text.replace('Last Activity Date: ', '').replace('Previous Activity Date: ', '').replace('Install Date: ', '').replace('No Date Found', '').trim();
+                let latest_date = "";
+                $(this).find('td[title]').each(function () {
+                    let title_text = $(this).attr('title') || '';
+                    let checkbox = $(this).find('.month-checkbox');
+                    if (checkbox.length > 0) {
+                        let m = checkbox.data('fieldname');
+                        let act_date_extracted = "";
+                        if (title_text.startsWith('Last Activity Date:') || title_text.startsWith('Previous Activity Date:')) {
+                            act_date_extracted = title_text.replace('Last Activity Date: ', '').replace('Previous Activity Date: ', '').trim();
+                        }
+                        if (act_date_extracted) {
+                            row_obj[`${m}_last_activity_date`] = act_date_extracted;
+                            row_obj[`${m}_previous_activity_date`] = act_date_extracted;
+                            if (act_date_extracted > latest_date) {
+                                latest_date = act_date_extracted;
+                            }
+                        }
+                    }
+                });
+                if (latest_date) {
+                    row_obj['last_activity_date'] = latest_date;
+                    row_obj['previous_activity_date'] = latest_date;
+                }
 
                 if (global_idx !== undefined) {
                     data_list[global_idx] = Object.assign({}, data_list[global_idx], row_obj);
@@ -819,6 +862,10 @@ frappe.ui.form.on('Sales Invoice', {
                 $(frm.fields_dict['custom_item_table'].wrapper)
                     .find(`th[data-month="${m}"] .header-rate`)
                     .text(`[${header_rates[m]}]`);
+            } else {
+                $(frm.fields_dict['custom_item_table'].wrapper)
+                    .find(`th[data-month="${m}"] .header-rate`)
+                    .text('');
             }
         });
 
@@ -942,10 +989,20 @@ frappe.ui.form.on('Sales Invoice', {
                 let is_m_checked = data[m] ? 'checked' : '';
                 let m_decision = data[m + '_decision'] || (data[m] ? 'Chargeable' : '');
                 let m_bg = get_bg_color(m_decision);
-                let m_rate = data[m + '_rate'] !== undefined ? data[m + '_rate'] : '';
+                let m_rate = data[m + '_rate'];
+                if (m_rate === undefined || m_rate === '' || parseFloat(m_rate) === 0) {
+                    m_rate = get_device_subscription_rate(frm, data.device_number) || '';
+                }
+
+                let m_last_act = data[`${m}_last_activity_date`] || data[`${m}_previous_activity_date`];
+                let m_date = m_last_act || data.last_activity_date || data.previous_activity_date;
+
+                let m_tooltip = m_date
+                    ? `Last Activity Date: ${m_date}`
+                    : (data.date_of_installation ? `Install Date: ${data.date_of_installation}` : 'No Date Found');
 
                 row_months_html += `
-                    <td style="position: relative; background-color: ${m_bg}; text-align: center;" title="${tooltip_text}">
+                    <td style="position: relative; background-color: ${m_bg}; text-align: center;" title="${m_tooltip}">
                         <input type="hidden" class="cb-grid-input" data-fieldname="${m}_rate" value="${m_rate}">
                         <input type="checkbox" class="cb-grid-input month-checkbox" data-fieldname="${m}" ${is_m_checked}>
                         
@@ -1004,8 +1061,29 @@ frappe.ui.form.on('Sales Invoice', {
                     row_obj[fieldname] = val;
                 });
 
-                let title_text = $(this).find('td[title]').first().attr('title') || '';
-                row_obj['last_activity_date'] = title_text.replace('Last Activity Date: ', '').replace('Previous Activity Date: ', '').replace('Install Date: ', '').replace('No Date Found', '').trim();
+                let latest_date = "";
+                $(this).find('td[title]').each(function () {
+                    let title_text = $(this).attr('title') || '';
+                    let checkbox = $(this).find('.month-checkbox');
+                    if (checkbox.length > 0) {
+                        let m = checkbox.data('fieldname');
+                        let act_date_extracted = "";
+                        if (title_text.startsWith('Last Activity Date:') || title_text.startsWith('Previous Activity Date:')) {
+                            act_date_extracted = title_text.replace('Last Activity Date: ', '').replace('Previous Activity Date: ', '').trim();
+                        }
+                        if (act_date_extracted) {
+                            row_obj[`${m}_last_activity_date`] = act_date_extracted;
+                            row_obj[`${m}_previous_activity_date`] = act_date_extracted;
+                            if (act_date_extracted > latest_date) {
+                                latest_date = act_date_extracted;
+                            }
+                        }
+                    }
+                });
+                if (latest_date) {
+                    row_obj['last_activity_date'] = latest_date;
+                    row_obj['previous_activity_date'] = latest_date;
+                }
 
                 if (global_idx !== undefined) {
                     data_list[global_idx] = Object.assign({}, data_list[global_idx], row_obj);
@@ -1153,6 +1231,10 @@ frappe.ui.form.on('Sales Invoice', {
                 $(frm.fields_dict['custom_cb_fleet_table_html'].wrapper)
                     .find(`th[data-month="${m}"] .header-rate`)
                     .text(`[${header_rates[m]}]`);
+            } else {
+                $(frm.fields_dict['custom_cb_fleet_table_html'].wrapper)
+                    .find(`th[data-month="${m}"] .header-rate`)
+                    .text('');
             }
         });
 
@@ -1248,6 +1330,12 @@ function sync_subscription_month(frm, item_row, vehicle_data) {
         flt(item_row.price_list_rate) ||
         flt(item_row.rate)
     );
+
+    let act_date = item_row.custom_last_activity_date || item_row.custom_previous_activity_date || '';
+    if (act_date) {
+        vehicle_data[`${month_key}_last_activity_date`] = act_date;
+        vehicle_data[`${month_key}_previous_activity_date`] = act_date;
+    }
 }
 
 function get_subscription_month_key(frm, item_row) {
@@ -1274,6 +1362,22 @@ function get_subscription_month_key(frm, item_row) {
 function get_month_abbreviation(month) {
     const month_names = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
     return month_names[parseInt(month, 10) - 1] || '';
+}
+
+function get_full_month_name(label_or_key) {
+    if (!label_or_key) return "";
+    let str = label_or_key.toLowerCase();
+    const mapping = {
+        'jan': 'January', 'feb': 'February', 'mar': 'March', 'apr': 'April',
+        'may': 'May', 'jun': 'June', 'jul': 'July', 'aug': 'August',
+        'sep': 'September', 'oct': 'October', 'nov': 'November', 'dec': 'December'
+    };
+    for (let key in mapping) {
+        if (str.startsWith(key)) {
+            return mapping[key];
+        }
+    }
+    return label_or_key;
 }
 
 // ==============================================================
@@ -1318,6 +1422,51 @@ function get_device_subscription_rate(frm, device_no) {
     return 0.0;
 }
 
+function set_row_activity_dates(frm, row, device_no, reg_no) {
+    if (!row) return Promise.resolve();
+    let act_date = "";
+    try {
+        let local_data = JSON.parse(frm.doc.custom_fleet_data_json || "[]");
+        let cb_data = JSON.parse(frm.doc.custom_cb_fleet_data_json || "[]");
+        let match = local_data.find(d => d.registration_number === reg_no && d.device_number === device_no);
+        if (!match) {
+            match = cb_data.find(d => d.registration_number === reg_no && d.device_number === device_no);
+        }
+        if (match) {
+            let month_key = get_subscription_month_key(frm, row);
+            if (month_key && match[`${month_key}_last_activity_date`]) {
+                act_date = match[`${month_key}_last_activity_date`];
+            }
+            if (!act_date && match.last_activity_date) {
+                act_date = match.last_activity_date;
+            }
+        }
+    } catch (e) {
+        console.error("Error parsing fleet JSON:", e);
+    }
+
+    // Fallback: search other rows in frm.doc.items for the same vehicle and device!
+    if (!act_date) {
+        let other_row = (frm.doc.items || []).find(d =>
+            d.name !== row.name &&
+            (d.custom_registration_number === reg_no || d.custom_vehicle === reg_no) &&
+            d.item_code === device_no &&
+            (d.custom_last_activity_date || d.custom_previous_activity_date)
+        );
+        if (other_row) {
+            act_date = other_row.custom_last_activity_date || other_row.custom_previous_activity_date;
+        }
+    }
+
+    if (act_date) {
+        return Promise.all([
+            frappe.model.set_value(row.doctype, row.name, 'custom_last_activity_date', act_date),
+            frappe.model.set_value(row.doctype, row.name, 'custom_previous_activity_date', act_date)
+        ]);
+    }
+    return Promise.resolve();
+}
+
 function update_item_decision(frm, device_no, reg_no, month_label, decision) {
     if (!device_no) return;
 
@@ -1329,16 +1478,26 @@ function update_item_decision(frm, device_no, reg_no, month_label, decision) {
     if (!existing_row && decision) {
         existing_row = frm.add_child("items");
         existing_row.custom_registration_number = reg_no;
-        existing_row.custom_billing_month_label = month_label;
+        existing_row.custom_billing_month_label = get_full_month_name(month_label);
         existing_row.qty = 1;
         existing_row.custom_is_subscription = 1;
         frappe.model.set_value(existing_row.doctype, existing_row.name, 'item_code', device_no).then(() => {
             frappe.model.set_value(existing_row.doctype, existing_row.name, 'custom_is_subscription', 1);
             frappe.model.set_value(existing_row.doctype, existing_row.name, 'custom_billing_decision', decision);
-            if (decision !== 'Chargeable') {
-                frappe.model.set_value(existing_row.doctype, existing_row.name, 'rate', 0);
-            }
-            keep_fleet_section_open(frm);
+            set_row_activity_dates(frm, existing_row, device_no, reg_no).then(() => {
+                let p;
+                if (decision !== 'Chargeable') {
+                    p = frappe.model.set_value(existing_row.doctype, existing_row.name, 'rate', 0);
+                } else {
+                    p = Promise.resolve();
+                }
+                p.then(() => {
+                    frm.trigger('split_vehicles_directly_from_items');
+                    frm.trigger('render_custom_fleet_table');
+                    frm.trigger('render_cb_fleet_table');
+                    keep_fleet_section_open(frm);
+                });
+            });
         });
         return;
     }
@@ -1346,16 +1505,23 @@ function update_item_decision(frm, device_no, reg_no, month_label, decision) {
     if (existing_row) {
         frappe.model.set_value(existing_row.doctype, existing_row.name, 'custom_is_subscription', 1);
         frappe.model.set_value(existing_row.doctype, existing_row.name, 'custom_billing_decision', decision);
-
-        let sub_rate = existing_row.custom_original_rate || get_device_subscription_rate(frm, device_no);
-        if (decision !== 'Chargeable') {
-            if (existing_row.rate > 0) existing_row.custom_original_rate = existing_row.rate;
-            frappe.model.set_value(existing_row.doctype, existing_row.name, 'rate', 0);
-        } else {
-            let orig = existing_row.custom_original_rate || sub_rate;
-            frappe.model.set_value(existing_row.doctype, existing_row.name, 'rate', orig);
-        }
-        keep_fleet_section_open(frm);
+        set_row_activity_dates(frm, existing_row, device_no, reg_no).then(() => {
+            let sub_rate = existing_row.custom_original_rate || get_device_subscription_rate(frm, device_no);
+            let rate_p;
+            if (decision !== 'Chargeable') {
+                if (existing_row.rate > 0) existing_row.custom_original_rate = existing_row.rate;
+                rate_p = frappe.model.set_value(existing_row.doctype, existing_row.name, 'rate', 0);
+            } else {
+                let orig = existing_row.custom_original_rate || sub_rate;
+                rate_p = frappe.model.set_value(existing_row.doctype, existing_row.name, 'rate', orig);
+            }
+            rate_p.then(() => {
+                frm.trigger('split_vehicles_directly_from_items');
+                frm.trigger('render_custom_fleet_table');
+                frm.trigger('render_cb_fleet_table');
+                keep_fleet_section_open(frm);
+            });
+        });
     }
 }
 
@@ -1364,9 +1530,9 @@ function manage_subscription_item(frm, is_checked, device_no, reg_no, month_labe
         frappe.msgprint(__("Device Number missing for Registration No: ") + reg_no);
         return;
     }
-    
+
     let items = frm.doc.items || [];
-    let existing_row = items.find(d => 
+    let existing_row = items.find(d =>
         is_matching_sub_row(d, device_no, reg_no, month_label)
     );
 
@@ -1374,40 +1540,58 @@ function manage_subscription_item(frm, is_checked, device_no, reg_no, month_labe
 
     if (is_checked && !existing_row) {
         let new_row = frm.add_child("items");
-        
+
         new_row.custom_registration_number = reg_no;
-        new_row.custom_billing_month_label = month_label; 
+        new_row.custom_billing_month_label = get_full_month_name(month_label);
         new_row.qty = 1;
-        
+
         frm.refresh_field("items");
         keep_fleet_section_open(frm);
 
         frappe.model.set_value(new_row.doctype, new_row.name, 'item_code', device_no).then(() => {
             frappe.model.set_value(new_row.doctype, new_row.name, 'custom_is_subscription', 1);
             frappe.model.set_value(new_row.doctype, new_row.name, 'custom_billing_decision', decision || 'Chargeable');
-            if (sub_rate > 0) {
-                new_row.custom_original_rate = sub_rate;
-                frappe.model.set_value(new_row.doctype, new_row.name, 'rate', sub_rate);
-            }
-            keep_fleet_section_open(frm);
+
+            set_row_activity_dates(frm, new_row, device_no, reg_no).then(() => {
+                if (sub_rate > 0) {
+                    new_row.custom_original_rate = sub_rate;
+                    frappe.model.set_value(new_row.doctype, new_row.name, 'rate', sub_rate);
+                }
+                frm.trigger('split_vehicles_directly_from_items');
+                frm.trigger('render_custom_fleet_table');
+                frm.trigger('render_cb_fleet_table');
+                keep_fleet_section_open(frm);
+            });
         });
-    } 
+    }
     else if (!is_checked && existing_row) {
         let final_dec = decision || '';
         frappe.model.set_value(existing_row.doctype, existing_row.name, 'custom_billing_decision', final_dec);
-        frappe.model.set_value(existing_row.doctype, existing_row.name, 'rate', 0);
-        keep_fleet_section_open(frm);
-    } 
+        frappe.model.set_value(existing_row.doctype, existing_row.name, 'rate', 0).then(() => {
+            frm.trigger('split_vehicles_directly_from_items');
+            frm.trigger('render_custom_fleet_table');
+            frm.trigger('render_cb_fleet_table');
+            keep_fleet_section_open(frm);
+        });
+    }
     else if (is_checked && existing_row) {
         let final_dec = decision || 'Chargeable';
         frappe.model.set_value(existing_row.doctype, existing_row.name, 'custom_billing_decision', final_dec);
-        let orig = existing_row.custom_original_rate || sub_rate;
-        if (final_dec === 'Chargeable') {
-            frappe.model.set_value(existing_row.doctype, existing_row.name, 'rate', orig);
-        } else {
-            frappe.model.set_value(existing_row.doctype, existing_row.name, 'rate', 0);
-        }
-        keep_fleet_section_open(frm);
+        set_row_activity_dates(frm, existing_row, device_no, reg_no).then(() => {
+            let orig = existing_row.custom_original_rate || sub_rate;
+            let rate_p;
+            if (final_dec === 'Chargeable') {
+                rate_p = frappe.model.set_value(existing_row.doctype, existing_row.name, 'rate', orig);
+            } else {
+                rate_p = frappe.model.set_value(existing_row.doctype, existing_row.name, 'rate', 0);
+            }
+            rate_p.then(() => {
+                frm.trigger('split_vehicles_directly_from_items');
+                frm.trigger('render_custom_fleet_table');
+                frm.trigger('render_cb_fleet_table');
+                keep_fleet_section_open(frm);
+            });
+        });
     }
 }
 
