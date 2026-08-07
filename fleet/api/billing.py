@@ -884,24 +884,58 @@ def generate_customer_invoice(customer_id, from_date=None, to_date=None, vehicle
                 if not v_inst_date:
                     v_inst_date = str(invoice_start_date)
 
-                if v_type == "LOCAL" and reg_no and reg_no not in fleet_json_data:
-                    fleet_json_data[reg_no] = {
-                        "device_number": item_code,
-                        "fleet_number": "",
-                        "registration_number": reg_no,
-                        "vehicle_no": reg_no,
-                        "date_of_installation": v_inst_date,
-                        "comments": getattr(item_row, "custom_comment", "") or ""
-                    }
-                elif v_type == "CB" and reg_no and reg_no not in cb_fleet_json_data:
-                    cb_fleet_json_data[reg_no] = {
-                        "device_number": item_code,
-                        "fleet_number": "",
-                        "registration_number": reg_no,
-                        "vehicle_no": reg_no,
-                        "date_of_installation": v_inst_date,
-                        "comments": getattr(item_row, "custom_comment", "") or ""
-                    }
+                last_act = getattr(item_row, "custom_last_activity_date", None)
+                last_act_str = str(last_act) if last_act else ""
+                
+                # Build month keys for JS billing UI
+                month_keys = {}
+                if last_act_str:
+                    b_month_date = getattr(item_row, "custom_billing_month", None)
+                    if b_month_date:
+                        b_month_date = getdate(b_month_date)
+                        month_abbrev = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"][b_month_date.month - 1]
+                        year_short = str(b_month_date.year)[-2:]
+                        m_key = f"{month_abbrev}_{year_short}"
+                        month_keys[f"{m_key}_last_activity_date"] = last_act_str
+                        month_keys[f"{m_key}_previous_activity_date"] = last_act_str
+
+                if v_type == "LOCAL" and reg_no:
+                    if reg_no not in fleet_json_data:
+                        fleet_json_data[reg_no] = {
+                            "device_number": item_code,
+                            "fleet_number": "",
+                            "registration_number": reg_no,
+                            "vehicle_no": reg_no,
+                            "date_of_installation": v_inst_date,
+                            "comments": getattr(item_row, "custom_comment", "") or "",
+                            "last_activity_date": last_act_str,
+                            "previous_activity_date": last_act_str
+                        }
+                        fleet_json_data[reg_no].update(month_keys)
+                    else:
+                        if last_act_str:
+                            fleet_json_data[reg_no]["last_activity_date"] = last_act_str
+                            fleet_json_data[reg_no]["previous_activity_date"] = last_act_str
+                            fleet_json_data[reg_no].update(month_keys)
+                            
+                elif v_type == "CB" and reg_no:
+                    if reg_no not in cb_fleet_json_data:
+                        cb_fleet_json_data[reg_no] = {
+                            "device_number": item_code,
+                            "fleet_number": "",
+                            "registration_number": reg_no,
+                            "vehicle_no": reg_no,
+                            "date_of_installation": v_inst_date,
+                            "comments": getattr(item_row, "custom_comment", "") or "",
+                            "last_activity_date": last_act_str,
+                            "previous_activity_date": last_act_str
+                        }
+                        cb_fleet_json_data[reg_no].update(month_keys)
+                    else:
+                        if last_act_str:
+                            cb_fleet_json_data[reg_no]["last_activity_date"] = last_act_str
+                            cb_fleet_json_data[reg_no]["previous_activity_date"] = last_act_str
+                            cb_fleet_json_data[reg_no].update(month_keys)
 
         inv.custom_fleet_data_json = json.dumps(list(fleet_json_data.values()))
         inv.custom_cb_fleet_data_json = json.dumps(list(cb_fleet_json_data.values()))

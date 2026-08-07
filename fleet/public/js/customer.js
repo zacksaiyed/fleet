@@ -130,17 +130,7 @@ function show_vehicle_invoice_dialog(frm) {
             customers = customers.concat(child_customers.map(c => c.name));
         }
         
-        // Fetch vehicles
-        frappe.db.get_list("Vehicle", {
-            filters: { custom_customer: ["in", customers] },
-            fields: ["name", "custom_customer", "custom_branch", "custom_last_billed_upto_date"],
-            limit: 2000
-        }).then(vehicles => {
-            if (!vehicles || vehicles.length === 0) {
-                frappe.msgprint(__("No vehicles linked to this customer."));
-                return;
-            }
-            
+        frappe.model.with_doctype("Vehicle Invoice Detail", function() {
             frappe.call({
                 method: "fleet.api.billing.get_default_billing_start_date",
                 args: { customer_id: frm.doc.name },
@@ -155,38 +145,93 @@ function show_vehicle_invoice_dialog(frm) {
                                 fieldname: "from_date",
                                 fieldtype: "Date",
                                 default: default_from_date,
-                                reqd: 1,
-                                onchange() {
-                                    update_vehicles();
-                                }
+                                reqd: 1
                             },
                             {
                                 label: __("Bill To Date"),
                                 fieldname: "to_date",
                                 fieldtype: "Date",
-                                reqd: 1,
-                                onchange() {
-                                    update_vehicles();
-                                }
+                                reqd: 1
                             },
                             {
                                 label: __("Select Vehicles"),
                                 fieldname: "vehicles",
-                                fieldtype: "MultiCheck",
-                                options: [],
+                                fieldtype: "Table",
+                                options: "Vehicle Invoice Detail",
+                                fields: [
+                                    {
+                                        fieldname: "vehicle",
+                                        fieldtype: "Link",
+                                        options: "Vehicle",
+                                        label: __("Vehicle"),
+                                        in_list_view: 1,
+                                        reqd: 1,
+                                        onchange() {
+                                            let val = this.get_value();
+                                            let doc = this.doc;
+                                            let grid_row = this.grid_row;
+                                            if (val && doc && grid_row) {
+                                                frappe.db.get_value("Vehicle", val, ["custom_customer", "custom_branch", "custom_last_billed_upto_date"]).then(r => {
+                                                    if (r && r.message) {
+                                                        doc.customer = r.message.custom_customer || "";
+                                                        doc.branch = r.message.custom_branch || "";
+                                                        doc.last_billed_upto_date = r.message.custom_last_billed_upto_date || "";
+                                                        
+                                                        grid_row.refresh_field("customer");
+                                                        grid_row.refresh_field("branch");
+                                                        grid_row.refresh_field("last_billed_upto_date");
+                                                    }
+                                                });
+                                            } else if (doc && grid_row) {
+                                                doc.customer = "";
+                                                doc.branch = "";
+                                                doc.last_billed_upto_date = "";
+                                                
+                                                grid_row.refresh_field("customer");
+                                                grid_row.refresh_field("branch");
+                                                grid_row.refresh_field("last_billed_upto_date");
+                                            }
+                                        }
+                                    },
+                                    {
+                                        fieldname: "customer",
+                                        fieldtype: "Data",
+                                        label: __("Customer"),
+                                        in_list_view: 1,
+                                        read_only: 1
+                                    },
+                                    {
+                                        fieldname: "branch",
+                                        fieldtype: "Data",
+                                        label: __("Branch"),
+                                        in_list_view: 1,
+                                        read_only: 1
+                                    },
+                                    {
+                                        fieldname: "last_billed_upto_date",
+                                        fieldtype: "Date",
+                                        label: __("Last Billed Upto Date"),
+                                        in_list_view: 1,
+                                        read_only: 1
+                                    }
+                                ],
                                 reqd: 1
                             }
                         ],
                         primary_action_label: __("Generate Invoice"),
                         primary_action(values) {
                             d.hide();
+                            let selected_vehicles = [];
+                            if (values.vehicles && Array.isArray(values.vehicles)) {
+                                selected_vehicles = values.vehicles.map(row => row.vehicle).filter(Boolean);
+                            }
                             frappe.call({
                                 method: "fleet.api.billing.generate_customer_invoice",
                                 args: {
                                     customer_id: frm.doc.name,
                                     from_date: values.from_date,
                                     to_date: values.to_date,
-                                    vehicles: values.vehicles,
+                                    vehicles: selected_vehicles,
                                     is_partial: 1
                                 },
                                 freeze: true,
@@ -210,40 +255,37 @@ function show_vehicle_invoice_dialog(frm) {
                         }
                     });
                     
-                    function update_vehicles() {
-                        let to_val = d.get_value("to_date");
-                        let filtered = vehicles;
-                        
-                        if (to_val) {
-                            filtered = filtered.filter(v => {
-                                if (!v.custom_last_billed_upto_date) return true;
-                                return v.custom_last_billed_upto_date < to_val;
-                            });
-                        }
-                        
-                        d.set_df_property("vehicles", "options", filtered.map(v => {
-                            let label = v.name;
-                            if (v.custom_branch) {
-                                label += ` | Branch: ${v.custom_branch}`;
-                            }
-                            if (v.custom_customer) {
-                                label += ` | Customer: ${v.custom_customer}`;
-                            }
-                            if (v.custom_last_billed_upto_date) {
-                                label += ` (Billed upto ${v.custom_last_billed_upto_date})`;
-                            }
-                            return {
-                                label: label,
-                                value: v.name,
-                                checked: true
-                            };
-                        }));
-                    }
-                    
-                    update_vehicles();
                     d.show();
+                    setTimeout(() => {
+                        d.fields_dict.vehicles.grid.get_field("vehicle").get_query = function() {
+                            return {
+                                filters: {
+                                    custom_customer: ["in", customers]
+                                }
+                            };
+                        };
+                    }, 100);
                 }
             });
         });
     });
 }
+
+frappe.ui.form.on("Vehicle Invoice Detail", {
+    vehicle: function(frm, cdt, cdn) {
+        let row = frappe.get_doc(cdt, cdn);
+        if (row.vehicle) {
+            frappe.db.get_value("Vehicle", row.vehicle, ["custom_customer", "custom_branch", "custom_last_billed_upto_date"]).then(r => {
+                if (r && r.message) {
+                    frappe.model.set_value(cdt, cdn, "customer", r.message.custom_customer || "");
+                    frappe.model.set_value(cdt, cdn, "branch", r.message.custom_branch || "");
+                    frappe.model.set_value(cdt, cdn, "last_billed_upto_date", r.message.custom_last_billed_upto_date || "");
+                }
+            });
+        } else {
+            frappe.model.set_value(cdt, cdn, "customer", "");
+            frappe.model.set_value(cdt, cdn, "branch", "");
+            frappe.model.set_value(cdt, cdn, "last_billed_upto_date", "");
+        }
+    }
+});
