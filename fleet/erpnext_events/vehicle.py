@@ -832,7 +832,7 @@ def _process_manual_stock_transfers(doc):
     transfers = {}  # key: (from_warehouse, to_warehouse), value: list of items
 
     # 1. Handle installed items
-    pre_save_warehouses = getattr(doc.flags, "pre_save_warehouses", {})
+    pre_save_warehouses = getattr(doc.flags, "pre_save_warehouses", {}) or {}
     for item in installed_items:
         # Get the pre-save warehouse or query database/fallback to store warehouse
         from_wh = pre_save_warehouses.get(item) or frappe.db.get_value("Item", item, "custom_current_warehouse") or store_warehouse

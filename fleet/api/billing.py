@@ -1018,7 +1018,13 @@ def check_tpin_existence(tpin, docname=None, doc_type="Customer"):
         
     existing_customer = frappe.db.get_value("Customer", customer_filters, "name")
     if existing_customer:
-        return {"exists": True, "doctype": "Customer", "docname": existing_customer}
+        return {
+            "exists": True, 
+            "doctype": "Customer", 
+            "docname": existing_customer,
+            "type": "Customer",
+            "name": existing_customer
+        }
         
     branch_filters = {"tpin": tpin}
     if doc_type == "Customer Branch" and docname:
@@ -1026,7 +1032,15 @@ def check_tpin_existence(tpin, docname=None, doc_type="Customer"):
         
     existing_branch = frappe.db.get_value("Customer Branch", branch_filters, ["name", "customer"], as_dict=True)
     if existing_branch:
-        return {"exists": True, "doctype": "Customer Branch", "docname": existing_branch.name, "parent_customer": existing_branch.customer}
+        return {
+            "exists": True, 
+            "doctype": "Customer Branch", 
+            "docname": existing_branch.name, 
+            "parent_customer": existing_branch.customer,
+            "type": "Customer Branch",
+            "name": existing_branch.name,
+            "customer": existing_branch.customer
+        }
         
     return {"exists": False}
 
