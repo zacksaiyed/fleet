@@ -310,7 +310,13 @@ def generate_customer_invoice(customer_id, from_date=None, to_date=None, vehicle
                             break
                             
         if parent_customer_id and billing_customer_id != target_customer.name:
-            continue
+            is_child = False
+            if not target_customer.custom_parent_customer:
+                parent_of_billing = frappe.db.get_value("Customer", billing_customer_id, "custom_parent_customer")
+                if parent_of_billing == target_customer.name:
+                    is_child = True
+            if not is_child:
+                continue
             
         v_customer = customer_map.get(billing_customer_id)
         if not v_customer:
