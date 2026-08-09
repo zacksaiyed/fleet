@@ -37,15 +37,15 @@ def get_data(filters=None):
 				j.name as job,
 				ts.custom_customer as customer,
 				j.vehicle_number as vehicle_no,
-				jitm.item as item,
-				jitm.item_name as item_name,
-				jitm.installed_or_removed as installed_or_removed,
-				jitm.item_type as item_type,
+				COALESCE(jitm.item, '') AS item,
+				COALESCE(jitm.item_name, '') AS item_name,
+				COALESCE(jitm.installed_or_removed, '') AS installed_or_removed,
+				COALESCE(jitm.item_type, '') AS item_type,
 				j.task_type as job_type,
 				j.technician_name as technician_name
 			FROM
 				`tabJob` j
-			JOIN
+			LEFT JOIN
 				`tabJob Item` jitm
 			ON
 				jitm.parent = j.name
@@ -77,7 +77,7 @@ def get_data(filters=None):
 	final_data = {}
 
 	for row in data:
-		if row.installed_or_removed != "Installed" and row.job_type!="Removal":
+		if row.installed_or_removed != "Installed" and row.job_type!="Removal" and not (row.job_type=="Checkup" and row.item==""):
 			continue
 
 		temp_row = final_data.get(row.job) or {

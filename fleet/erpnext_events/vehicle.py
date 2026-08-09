@@ -119,6 +119,9 @@ def on_update_vehicle(doc, _method=None):
     if not customer_warehouse:
         return
 
+    if doc.flags.updated_from_job_document:
+        return
+
     _move_imported_installed_items_to_customer_warehouse(
         doc,
         customer_warehouse,
