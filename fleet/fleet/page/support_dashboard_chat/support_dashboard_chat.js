@@ -379,8 +379,8 @@ class SupportDashboardChat {
 						</div>
 					</div>
 					<div class="sd-chat-header-right">
-						${job.task ? `<button class="sd-open-job-btn" onclick="frappe.set_route('Form','Task','${frappe.utils.escape_html(job.task)}')">Open Task ↗</button>` : ''}
-						<button class="sd-open-job-btn" onclick="frappe.set_route('Form','Job','${frappe.utils.escape_html(job.name)}')">Open Job ↗</button>
+						${job.task ? `<button class="sd-open-job-btn" onclick="window.open('/app/task/${encodeURIComponent(job.task)}', '_blank')"> Open Task ↗ </button>` : ''}
+						<button class="sd-open-job-btn" onclick="window.open('/app/job/${encodeURIComponent(job.name)}', '_blank')"> Open Job ↗ </button>
 					</div>
 				</div>
 				<div class="sd-messages-wrap" id="sd-messages-wrap">
