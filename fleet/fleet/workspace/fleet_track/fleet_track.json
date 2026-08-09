@@ -1,6 +1,6 @@
 {
  "charts": [],
- "content": "[{\"id\":\"woV7OuaXc2\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Support Dashboard\",\"col\":3}},{\"id\":\"0i3GTaSJH5\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Support Dashboard Chat\",\"col\":3}},{\"id\":\"X3jvVVW4Lo\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"X8AwMHDBDH\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Task\",\"col\":3}},{\"id\":\"_1ggMZ0nQt\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Job\",\"col\":3}},{\"id\":\"eV82TDn-Ts\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Employee\",\"col\":3}},{\"id\":\"y1vqbjMOu-\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Customer\",\"col\":3}},{\"id\":\"Cvvvs8YqUe\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Material Transfer\",\"col\":3}},{\"id\":\"4iD5_xlAP-\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Vehicle\",\"col\":3}},{\"id\":\"5IK5lkxpnU\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Item\",\"col\":3}},{\"id\":\"ZvnmwOLLfJ\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"XtpOw4kit1\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Reports</b></span>\",\"col\":12}},{\"id\":\"HXc6itXrOB\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Item Availability Report\",\"col\":3}}]",
+ "content": "[{\"id\":\"woV7OuaXc2\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Support Dashboard\",\"col\":3}},{\"id\":\"0i3GTaSJH5\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Support Dashboard Chat\",\"col\":3}},{\"id\":\"X3jvVVW4Lo\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"X8AwMHDBDH\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Task\",\"col\":3}},{\"id\":\"_1ggMZ0nQt\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Job\",\"col\":3}},{\"id\":\"eV82TDn-Ts\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Employee\",\"col\":3}},{\"id\":\"y1vqbjMOu-\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Customer\",\"col\":3}},{\"id\":\"Cvvvs8YqUe\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Material Transfer\",\"col\":3}},{\"id\":\"4iD5_xlAP-\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Vehicle\",\"col\":3}},{\"id\":\"5IK5lkxpnU\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Item\",\"col\":3}},{\"id\":\"ZvnmwOLLfJ\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"XtpOw4kit1\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Reports</b></span>\",\"col\":12}},{\"id\":\"HXc6itXrOB\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Item Availability Report\",\"col\":3}},{\"id\":\"hvD8iUF-42\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Asset Movement\",\"col\":3}},{\"id\":\"C9q__1BGOK\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Daily Job Details\",\"col\":3}}]",
  "creation": "2026-02-04 21:12:06.638702",
  "custom_blocks": [],
  "docstatus": 0,
@@ -8,12 +8,12 @@
  "for_user": "",
  "hide_custom": 0,
  "icon": "heart-active",
- "idx": 11,
+ "idx": 12,
  "indicator_color": "green",
  "is_hidden": 0,
  "label": "Fleet Track",
  "links": [],
- "modified": "2026-05-06 11:44:27.080235",
+ "modified": "2026-08-09 23:52:36.469049",
  "modified_by": "Administrator",
  "module": "Fleet",
  "name": "Fleet Track",
@@ -28,9 +28,25 @@
   {
    "color": "Grey",
    "doc_view": "List",
+   "label": "Asset Movement",
+   "link_to": "Asset Movement",
+   "report_ref_doctype": "Material Transfer",
+   "type": "Report"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "List",
    "label": "Item Availability Report",
    "link_to": "Item Availability Report",
    "report_ref_doctype": "Item",
+   "type": "Report"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "Daily Job Details",
+   "link_to": "Daily Job Details",
+   "report_ref_doctype": "Job",
    "type": "Report"
   },
   {
