@@ -347,6 +347,7 @@ class Job(Document):
 			vi.status = "Removed"
 			vi.date   = self.date
 
+		vehicle.flags.updated_from_job_document = 1
 		vehicle.save(ignore_permissions=True)
 		self._attach_job_images_to_vehicle(self.vehicle_number)
 
@@ -406,6 +407,7 @@ class Job(Document):
 						"date":      self.date,
 					})
 
+		vehicle.flags.updated_from_job_document = 1
 		vehicle.save(ignore_permissions=True)
 		self._attach_job_images_to_vehicle(self.vehicle_number)
 
@@ -440,6 +442,8 @@ class Job(Document):
 					"status":    "Installed",
 					"date":      self.date,
 				})
+
+		vehicle.flags.updated_from_job_document = 1
 		vehicle.save(ignore_permissions=True)
 		self._attach_job_images_to_vehicle(self.vehicle_number)
 
