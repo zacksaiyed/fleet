@@ -119,9 +119,6 @@ def on_update_vehicle(doc, _method=None):
     if not customer_warehouse:
         return
 
-    if doc.flags.updated_from_job_document:
-        return
-
     _move_imported_installed_items_to_customer_warehouse(
         doc,
         customer_warehouse,
@@ -417,13 +414,13 @@ def capture_pre_save_warehouses(doc, method=None):
 
 
 def handle_manual_installation_after_insert(doc, method=None):
-    if _is_data_import(doc) or frappe.flags.in_job:
+    if _is_data_import(doc) or frappe.flags.in_job or doc.flags.updated_from_job_document:
         return
     _process_manual_stock_transfers(doc)
 
 
 def handle_manual_installation_on_update(doc, method=None):
-    if _is_data_import(doc) or frappe.flags.in_job:
+    if _is_data_import(doc) or frappe.flags.in_job or doc.flags.updated_from_job_document:
         return
     _process_manual_stock_transfers(doc)
 

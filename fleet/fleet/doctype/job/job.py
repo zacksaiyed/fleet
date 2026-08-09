@@ -300,6 +300,7 @@ class Job(Document):
 				"status":    "Installed",
 				"date":      self.date,
 			})
+		vehicle.flags.updated_from_job_document = 1
 		vehicle.insert(ignore_permissions=True)
 
 		# Create Vehicle Transfer Log for new installation
@@ -642,5 +643,6 @@ def job_action(job, action, comment=None, comment_field=None):
 	else:
 		frappe.throw(f"Unknown action: {action}")
 
+	doc.flags.updated_from_job_document = 1
 	doc.save(ignore_permissions=True)
 	return {"msg": msg, "job_status": doc.status}
