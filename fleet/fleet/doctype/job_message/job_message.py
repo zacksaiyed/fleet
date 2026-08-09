@@ -20,7 +20,7 @@ class JobMessage(Document):
 		# Increment unread count for the other party
 		unread_field = "unread_count_support" if role == "Technician" else "unread_count_tech"
 		frappe.db.set_value("Job", job, unread_field,
-			(frappe.db.get_value("Job", job, unread_field) or 0) + 1)
+			(frappe.db.get_value("Job", job, unread_field) or 0) + 1, update_modified = 0)
 
 		# Resolve the job's assigned technician → User email
 		assigned_employee = frappe.db.get_value("Job", job, "assigned_technician")

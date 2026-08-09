@@ -99,7 +99,7 @@ def publish_job_chat(job=None, message=None, sender_name=None, role=None):
     # Increment unread count for the other party
     unread_field = "unread_count_support" if role == "Technician" else "unread_count_tech"
     frappe.db.set_value("Job", job, unread_field,
-                        (frappe.db.get_value("Job", job, unread_field) or 0) + 1)
+                        (frappe.db.get_value("Job", job, unread_field) or 0) + 1, update_modified = 0)
 
     # Resolve technician user for realtime delivery
     assigned_employee = frappe.db.get_value("Job", job, "assigned_technician")
@@ -263,7 +263,7 @@ def mark_messages_read(job=None, reader_role=None):
         WHERE job = %s AND sender_role = %s AND is_read = 0
     """, (job, other_role))
 
-    frappe.db.set_value("Job", job, unread_field, 0)
+    frappe.db.set_value("Job", job, unread_field, 0, update_modified = 0)
 
     frappe.publish_realtime(event="support_dashboard_read", message={"job": job})
 
