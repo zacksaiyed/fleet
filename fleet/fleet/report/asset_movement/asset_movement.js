@@ -7,13 +7,13 @@ frappe.query_reports["Asset Movement"] = {
             "fieldname": "from_date",
             "label": __("From Date"),
             "fieldtype": "Date",
-            "default": frappe.datetime.month_start()
+            "default": frappe.datetime.add_days(frappe.datetime.get_today(), -7)
         },
         {
             "fieldname": "to_date",
             "label": __("To Date"),
             "fieldtype": "Date",
-            "default": frappe.datetime.month_end()
+            "default": frappe.datetime.get_today()
         },
         {
             "fieldname": "technician",
