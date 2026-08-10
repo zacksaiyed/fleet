@@ -70,8 +70,18 @@ def get_data(filters=None):
 	]
 
 	item_details = {
-		i.name: i.custom_sim_type
-		for i in frappe.get_all("Item", {"name":["in",sim_nos]},["name","custom_sim_type"])
+		i.name: i
+		for i in frappe.get_all("Item", {"name":["in",sim_nos]},["name","custom_sim_type","custom_serial_no","custom_mobile_number"])
+	}
+
+	gps_nos = [
+			i.item
+			for i in data if i.item_type == "GPS Device"
+		]
+
+	gps_item_details = {
+		i.name: i.custom_imei_no
+		for i in frappe.get_all("Item", {"name":["in",gps_nos]},["name","custom_imei_no"])
 	}
 
 	final_data = {}
@@ -96,15 +106,22 @@ def get_data(filters=None):
 		if row.item_type == "GPS Device":
 			if temp_row.get("gps_device_no"):
 				temp_row["gps_device_no"] += f", {row.item_name}"
+				temp_row["gps_imei_no"] += f", {gps_item_details.get(row.item)}"
 			else:
 				temp_row["gps_device_no"] = row.item_name
+				temp_row["gps_imei_no"] = gps_item_details.get(row.item)
+
 		elif row.item_type == "SIM":
 			if temp_row.get("sim_no"):
 				temp_row["sim_no"] += f", {row.item_name}"
-				temp_row["type"] += f", {item_details.get(row.item)}"
+				temp_row["type"] += f", {item_details.get(row.item).get("custom_sim_type")}"
+				temp_row["sim_serial_no"] += f", {item_details.get(row.item).get("custom_serial_no")}"
+				temp_row["sim_mobile_no"] += f", {item_details.get(row.item).get("custom_mobile_number")}"
 			else:
 				temp_row["sim_no"] = row.item_name
-				temp_row["type"] = item_details.get(row.item)
+				temp_row["type"] = item_details.get(row.item).get("custom_sim_type")
+				temp_row["sim_serial_no"] = item_details.get(row.item).get("custom_serial_no")
+				temp_row["sim_mobile_no"] = item_details.get(row.item).get("custom_mobile_number")
 		else:
 			if temp_row.get("accessories"):
 				temp_row["accessories"] += f", {row.item_name}"
@@ -149,12 +166,30 @@ def get_columns(filters=None):
 			"fieldtype": "Data",
 			"width": 200
 		},
+		{
+			"label": "GPS IMEI NO",
+			"fieldname": "gps_imei_no",
+			"fieldtype": "Data",
+			"width": 200
+		},
         {
             "label": "SIM NO",
             "fieldname": "sim_no",
             "fieldtype": "Data",
             "width": 150
         },
+		{
+			"label": "SIM SERIAL NO",
+			"fieldname": "sim_serial_no",
+			"fieldtype": "Data",
+			"width": 150
+		},
+		{
+			"label": "SIM MOBILE NO",
+			"fieldname": "sim_mobile_no",
+			"fieldtype": "Data",
+			"width": 150
+		},
         {
             "label": "TYPE",
             "fieldname": "type",
