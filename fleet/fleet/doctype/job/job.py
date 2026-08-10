@@ -85,6 +85,7 @@ class Job(Document):
 		self._recompute_task_status()
 		if self.status == "Completed":
 			self._handle_warehouse_movement()
+			self.flag.technician_warehouse = 0
 			self._update_customer_component_price()
 
 	def on_trash(self):
@@ -107,7 +108,7 @@ class Job(Document):
 	def _set_vehicle_number(self):
 		if self.vehicle_number:
 			self.vehicle_number = self.vehicle_number.replace(" ", "").upper()
-	
+
 	def _fetch_vehicle_details(self):
 		if not self.vehicle_number or self.task_type == "Installation":
 			return
@@ -123,7 +124,7 @@ class Job(Document):
 			self.model = vehicle.model
 			self.color = vehicle.color
 			self.type  = vehicle.custom_vehicle_type
-			
+
 	def _set_date_from_task(self):
 		if not self.date and self.task:
 			task_date = frappe.db.get_value("Task", self.task, "custom_date")
@@ -222,7 +223,7 @@ class Job(Document):
 			if missing_items:
 				frappe.throw(
 					f"Cannot complete — the following item(s) are not in customer warehouse "
-					f"<b>{self.customer_warehouse}</b>:<br>"	
+					f"<b>{self.customer_warehouse}</b>:<br>"
 					+ "<br>".join(missing_items)
 				)
 
@@ -718,7 +719,7 @@ def add_in_customer_row(job: str, comment: str | None = None):
     doc = frappe.get_doc("Job", job)
     if not doc.customer:
         frappe.throw("Customer is required in Job")
-    
+
     doc._update_customer_component_price()
     return {
         "status": True,

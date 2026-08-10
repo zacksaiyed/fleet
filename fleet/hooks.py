@@ -236,8 +236,10 @@ doc_events = {
         "on_update": "fleet.override.item.on_item_model_update"
     },
     "Sales Invoice": {
+        "validate": "fleet.api.billing.validate_sales_invoice",
         "before_submit": "fleet.api.billing.before_sales_invoice_submit",
-        "on_submit": "fleet.api.billing.on_sales_invoice_submit"
+        "on_submit": "fleet.api.billing.on_sales_invoice_submit",
+        "on_cancel": "fleet.api.billing.on_sales_invoice_cancel"
     }
 }
 
@@ -269,6 +271,9 @@ scheduler_events = {
             "fleet.scheduled.task_auto_reject.auto_reject_unaccepted_tasks"
         ],
     },
+    "daily": [
+        "fleet.api.billing.auto_approve_sales_invoices"
+    ],
     "monthly": [
         "fleet.api.classification_scheduler.generate_vehicle_classification_logs"
     ]

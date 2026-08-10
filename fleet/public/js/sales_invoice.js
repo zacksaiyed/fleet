@@ -39,6 +39,34 @@ frappe.ui.form.on('Sales Invoice', {
 
         frm.set_df_property('custom_section_break_vudhs', 'hidden', 1);
         frm.set_df_property('custom_section_break_ubm3j', 'hidden', 1);
+
+        let is_locked = frm.doc.custom_billing_rows_locked === 1 || ["Internally Approved", "Sent to Customer", "Pending Customer Approval", "Approved", "Disputed", "Cancelled"].includes(frm.doc.custom_billing_review_status) || frm.doc.docstatus > 0;
+        
+        frm.toggle_enable([
+            'custom_billing_start_date',
+            'custom_billing_end_date',
+            'custom_billing_currency_mode',
+            'custom_vehicle_group',
+            'custom_is_taxed_invoice'
+        ], !is_locked);
+        
+        if (frm.fields_dict.items && frm.fields_dict.items.grid) {
+            let grid = frm.fields_dict.items.grid;
+            let fields_to_toggle = [
+                'custom_included',
+                'custom_waived',
+                'custom_waiver_reason',
+                'custom_billing_decision',
+                'custom_final_rate'
+            ];
+            fields_to_toggle.forEach(f => {
+                let df = frappe.meta.get_docfield('Sales Invoice Item', f, frm.doc.name);
+                if (df) {
+                    df.read_only = is_locked ? 1 : 0;
+                }
+            });
+            grid.refresh();
+        }
     },
 
     customer: function (frm) {

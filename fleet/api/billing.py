@@ -184,6 +184,18 @@ def check_charge_subscription(customer, vehicle_name, item_code, b_y, b_m, inst_
     return charge_subscription, rate
 
 
+def get_company_vat_account(company_name):
+    vat_account = frappe.db.get_value("Company", company_name, "custom_vat_account")
+    if not vat_account:
+        vat_account = frappe.db.get_value("Account", {"company": company_name, "account_type": "Tax", "account_name": ["like", "%VAT%"]}, "name")
+        if not vat_account:
+            vat_account = frappe.db.get_value("Account", {"company": company_name, "account_type": "Tax"}, "name")
+        if not vat_account:
+            company_abbr = frappe.db.get_value("Company", company_name, "abbr")
+            vat_account = f"VAT - {company_abbr}"
+    return vat_account
+
+
 @frappe.whitelist()
 def generate_customer_invoice(customer_id, from_date=None, to_date=None, vehicles=None, is_partial=False):
     target_customer = frappe.get_doc("Customer", customer_id)
@@ -782,11 +794,9 @@ def generate_customer_invoice(customer_id, from_date=None, to_date=None, vehicle
                 item.amount = item.custom_final_rate * item.qty
                 
         v_cust_doc = customer_map.get(group["customer"])
-        vat_account = frappe.db.get_value("Company", company_name, "custom_vat_account")
-        
         if v_cust_doc and v_cust_doc.custom_vat_applicable:
             default_tax_rate = frappe.db.get_single_value("Fleet Billing Settings", "default_vat_rate") or 0.0
-            final_account_head = vat_account if vat_account else "TDS - S"
+            final_account_head = get_company_vat_account(company_name or inv.company)
             
             inv.append("taxes", {
                 "charge_type": "On Net Total",
@@ -1096,3 +1106,208 @@ def get_default_billing_start_date(customer_id):
                 earliest_creation = v_c_date
                 
     return earliest_creation
+
+
+def recalculate_invoice_billing(doc):
+    # Recalculate amounts
+    for idx, item in enumerate(doc.items, 1):
+        item.idx = idx
+        if item.custom_waived == 1 or item.custom_billing_decision in ["Waived", "Non Chargeable", "Under Warranty"]:
+            item.price_list_rate = 0.0
+            item.rate = 0.0
+            item.amount = 0.0
+            item.base_rate = 0.0
+            item.base_amount = 0.0
+            item.net_rate = 0.0
+            item.net_amount = 0.0
+            item.base_net_rate = 0.0
+            item.base_net_amount = 0.0
+        else:
+            if item.custom_final_rate is not None:
+                item.rate = item.custom_final_rate
+                item.amount = item.custom_final_rate * item.qty
+                if item.custom_original_rate is not None:
+                    item.price_list_rate = item.custom_original_rate
+                else:
+                    item.price_list_rate = item.custom_final_rate
+                # Recalculate base and net values
+                conv_rate = doc.conversion_rate or 1.0
+                item.base_rate = item.rate * conv_rate
+                item.base_amount = item.amount * conv_rate
+                item.net_rate = item.rate
+                item.net_amount = item.amount
+                item.base_net_rate = item.base_rate
+                item.base_net_amount = item.base_amount
+    
+    # Apply White/Black accounts (recalculate taxes)
+    final_account_head = get_company_vat_account(doc.company)
+    default_tax_rate = frappe.db.get_single_value("Fleet Billing Settings", "default_vat_rate") or 0.0
+    
+    if doc.custom_is_taxed_invoice == 1:
+        has_tax = False
+        for tax in doc.get("taxes", []):
+            if tax.account_head == final_account_head:
+                tax.rate = default_tax_rate
+                has_tax = True
+                break
+        if not has_tax:
+            doc.append("taxes", {
+                "charge_type": "On Net Total",
+                "account_head": final_account_head,
+                "rate": default_tax_rate,
+                "description": "Tax Deduction"
+            })
+    else:
+        # Remove VAT tax if it exists
+        doc.taxes = [tax for tax in doc.get("taxes", []) if tax.account_head != final_account_head]
+        
+    doc.calculate_taxes_and_totals()
+    
+    # Adjust payment schedule amounts if present
+    if doc.get("payment_schedule") and doc.grand_total:
+        total_portion = sum(float(p.invoice_portion or 0.0) for p in doc.payment_schedule)
+        for p in doc.payment_schedule:
+            portion = float(p.invoice_portion or 0.0)
+            p.payment_amount = round(doc.grand_total * (portion / (total_portion or 100.0)), 2)
+            p.outstanding = p.payment_amount
+
+
+@frappe.whitelist()
+def validate_sales_invoice(doc, method=None):
+    # 1. Reset fields for amended documents
+    if doc.is_new() and doc.amended_from:
+        doc.custom_billing_review_status = "Draft"
+        doc.custom_approved_by = None
+        doc.custom_approved_on = None
+        doc.custom_billing_rows_locked = 0
+
+    # Get DB state
+    db_status = None
+    was_locked = False
+    if not doc.is_new():
+        db_status = frappe.db.get_value("Sales Invoice", doc.name, "custom_billing_review_status")
+        was_locked = frappe.db.get_value("Sales Invoice", doc.name, "custom_billing_rows_locked") == 1
+
+    # 2. Transition rules and state machine
+    if not doc.is_new():
+        locked_states = ["Internally Approved", "Sent to Customer", "Pending Customer Approval", "Approved", "Disputed", "Cancelled"]
+        if db_status in locked_states:
+            allowed = False
+            new_status = doc.custom_billing_review_status
+            if db_status == "Pending Customer Approval" and new_status in ["Disputed", "Approved", "Cancelled"]:
+                allowed = True
+            elif db_status == "Disputed" and new_status in ["Revised", "Cancelled"]:
+                allowed = True
+            elif db_status == "Approved" and new_status in ["Cancelled"]:
+                allowed = True
+            elif new_status == db_status:
+                allowed = True
+            
+            if not allowed:
+                frappe.throw(f"Invalid transition from '{db_status}' to '{new_status}'.")
+
+    # 3. Transition to Internally Approved / Sent / Customer Approval check
+    if doc.custom_billing_review_status == "Internally Approved" and db_status != "Internally Approved":
+        doc.custom_approved_by = frappe.session.user
+        doc.custom_approved_on = frappe.utils.now_datetime()
+        doc.custom_billing_rows_locked = 1
+        
+        # Run recalculation
+        recalculate_invoice_billing(doc)
+        
+        # Check customer settings and auto transition
+        ext_days = frappe.db.get_value("Customer", doc.customer, "custom_external_approval_period_days")
+        if not ext_days and doc.customer:
+            parent_cust = frappe.db.get_value("Customer", doc.customer, "custom_parent_customer")
+            if parent_cust:
+                ext_days = frappe.db.get_value("Customer", parent_cust, "custom_external_approval_period_days")
+        
+        try:
+            days = int(ext_days or 0)
+        except ValueError:
+            days = 0
+            
+        if days == 0:
+            doc.custom_billing_review_status = "Approved"
+        else:
+            doc.custom_billing_review_status = "Pending Customer Approval"
+
+    # 4. Transition to Revised (unlocks editing)
+    if doc.custom_billing_review_status == "Revised" and db_status != "Revised":
+        doc.custom_billing_rows_locked = 0
+        doc.custom_approved_by = None
+        doc.custom_approved_on = None
+
+    # 5. Strict locking validation
+    if not doc.is_new() and was_locked:
+        if doc.custom_billing_review_status not in ["Revised", "Draft", "Pending Internal Review"]:
+            # Prevent editing parent billing fields
+            parent_fields = [
+                "custom_billing_start_date", "custom_billing_end_date",
+                "custom_billing_currency_mode", "custom_vehicle_group",
+                "custom_is_taxed_invoice", "customer", "company", "currency"
+            ]
+            db_doc = frappe.get_doc("Sales Invoice", doc.name)
+            for field in parent_fields:
+                if doc.get(field) != db_doc.get(field):
+                    frappe.throw(f"Field '{doc.meta.get_label(field)}' is locked post-approval and cannot be modified.")
+
+            # Prevent adding, removing or editing items
+            if len(doc.items) != len(db_doc.items):
+                frappe.throw("Cannot add or remove items from a locked Sales Invoice.")
+            
+            db_items = {item.name: item for item in db_doc.items}
+            for item in doc.items:
+                if item.name not in db_items:
+                    frappe.throw("Cannot add new items to a locked Sales Invoice.")
+                db_item = db_items[item.name]
+                item_fields = ["custom_included", "custom_waived", "custom_waiver_reason", "custom_billing_decision", "custom_final_rate"]
+                for field in item_fields:
+                    if item.get(field) != db_item.get(field):
+                        frappe.throw(f"Row {item.idx}: Field '{item.meta.get_label(field)}' is locked post-approval and cannot be modified.")
+
+    # 6. Submission validation
+    if doc.docstatus == 1:
+        if doc.custom_billing_review_status != "Approved":
+            frappe.throw("Sales Invoice must be Approved before it can be submitted.")
+
+
+@frappe.whitelist()
+def on_sales_invoice_cancel(doc, method=None):
+    doc.custom_billing_review_status = "Cancelled"
+    doc.db_set("custom_billing_review_status", "Cancelled")
+
+
+@frappe.whitelist()
+def auto_approve_sales_invoices():
+    # Find all draft Sales Invoices in "Pending Customer Approval" status
+    invoices = frappe.get_all("Sales Invoice", filters={
+        "custom_billing_review_status": "Pending Customer Approval",
+        "docstatus": 0
+    }, fields=["name", "customer", "custom_approved_on"])
+    
+    for inv in invoices:
+        # Calculate approval days
+        ext_days = frappe.db.get_value("Customer", inv.customer, "custom_external_approval_period_days")
+        if not ext_days and inv.customer:
+            parent_cust = frappe.db.get_value("Customer", inv.customer, "custom_parent_customer")
+            if parent_cust:
+                ext_days = frappe.db.get_value("Customer", parent_cust, "custom_external_approval_period_days")
+        try:
+            days = int(ext_days or 0)
+        except ValueError:
+            days = 0
+            
+        if not days:
+            days = 7  # fallback
+            
+        # Check if days have passed since approved_on
+        from frappe.utils import add_days, getdate, nowdate
+        if inv.custom_approved_on:
+            target_date = getdate(add_days(inv.custom_approved_on, days))
+            if getdate(nowdate()) >= target_date:
+                doc = frappe.get_doc("Sales Invoice", inv.name)
+                doc.custom_billing_review_status = "Approved"
+                doc.save()
+                frappe.db.commit()
+                print(f"Auto approved Sales Invoice {inv.name} after {days} days.")
