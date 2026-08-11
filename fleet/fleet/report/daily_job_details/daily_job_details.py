@@ -100,7 +100,10 @@ def get_data(filters=None):
 			"gps_device_no":"",
 			"sim_no":"",
 			"type":"",
-			"accessories":""
+			"accessories":"",
+			"gps_imei_no":"",
+			"sim_serial_no":"",
+			"sim_mobile_no":""
 		}
 
 		if row.item_type == "GPS Device":
@@ -113,10 +116,14 @@ def get_data(filters=None):
 
 		elif row.item_type == "SIM":
 			if temp_row.get("sim_no"):
+				custom_sim_type = item_details.get(row.item).get("custom_sim_type")
+				custom_serial_no = item_details.get(row.item).get("custom_serial_no")
+				custom_mobile_number = item_details.get(row.item).get("custom_mobile_number")
+
 				temp_row["sim_no"] += f", {row.item_name}"
-				temp_row["type"] += f", {item_details.get(row.item).get("custom_sim_type")}"
-				temp_row["sim_serial_no"] += f", {item_details.get(row.item).get("custom_serial_no")}"
-				temp_row["sim_mobile_no"] += f", {item_details.get(row.item).get("custom_mobile_number")}"
+				temp_row["type"] += f", {custom_sim_type}"
+				temp_row["sim_serial_no"] += f", {custom_serial_no}"
+				temp_row["sim_mobile_no"] += f", {custom_mobile_number}"
 			else:
 				temp_row["sim_no"] = row.item_name
 				temp_row["type"] = item_details.get(row.item).get("custom_sim_type")
