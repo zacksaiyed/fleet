@@ -236,10 +236,9 @@ doc_events = {
         "on_update": "fleet.override.item.on_item_model_update"
     },
     "Sales Invoice": {
-        "validate": "fleet.api.billing.validate_sales_invoice",
+        "before_save": "fleet.api.billing.set_pending_customer_approval_date",
         "before_submit": "fleet.api.billing.before_sales_invoice_submit",
-        "on_submit": "fleet.api.billing.on_sales_invoice_submit",
-        "on_cancel": "fleet.api.billing.on_sales_invoice_cancel"
+        "on_submit": "fleet.api.billing.on_sales_invoice_submit"
     }
 }
 
@@ -272,7 +271,7 @@ scheduler_events = {
         ],
     },
     "daily": [
-        "fleet.api.billing.auto_approve_sales_invoices"
+        "fleet.scheduled.sales_invoice_approval.process_pending_customer_approvals"
     ],
     "monthly": [
         "fleet.api.classification_scheduler.generate_vehicle_classification_logs"
@@ -359,10 +358,13 @@ on_session_creation = "fleet.mobile_api.auth.enforce_simultaneous_sessions"
 fixtures = [
     {"dt": "Workflow State", "filters": [
         ["name", "in", [
-            "Completed", "Open", "Cancelled", "In Review", "On Hold",
+            "Draft", "Completed", "Open", "Cancelled", "In Review", "On Hold",
             "In Progress", "Accepted", "Initiated", "Approval Pending",
-            "Approved", "Rejected"
+            "Approved", "Rejected", "Pending Customer Approval"
         ]]
+    ]},
+    {"dt": "Workflow Action Master", "filters": [
+        ["name", "in", ["Send for Review", "Approve", "Customer Approve", "Reject", "Cancel"]]
     ]},
     {"dt": "Custom DocPerm", "filters": [
         ["role", "in", ["Fleet Administrator", "Fleet Manager"]]
@@ -370,7 +372,7 @@ fixtures = [
     {"dt": "Workflow","filters": [
         [
             "name", "in", [
-                "Material Transfer Workflow"
+                "Material Transfer Workflow", "Sales Invoice Approval Workflow"
             ]
         ]
     ]},
