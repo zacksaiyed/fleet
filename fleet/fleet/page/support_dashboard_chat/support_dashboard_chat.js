@@ -54,7 +54,8 @@ class SupportDashboardChat {
 		this.selected_tech  = null;
 		this.selected_job   = null;
 		this.jobs           = [];
-		this.show_completed_tasks = false;
+		// this.show_completed_tasks = false;
+		this.selected_statuses = ["All"];
 		this.realtime_bound = false;
 		this._inject_styles();
 		this._render_shell();
@@ -76,10 +77,62 @@ class SupportDashboardChat {
 					<div class="sd-jobs-panel" id="sd-jobs-panel">
 							<div class="sd-jobs-header">
 								<span id="sd-jobs-title">Select a technician</span>
-								<label class="sd-completed-toggle">
-									<input type="checkbox" id="sd-show-completed-tasks">
-									<span>Completed</span>
-								</label>
+								<div class="sd-status-filter">
+	<button type="button" class="sd-status-filter-btn" id="sd-status-filter-btn">
+		<span id="sd-status-filter-label">All</span>
+		<span>▾</span>
+	</button>
+
+	<div class="sd-status-filter-menu" id="sd-status-filter-menu">
+
+		<label>
+			<input
+				type="checkbox"
+				class="sd-status-option"
+				value="All"
+				checked
+			>
+			<span>All</span>
+		</label>
+
+		<label>
+			<input
+				type="checkbox"
+				class="sd-status-option"
+				value="Pending"
+			>
+			<span>Pending</span>
+		</label>
+
+		<label>
+			<input
+				type="checkbox"
+				class="sd-status-option"
+				value="In Progress"
+			>
+			<span>In Progress</span>
+		</label>
+
+		<label>
+			<input
+				type="checkbox"
+				class="sd-status-option"
+				value="In Review"
+			>
+			<span>In Review</span>
+		</label>
+
+		<label>
+			<input
+				type="checkbox"
+				class="sd-status-option"
+				value="Completed"
+			>
+			<span>Completed</span>
+		</label>
+
+	</div>
+</div>
 								<span class="sd-jobs-count" id="sd-jobs-count"></span>
 							</div>
 						<div class="sd-jobs-list" id="sd-jobs-list">
@@ -139,6 +192,19 @@ class SupportDashboardChat {
 			const unread    = parseInt(tech.total_unread || 0);
 			const pending   = parseInt(tech.pending      || 0);
 			const completed = parseInt(tech.completed    || 0);
+			//
+			const last_chat = tech.last_chat_time
+			? moment
+				.tz(
+					tech.last_chat_time,
+					"YYYY-MM-DD HH:mm:ss",
+					frappe.boot.time_zone.system
+				)
+				.tz(frappe.boot.time_zone.user)
+				.format("DD-MM-YYYY hh:mm A")
+			: "";
+
+			//
 			const badge     = `<span class="sd-tech-unread ${unread ? '' : 'sd-hidden'}" data-tech="${tech.name}">${unread}</span>`;
 			const $card = $(`
 				<div class="sd-tech-card" data-tech="${tech.name}">
@@ -150,6 +216,13 @@ class SupportDashboardChat {
 							<span class="stat-pill pending">${pending} Pending</span>
 							<span class="stat-pill done">${completed} Completed</span>
 						</div>
+							${
+				last_chat
+					? `<div class="sd-tech-last-chat">
+						Last chat: ${last_chat}
+					</div>`
+					: ''
+			}
 					</div>
 				</div>
 			`);
@@ -180,35 +253,178 @@ class SupportDashboardChat {
 		this._load_jobs(tech.name, auto_unread);
 	}
 
-	_load_jobs(technician, auto_unread = false) {
-		frappe.call({
-			method: 'fleet.api.dashboard_chat.get_technician_jobs',
-			args: {
-				technician,
-				show_completed: this.show_completed_tasks ? 1 : 0,
-			},
-			callback: (r) => {
-				const jobs = r.message || [];
-				this.jobs = jobs.filter(job => {
-					return this.show_completed_tasks
-						? job.status === 'Completed'
-						: job.status !== 'Completed';
-				});
-				$('#sd-jobs-count').text(`${this.jobs.length} job${this.jobs.length !== 1 ? 's' : ''}`);
-				this._render_jobs();
-				if (auto_unread) {
-					const first_unread = this.jobs.find(j => parseInt(j.unread_count_support || 0) > 0);
-					if (first_unread) this._select_job(first_unread);
-				}
-			},
-		});
-	}
+	// _load_jobs(technician, auto_unread = false) {
+	// 	frappe.call({
+	// 		method: 'fleet.api.dashboard_chat.get_technician_jobs',
+	// 		args: {
+	// 			technician,
+	// 			show_completed: this.show_completed_tasks ? 1 : 0,
+	// 		},
+	// 		callback: (r) => {
+	// 			const jobs = r.message || [];
+	// 			this.jobs = jobs.filter(job => {
+	// 				return this.show_completed_tasks
+	// 					? job.status === 'Completed'
+	// 					: job.status !== 'Completed';
+	// 			});
+	// 			$('#sd-jobs-count').text(`${this.jobs.length} job${this.jobs.length !== 1 ? 's' : ''}`);
+	// 			this._render_jobs();
+	// 			if (auto_unread) {
+	// 				const first_unread = this.jobs.find(j => parseInt(j.unread_count_support || 0) > 0);
+	// 				if (first_unread) this._select_job(first_unread);
+	// 			}
+	// 		},
+	// 	});
+	// }
 
+	_load_jobs(technician, auto_unread = false) {
+	Promise.all([
+		new Promise((resolve) => {
+			frappe.call({
+				method: "fleet.api.dashboard_chat.get_technician_jobs",
+				args: {
+					technician: technician,
+					show_completed: 0,
+				},
+				callback: (r) => {
+					resolve(r.message || []);
+				},
+			});
+		}),
+
+		new Promise((resolve) => {
+			frappe.call({
+				method: "fleet.api.dashboard_chat.get_technician_jobs",
+				args: {
+					technician: technician,
+					show_completed: 1,
+				},
+				callback: (r) => {
+					resolve(r.message || []);
+				},
+			});
+		}),
+	]).then(([active_jobs, completed_jobs]) => {
+		const all_jobs = [...active_jobs, ...completed_jobs];
+
+		const unique_jobs = Array.from(
+			new Map(
+				all_jobs.map((job) => [job.name, job])
+			).values()
+		);
+
+		if (this.selected_statuses.includes("All")) {
+			this.jobs = unique_jobs;
+		} else {
+			this.jobs = unique_jobs.filter((job) => {
+				return this.selected_statuses.includes(job.status);
+			});
+		}
+
+		$("#sd-jobs-count").text(
+			`${this.jobs.length} job${this.jobs.length !== 1 ? "s" : ""}`
+		);
+
+		this._render_jobs();
+
+		if (auto_unread) {
+			const first_unread = this.jobs.find((job) => {
+				return parseInt(job.unread_count_support || 0) > 0;
+			});
+
+			if (first_unread) {
+				this._select_job(first_unread);
+			}
+		}
+	});
+}
+
+	// _bind_filters() {
+	// 	$(this.$main).on('change', '#sd-show-completed-tasks', (e) => {
+	// 		this.show_completed_tasks = $(e.currentTarget).is(':checked');
+	// 		this.selected_job = null;
+	// 		$('#sd-chat-panel').html(`
+	// 			<div class="sd-chat-empty">
+	// 				<svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
+	// 					<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+	// 				</svg>
+	// 				<h3>Select a job to start chatting</h3>
+	// 				<p>Messages will appear here</p>
+	// 			</div>
+	// 		`);
+	// 		if (!this.selected_tech) return;
+	// 		$('#sd-jobs-list').html(`<div class="sd-loading-dots center"><span></span><span></span><span></span></div>`);
+	// 		this._load_jobs(this.selected_tech.name);
+	// 	});
+	// }
 	_bind_filters() {
-		$(this.$main).on('change', '#sd-show-completed-tasks', (e) => {
-			this.show_completed_tasks = $(e.currentTarget).is(':checked');
+		// Open / close dropdown
+		$(this.$main).on("click", "#sd-status-filter-btn", (e) => {
+			e.preventDefault();
+			e.stopPropagation();
+
+			$("#sd-status-filter-menu").toggleClass("show");
+		});
+
+		// Clicking inside dropdown should not close it
+		$(this.$main).on("click", "#sd-status-filter-menu", (e) => {
+			e.stopPropagation();
+		});
+
+		// Clicking outside closes dropdown
+		$(document).on("click.sdStatusFilter", () => {
+			$("#sd-status-filter-menu").removeClass("show");
+		});
+
+		// Checkbox selection
+		$(this.$main).on("change", ".sd-status-option", (e) => {
+			const value = $(e.currentTarget).val();
+			const checked = $(e.currentTarget).is(":checked");
+
+			if (value === "All") {
+				if (checked) {
+					this.selected_statuses = ["All"];
+
+					$(".sd-status-option").each(function () {
+						$(this).prop("checked", $(this).val() === "All");
+					});
+				} else {
+					this.selected_statuses = [];
+				}
+			} else {
+				$('.sd-status-option[value="All"]').prop("checked", false);
+
+				if (checked) {
+					if (!this.selected_statuses.includes(value)) {
+						this.selected_statuses.push(value);
+					}
+				} else {
+					this.selected_statuses = this.selected_statuses.filter(
+						(status) => status !== value
+					);
+				}
+
+				this.selected_statuses = this.selected_statuses.filter(
+					(status) => status !== "All"
+				);
+
+				if (!this.selected_statuses.length) {
+					this.selected_statuses = ["All"];
+					$('.sd-status-option[value="All"]').prop("checked", true);
+				}
+			}
+
+			const label = this.selected_statuses.includes("All")
+				? "All"
+				: this.selected_statuses.length === 1
+					? this.selected_statuses[0]
+					: `${this.selected_statuses.length} Statuses`;
+
+			$("#sd-status-filter-label").text(label);
+
 			this.selected_job = null;
-			$('#sd-chat-panel').html(`
+
+			$("#sd-chat-panel").html(`
 				<div class="sd-chat-empty">
 					<svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
 						<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
@@ -217,8 +433,15 @@ class SupportDashboardChat {
 					<p>Messages will appear here</p>
 				</div>
 			`);
+
 			if (!this.selected_tech) return;
-			$('#sd-jobs-list').html(`<div class="sd-loading-dots center"><span></span><span></span><span></span></div>`);
+
+			$("#sd-jobs-list").html(`
+				<div class="sd-loading-dots center">
+					<span></span><span></span><span></span>
+				</div>
+			`);
+
 			this._load_jobs(this.selected_tech.name);
 		});
 	}
@@ -227,7 +450,10 @@ class SupportDashboardChat {
 		const $list = $('#sd-jobs-list');
 		$list.empty();
 		if (!this.jobs.length) {
-			const empty_label = this.show_completed_tasks ? 'No completed jobs found' : 'No active jobs found';
+			// const empty_label = this.show_completed_tasks ? 'No completed jobs found' : 'No active jobs found';
+			const empty_label = this.selected_statuses.includes("All")
+	? "No jobs found"
+	: `No ${this.selected_statuses.join(", ")} jobs found`;
 			$list.html(`
 				<div class="sd-empty-state">
 					<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
@@ -458,8 +684,9 @@ class SupportDashboardChat {
 						content:     message,
 						sent_by:     frappe.session.user,
 						role:        'Support',
-						creation:    frappe.datetime.now_datetime(),
-					});
+						// creation:    frappe.datetime.now_datetime(),
+						creation: r.message.creation,
+						});
 					this._scroll_to_bottom();
 				}
 			},
@@ -473,7 +700,20 @@ class SupportDashboardChat {
 		const is_support = role === 'Support';
 		const name       = msg.sender_name || msg.sender || '?';
 		const content    = msg.message    || msg.content || '';
-		const time       = msg.creation ? frappe.datetime.str_to_user(msg.creation, true) : 'Just now';
+		// const time       = msg.creation ? frappe.datetime.str_to_user(msg.creation, true) : 'Just now';
+			// 	const time = msg.creation
+	// ? moment(msg.creation).format("DD-MM-YYYY HH:mm:ss")
+	// : '';
+	const time = msg.creation
+	? moment
+		.tz(
+			msg.creation,
+			"YYYY-MM-DD HH:mm:ss",
+			frappe.boot.time_zone.system
+		)
+		.tz(frappe.boot.time_zone.user)
+		.format("DD-MM-YYYY HH:mm:ss")
+	: '';
 		const _NO_COPY = new Set(['Make', 'Model', 'Color', 'Type']);
 		const _COPY_ICON = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 3H14.6C16.84 3 17.96 3 18.816 3.436C19.569 3.819 20.18 4.431 20.564 5.184C21 6.04 21 7.16 21 9.4V16.5M6.2 21H14.3C15.42 21 15.98 21 16.408 20.782C16.784 20.59 17.09 20.284 17.282 19.908C17.5 19.48 17.5 18.92 17.5 17.8V9.7C17.5 8.58 17.5 8.02 17.282 7.592C17.09 7.216 16.784 6.91 16.408 6.718C15.98 6.5 15.42 6.5 14.3 6.5H6.2C5.08 6.5 4.52 6.5 4.092 6.718C3.716 6.91 3.41 7.216 3.218 7.592C3 8.02 3 8.58 3 9.7V17.8C3 18.92 3 19.48 3.218 19.908C3.41 20.284 3.716 20.59 4.092 20.782C4.52 21 5.08 21 6.2 21Z"/></svg>`;
 		const renderLine = (line) => {
@@ -714,16 +954,40 @@ class SupportDashboardChat {
 			align-items: flex-start;
 			justify-content: center;
 		}
+		// .sd-tech-card {
+		// 	position: relative; display: flex; flex-direction: row;
+		// 	align-items: center; gap: 4px; padding: 8px 8px;
+		// 	background: var(--control-bg);
+		// 	border: 1.5px solid var(--border-color);
+		// 	border-radius: 8px; cursor: pointer;
+		// 	flex: 0 0 180px; width: 180px; box-sizing: border-box;
+		// 	transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+		// 	overflow: hidden;
+		// }
 		.sd-tech-card {
-			position: relative; display: flex; flex-direction: row;
-			align-items: center; gap: 4px; padding: 8px 8px;
+			position: relative;
+			display: flex;
+			flex-direction: row;
+			align-items: center;
+			gap: 6px;
+			padding: 10px 10px;
 			background: var(--control-bg);
 			border: 1.5px solid var(--border-color);
-			border-radius: 8px; cursor: pointer;
-			flex: 0 0 180px; width: 180px; box-sizing: border-box;
+			border-radius: 8px;
+			cursor: pointer;
+			flex: 0 0 205px;
+			width: 205px;
+			min-height: 72px;
+			box-sizing: border-box;
 			transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
 			overflow: hidden;
 		}
+		.sd-tech-last-chat {
+		font-size: 9px;
+		color: var(--text-muted);
+		margin-top: 2px;
+		white-space: nowrap;
+	}
 		.sd-tech-card:hover { border-color: var(--primary); background: var(--blue-50, #eff6ff); }
 		.sd-tech-card.active {
 			border-color: var(--primary); background: var(--blue-50, #eff6ff);
@@ -1024,6 +1288,91 @@ class SupportDashboardChat {
 		}
 		.sd-copy-btn:hover { opacity: 1; color: #2566cd; }
 		.sd-copy-btn svg { display: inline-block; vertical-align: middle; }
+		.sd-status-filter {
+	position: relative;
+	display: inline-block;
+}
+
+.sd-status-filter-btn {
+	height: 28px;
+	min-width: 100px;
+	padding: 0 10px;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+
+	background: var(--control-bg);
+	border: 1px solid var(--border-color);
+	border-radius: 6px;
+
+	color: var(--text-color);
+	font-size: 11px;
+	font-weight: 600;
+
+	cursor: pointer;
+}
+
+.sd-status-filter-btn:hover {
+	border-color: var(--primary);
+}
+
+.sd-status-filter-menu {
+	display: none !important;
+
+	position: absolute;
+	top: 34px;
+	right: 0;
+
+	min-width: 165px;
+	padding: 6px;
+
+	background: var(--fg-color);
+	border: 1px solid var(--border-color);
+	border-radius: 7px;
+
+	box-shadow: 0 6px 18px rgba(0, 0, 0, 0.15);
+
+	z-index: 9999;
+}
+
+.sd-status-filter-menu.show {
+	display: block !important;
+}
+
+.sd-status-filter-menu label {
+	display: flex !important;
+	align-items: center;
+	gap: 8px;
+
+	width: 100%;
+	padding: 7px 8px;
+	margin: 0;
+
+	border-radius: 5px;
+	cursor: pointer;
+
+	font-size: 11px;
+	font-weight: 500;
+	color: var(--text-color);
+
+	white-space: nowrap;
+}
+
+.sd-status-filter-menu label:hover {
+	background: var(--control-bg);
+}
+
+.sd-status-filter-menu input[type="checkbox"] {
+	width: 14px;
+	height: 14px;
+
+	margin: 0;
+	flex-shrink: 0;
+
+	accent-color: var(--primary);
+	cursor: pointer;
+}
 
 		</style>`).appendTo('head');
 	}
