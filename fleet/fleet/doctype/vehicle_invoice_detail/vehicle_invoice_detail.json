@@ -9,7 +9,8 @@
   "vehicle",
   "customer",
   "branch",
-  "last_billed_upto_date"
+  "last_billed_upto_date",
+  "advance_months"
  ],
  "fields": [
   {
@@ -40,6 +41,14 @@
    "in_list_view": 1,
    "label": "Last Billed Upto Date",
    "read_only": 1
+  },
+  {
+   "default": "1",
+   "fieldname": "advance_months",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Advance Months",
+   "non_negative": 1
   }
  ],
  "grid_page_length": 50,

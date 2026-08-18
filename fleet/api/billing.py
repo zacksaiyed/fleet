@@ -185,7 +185,15 @@ def check_charge_subscription(customer, vehicle_name, item_code, b_y, b_m, inst_
 
 
 @frappe.whitelist()
-def generate_customer_invoice(customer_id, from_date=None, to_date=None, vehicles=None, is_partial=False):
+def generate_customer_invoice(
+    customer_id,
+    from_date=None,
+    to_date=None,
+    vehicles=None,
+    is_partial=False,
+    is_advance=False,
+    waive_subscription=False,
+):
     target_customer = frappe.get_doc("Customer", customer_id)
     current_date = getdate()
     
@@ -195,6 +203,10 @@ def generate_customer_invoice(customer_id, from_date=None, to_date=None, vehicle
         to_date = getdate(to_date)
         
     is_partial = True if (is_partial == True or is_partial in ["True", "1", 1]) else False
+    is_advance = True if (is_advance == True or is_advance in ["True", "1", 1]) else False
+    waive_subscription = is_advance and (
+        waive_subscription is True or waive_subscription in ["True", "1", 1]
+    )
     
     frequency_months = None
     if target_customer.custom_parent_customer:
@@ -238,7 +250,7 @@ def generate_customer_invoice(customer_id, from_date=None, to_date=None, vehicle
         vehicle_docs[vehicle.name] = doc
         if not from_date or not to_date:
             for row in doc.get("custom_vehicle_item", []):
-                if row.status == "Installed" and row.date:
+                if row.status == "Installed" and row.item and row.date:
                     r_date = getdate(row.date)
                     if not earliest_install_date or r_date < earliest_install_date:
                         earliest_install_date = r_date
@@ -387,9 +399,26 @@ def generate_customer_invoice(customer_id, from_date=None, to_date=None, vehicle
                     items_in_month[act.item] = act.last_activity_date
             
             for row in vehicle_doc.get("custom_vehicle_item", []):
-                if row.status == "Installed" and row.date:
-                    inst_date = getdate(row.date)
-                    if inst_date >= month_start and inst_date <= month_end:
+                if row.status == "Installed" and row.item:
+                    row_install_date = row.get("custom_installation_date") or row.date
+                    if not row_install_date and is_advance:
+                        row_install_date = frappe.db.get_value(
+                            "GPS Installation Status Log",
+                            {
+                                "vehicle": vehicle.name,
+                                "item": row.item,
+                                "event_type": "Installed",
+                            },
+                            "event_date",
+                            order_by="event_date asc",
+                        )
+                    if not row_install_date:
+                        continue
+
+                    inst_date = getdate(row_install_date)
+                    if is_advance and inst_date <= invoice_start_date:
+                        items_in_month.setdefault(row.item, None)
+                    elif not is_advance and inst_date >= month_start and inst_date <= month_end:
                         if row.item not in items_in_month:
                             items_in_month[row.item] = None
                         
@@ -477,7 +506,13 @@ def generate_customer_invoice(customer_id, from_date=None, to_date=None, vehicle
                 if (b_y > inst_y) or (b_y == inst_y and b_m >= inst_m):
                     
                     # --- CONDITION A: INSTALLATION CHARGE ---
-                    if b_y == inst_y and b_m == inst_m:
+                    is_first_advance_month = (
+                        is_advance
+                        and not v_last_billed
+                        and b_y == invoice_start_date.year
+                        and b_m == invoice_start_date.month
+                    )
+                    if (b_y == inst_y and b_m == inst_m) or is_first_advance_month:
                         item_model = frappe.db.get_value("Item", item, "custom_model") if item else None
                         search_models = [m for m in [vehicle.model, item_model] if m]
                         rate = 0.0
@@ -568,9 +603,19 @@ def generate_customer_invoice(customer_id, from_date=None, to_date=None, vehicle
                     charge_subscription = True
                     waiver_reason = ""
                     
-                    if is_partial_billing:
+                    if waive_subscription:
+                        charge_subscription = False
+                        waiver_reason = "Advance invoice subscription waived"
+                        final_rate = 0.0
+                        billing_decision = "Waived"
+                    elif is_partial_billing:
                         total_days_in_month = (month_end - month_start).days + 1
-                        start_billing_date = max(month_start, install_date)
+                        start_billing_date = max(month_start, install_date, invoice_start_date)
+                        if is_advance and v_last_billed:
+                            start_billing_date = max(
+                                start_billing_date,
+                                add_days(getdate(v_last_billed), 1),
+                            )
                         
                         removal_date = None
                         if status_log and status_log[0].event_type == "Removed":
@@ -585,7 +630,10 @@ def generate_customer_invoice(customer_id, from_date=None, to_date=None, vehicle
                                         removal_date = r_dt
                                         break
                                         
-                        end_billing_date = removal_date if removal_date else month_end
+                        end_billing_date = min(
+                            removal_date if removal_date else month_end,
+                            invoice_end_date,
+                        )
                         
                         if start_billing_date > end_billing_date:
                             charge_subscription = False
@@ -627,7 +675,7 @@ def generate_customer_invoice(customer_id, from_date=None, to_date=None, vehicle
                             final_rate = 0.0
                             billing_decision = "Waived"
 
-                    if charge_subscription:
+                    if charge_subscription or waive_subscription:
                         billing_items.append({
                             "v_customer_id": v_customer_id,
                             "v_branch": v_branch,
@@ -649,8 +697,8 @@ def generate_customer_invoice(customer_id, from_date=None, to_date=None, vehicle
                                 "custom_rate_code": rate_code,
                                 "custom_billing_decision": billing_decision,
                                 "custom_included": 1,
-                                "custom_waived": 0,
-                                "custom_waiver_reason": "",
+                                "custom_waived": 1 if waive_subscription else 0,
+                                "custom_waiver_reason": waiver_reason,
                                 "custom_vehicle_type": "CB" if v_class == "CB" else ("LOCAL" if v_class in ["Local", "LOCAL"] else ""),
                                 "custom_comment": "",
                                 "custom_last_activity_date": last_act_date,
@@ -953,7 +1001,11 @@ def generate_customer_invoice(customer_id, from_date=None, to_date=None, vehicle
     if not created_invoices:
         return {"status": "success", "message": "No invoices generated as all items in this period were waived."}
     
-    return {"status": "success", "message": f"Invoices generated successfully: {', '.join(created_invoices)}"}
+    return {
+        "status": "success",
+        "message": f"Invoices generated successfully: {', '.join(created_invoices)}",
+        "invoices": created_invoices,
+    }
 
 
 @frappe.whitelist()

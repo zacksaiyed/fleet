@@ -36,3 +36,15 @@ frappe.ui.form.on('Vehicle', {
 		}
 	}
 });
+
+frappe.ui.form.on('Vehicle Item', {
+	status(frm, cdt, cdn) {
+		const row = locals[cdt][cdn];
+		if (row.status !== 'Removed') {
+			return;
+		}
+
+		const removal_date = frappe.datetime.get_today();
+		frappe.model.set_value(cdt, cdn, 'custom_removal_date', removal_date);
+	}
+});
