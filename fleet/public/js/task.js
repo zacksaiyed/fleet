@@ -38,10 +38,36 @@ frappe.ui.form.on('Task', {
 				).addClass("btn-primary");
 			}
 
-			if ((status === "Open" && is_assigned) || status === "Rejected") {
-				frm.add_custom_button(__("Reassign"), () =>
-					_show_assign_dialog(frm, true)
-				).removeClass("btn-default").addClass("btn-warning");
+			// if ((status === "Open" && is_assigned) || status === "Rejected" || status ==="In Progress") {
+			// 	frm.add_custom_button(__("Reassign"), () =>
+			// 		_show_assign_dialog(frm, true)
+			// 	).removeClass("btn-default").addClass("btn-warning");
+			// }
+
+			const allowed_job_statuses = [
+				"In Review",
+				"Completed",
+				"Cancelled",
+				"Hold"
+			];
+
+			const jobs = frm.doc.custom_task_jobs || [];
+
+			const all_jobs_allowed =
+				jobs.length > 0 &&
+				jobs.every(row => allowed_job_statuses.includes(row.status));
+
+			const can_reassign_status =
+				(status === "Open" && is_assigned) ||
+				status === "Rejected" ||
+				status === "In Progress";
+
+			if (can_reassign_status && !all_jobs_allowed) {
+				frm.add_custom_button(__("Reassign"), () => {
+					_show_assign_dialog(frm, true);
+				})
+				.removeClass("btn-default")
+				.addClass("btn-warning");
 			}
 
 			if (status === "Accepted") {
@@ -254,7 +280,7 @@ function _show_add_jobs_dialog(frm) {
         fields: ["name"],
         limit: 10000
     }).then(res => {
-        const customer_vehicles = res.map(r => r.name); 
+        const customer_vehicles = res.map(r => r.name);
         let rows = [{ task_type: "", count: 1, vehicles: "" }];
 
         const dialog = new frappe.ui.Dialog({
@@ -345,13 +371,13 @@ function _render_table(dialog, rows, customer_vehicles) {
         $del_btn.on('click', function(e) {
             e.preventDefault();
             _save_current_state($wrap, rows);
-            rows.splice(idx, 1);              
-            _render_table(dialog, rows, customer_vehicles);     
+            rows.splice(idx, 1);
+            _render_table(dialog, rows, customer_vehicles);
         });
         $tr.find('.ajd-action-td').append($del_btn);
 
         const type_ctrl = frappe.ui.form.make_control({
-            df: { fieldtype: "Select", options: "\nAccessory\nCheckup\nRemoval\nInstallation", only_input: true },
+            df: { fieldtype: "Select", options: "\nAccessory\nCheckup\nRemoval\nInstallation\nSwap", only_input: true },
             parent: $tr.find('.ajd-type-td')[0], only_input: true
         });
         type_ctrl.make_input();
@@ -362,8 +388,8 @@ function _render_table(dialog, rows, customer_vehicles) {
 
         const render_veh_field = () => {
             const current_type = type_ctrl.get_value();
-            
-            if (["Accessory", "Checkup", "Removal"].includes(current_type)) {                
+
+            if (["Accessory", "Checkup", "Removal","Swap"].includes(current_type)) {
                 let vehicles_used_in_this_type = [];
                 rows.forEach((r, i) => {
                     if (i !== idx && r.task_type === current_type && r.vehicles) {
@@ -387,10 +413,10 @@ function _render_table(dialog, rows, customer_vehicles) {
                     },
                     replace: function(text) {
                         let current_vehicles = _parse_vehicles(this.input.value);
-                        
+
                         if (current_vehicles.includes(text.value)) {
                             frappe.show_alert({ message: `${text.value} is already added in this row!`, indicator: "orange" });
-                            
+
                             this.input.value = current_vehicles.join(", ") + (current_vehicles.length ? ", " : "");
                             return; // Aage add hone se rok dega
                         }
@@ -411,7 +437,7 @@ function _render_table(dialog, rows, customer_vehicles) {
 
         render_veh_field();
         type_ctrl.$input.on('change', render_veh_field);
-        
+
         $count_inp.on('change', () => {
             _save_current_state($wrap, rows);
             row.count = parseInt($count_inp.val()) || 1;
@@ -422,10 +448,10 @@ function _render_table(dialog, rows, customer_vehicles) {
     });
 
     $wrap.append($table);
-    
+
     const $add_btn = $(`<button type="button" class="btn btn-sm btn-primary mt-3"><i class="fa fa-plus"></i> Add Row</button>`);
     $add_btn.on('click', () => {
-        _save_current_state($wrap, rows); 
+        _save_current_state($wrap, rows);
         rows.push({ task_type: "", count: 1, vehicles: "" });
         _render_table(dialog, rows, customer_vehicles);
     });

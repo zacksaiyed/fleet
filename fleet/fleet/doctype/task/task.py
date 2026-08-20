@@ -3,6 +3,8 @@ import frappe
 from frappe.utils import now_datetime
 
 
+LOCKED_JOB_STATUSES = ("In Review", "Completed", "Cancelled")
+
 def validate(doc, method=None):
 	# Always rebuild subject from customer + address title
 	address_title = ""
@@ -65,25 +67,82 @@ def task_action(task, action, technician=None, reject_comment=None):
 			frappe.throw("Permission denied.")
 		doc.status = "In Progress"
 		msg = "Task started."
+	# elif action == "reassign":
+	# 	if doc.status not in ("Open", "Accepted", "In Progress", "Rejected"):
+	# 		frappe.throw(
+	# 			"Task must be Open, Accepted, In Progress or Rejected to assign/reassign."
+	# 		)
 
+	# 	if not is_support:
+	# 		frappe.throw("Only Support Team can assign/reassign a task.")
+
+	# 	if not technician:
+	# 		frappe.throw("Technician is required.")
+
+	# 	old_technician = doc.custom_assign_to
+
+	# 	# Only check for same technician when someone is already assigned
+	# 	if old_technician and old_technician == technician:
+	# 		frappe.throw("Please select a different technician.")
+
+	# 	doc.custom_assign_to = technician
+	# 	result = _handle_task_reassignment(doc, old_technician, technician)
+
+	# 	if result.get("new_task"):
+	# 		return {
+	# 			"msg": f"Task reassigned. New Task {result['new_task']} created for remaining jobs.",
+	# 			"task_status": doc.status,
+	# 			"new_task": result["new_task"],
+	# 			"new_task_created": True,
+	# 			"material_transfers": result.get("material_transfers", []),
+	# 		}
+
+	# 	emp_name = frappe.db.get_value("Employee", technician, "employee_name")
+	# 	msg = f"Task reassigned to {emp_name or technician} and reopened."
 	elif action == "reassign":
-		if doc.status not in ("Rejected", "Open"):
-			frappe.throw("Task must be Open or Rejected to assign/reassign.")
-		if not is_support:
-			frappe.throw("Only Support Team can reassign a task.")
-		if not technician:
-			frappe.throw("New technician is required for reassignment.")
-		doc.custom_assign_to      = technician
-		emp_name = frappe.db.get_value("Employee", technician, "employee_name")
-		doc.custom_employee_name  = emp_name or technician
-		# Always reset the countdown — same technician may be reassigned,
-		# in which case validate's early-return won't update custom_assigned_at.
-		doc.custom_assigned_at    = now_datetime()
-		# update all pending jobs to new technician
-		_reassign_jobs(doc.name, technician)
-		doc.status = "Open"
-		msg = f"Task reassigned to {emp_name or technician} and reopened."
+		if doc.status not in ("Open", "Accepted", "In Progress", "Rejected"):
+			frappe.throw(
+				"Task must be Open, Accepted, In Progress or Rejected to assign/reassign."
+			)
 
+		if not is_support:
+			frappe.throw("Only Support Team can assign/reassign a task.")
+
+		if not technician:
+			frappe.throw("Technician is required.")
+
+		old_technician = doc.custom_assign_to
+
+		if not old_technician:
+			_set_task_technician(doc, technician)
+			_reassign_jobs(doc.name, technician)
+			doc.status = "Open"
+			msg = "Task assigned."
+		else:
+			if old_technician == technician:
+				frappe.throw("Please select a different technician.")
+
+			result = _handle_task_reassignment(
+				doc,
+				old_technician,
+				technician,
+			)
+
+			if result.get("new_task"):
+				return {
+					"msg": f"Task reassigned. New Task {result['new_task']} created for remaining jobs.",
+					"task_status": doc.status,
+					"new_task": result["new_task"],
+					"new_task_created": True,
+					"material_transfers": result.get("material_transfers", []),
+				}
+
+			emp_name = frappe.db.get_value(
+				"Employee",
+				technician,
+				"employee_name",
+			)
+			msg = f"Task reassigned to {emp_name or technician} and reopened."
 	elif action == "hold":
 		if doc.status not in ("In Progress", "In Review"):
 			frappe.throw("Task must be In Progress or In Review to put On Hold.")
@@ -132,7 +191,7 @@ def _reassign_jobs(task_name, new_technician):
 	# update assigned technician on all non-final jobs of a task
 	jobs = frappe.get_all(
 		"Job",
-		filters={"task": task_name, "status": ["not in", ("Completed", "Cancelled")]},
+		filters={"task": task_name, "status": ["not in", LOCKED_JOB_STATUSES]},
 		fields=["name"]
 	)
 	tech_warehouse = frappe.db.get_value(
@@ -143,6 +202,217 @@ def _reassign_jobs(task_name, new_technician):
 			"assigned_technician":  new_technician,
 			"technician_warehouse": tech_warehouse or None,
 		})
+
+
+def _handle_task_reassignment(doc, old_technician, new_technician):
+	jobs = frappe.get_all(
+		"Job",
+		filters={"task": doc.name},
+		fields=["name", "status"],
+		order_by="creation asc",
+	)
+
+	has_locked_jobs = any(job.status in LOCKED_JOB_STATUSES for job in jobs)
+	movable_jobs = [job for job in jobs if job.status not in LOCKED_JOB_STATUSES]
+	material_transfers = []
+
+	if not has_locked_jobs:
+		for job in movable_jobs:
+			material_transfer = None
+			if job.status in ("In Progress", "Hold", "On Hold"):
+				material_transfer = _create_material_transfer_for_job(
+					job.name,
+					old_technician,
+					new_technician,
+				)
+			if material_transfer:
+				material_transfers.append(material_transfer)
+
+		_set_task_technician(doc, new_technician)
+		_reassign_jobs(doc.name, new_technician)
+		doc.status = "Open"
+
+		return {
+			"new_task": None,
+			"material_transfers": material_transfers,
+		}
+
+	if not movable_jobs:
+		frappe.throw("There are no jobs available for reassignment.")
+
+	for job in movable_jobs:
+		material_transfer = None
+		if job.status in ("In Progress", "Hold", "On Hold"):
+			material_transfer = _create_material_transfer_for_job(
+				job.name,
+				old_technician,
+				new_technician,
+			)
+		if material_transfer:
+			material_transfers.append(material_transfer)
+
+	new_task = _create_task_for_reassignment(
+		doc, new_technician, movable_jobs
+	)
+
+	new_warehouse = _get_technician_warehouse(new_technician)
+
+	for job in movable_jobs:
+		frappe.db.set_value(
+			"Job",
+			job.name,
+			{
+				"task": new_task.name,
+				"assigned_technician": new_technician,
+				"technician_warehouse": new_warehouse or None,
+			},
+			update_modified=True,
+		)
+
+	_remove_moved_jobs_from_old_task(
+		doc,
+		[job.name for job in movable_jobs],
+	)
+
+	doc.save(ignore_permissions=True)
+
+	return {
+		"new_task": new_task.name,
+		"material_transfers": material_transfers,
+	}
+def _create_material_transfer_for_job(
+	job_name,
+	old_technician,
+	new_technician,
+):
+	job = frappe.get_doc("Job", job_name)
+
+	rows = job.get("item_installed_removed") or []
+
+	if not rows:
+		return None
+
+	old_warehouse = _get_technician_warehouse(
+		old_technician
+	)
+
+	new_warehouse = _get_technician_warehouse(
+		new_technician
+	)
+
+	if not old_warehouse:
+		frappe.throw(
+			f"No active warehouse found for old technician {old_technician}."
+		)
+
+	if not new_warehouse:
+		frappe.throw(
+			f"No active warehouse found for new technician {new_technician}."
+		)
+
+	if old_warehouse == new_warehouse:
+		return None
+
+	material_transfer = frappe.new_doc(
+		"Material Transfer"
+	)
+
+	material_transfer.source = old_warehouse
+	material_transfer.target = new_warehouse
+
+	for row in rows:
+		item_code = (
+			row.get("item")
+			or row.get("item_code")
+		)
+
+		if not item_code:
+			continue
+
+		material_transfer.append(
+			"items",
+			{
+				"item": item_code,
+			},
+		)
+
+	if not material_transfer.get("items"):
+		return None
+
+	material_transfer.insert(
+		ignore_permissions=True
+	)
+
+	return material_transfer.name
+def _get_item_field(meta):
+	if meta.has_field("item"):
+		return "item"
+
+	if meta.has_field("item_code"):
+		return "item_code"
+
+	for df in meta.fields:
+		if df.fieldtype == "Link" and df.options == "Item":
+			return df.fieldname
+
+	return None
+
+
+def _create_task_for_reassignment(old_task, new_technician, movable_jobs):
+	new_task = frappe.copy_doc(old_task)
+	new_task.name = None
+	new_task.docstatus = 0
+	new_task.status = "Open"
+
+	_set_task_technician(new_task, new_technician)
+
+	if new_task.meta.has_field("custom_reject_comment"):
+		new_task.custom_reject_comment = None
+
+	new_task.set("custom_task_jobs", [])
+
+	for job in movable_jobs:
+		job_doc = frappe.get_doc("Job", job.name)
+
+		new_task.append("custom_task_jobs", {
+			"task_type": job_doc.task_type,
+			"vehicle": job_doc.vehicle_number,
+			"status": job_doc.status,
+			"job": job_doc.name,
+		})
+
+	new_task.insert(ignore_permissions=True)
+
+	return new_task
+
+
+def _remove_moved_jobs_from_old_task(task_doc, job_names):
+	job_names = set(job_names)
+	rows_to_keep = []
+
+	for row in task_doc.get("custom_task_jobs"):
+		if row.job not in job_names:
+			rows_to_keep.append(row)
+
+	task_doc.set("custom_task_jobs", rows_to_keep)
+
+
+def _set_task_technician(doc, technician):
+	doc.custom_assign_to = technician
+	emp_name = frappe.db.get_value("Employee", technician, "employee_name")
+	doc.custom_employee_name = emp_name or technician
+	doc.custom_assigned_at = now_datetime()
+
+
+def _get_technician_warehouse(technician):
+	if not technician:
+		return None
+
+	return frappe.db.get_value(
+		"Warehouse",
+		{"custom_employee": technician, "disabled": 0},
+		"name",
+	)
 
 
 def _assert_status(doc, expected, msg):
@@ -198,7 +468,7 @@ def on_update(doc, method=None):
 		"Job",
 		filters={
 			"task": doc.name,
-			"status": ["not in", ("Completed", "Cancelled")],
+			"status": ["not in", LOCKED_JOB_STATUSES],
 		},
 		fields=["name"],
 	)
