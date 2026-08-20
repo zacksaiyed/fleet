@@ -118,6 +118,7 @@ frappe.ui.form.on("Job", {
 
 	refresh(frm) {
 		_attachVehicleNumberMask(frm);
+		render_vehicle_items(frm);
 		if (frm.is_new()) {
 			return;
 		}
@@ -258,6 +259,7 @@ frappe.ui.form.on("Job", {
 
 	vehicle_number(frm) {
 		fetch_vehicle_details(frm);
+		render_vehicle_items(frm);
 	},
 
 	task_type(frm) {
@@ -535,4 +537,63 @@ function wait_for_job(instance, job_name, technician) {
 			);
 		}
 	}, 100);
+}
+function render_vehicle_items(frm) {
+	if(frm.doc.task_type === "Installation") {
+		return;
+	}
+	const wrapper = frm.fields_dict.item_details.$wrapper;
+
+	if (!frm.doc.vehicle_number) {
+		wrapper.empty();
+		return;
+	}
+
+	frappe.db.get_doc("Vehicle", frm.doc.vehicle_number).then((vehicle) => {
+		const items = (vehicle.custom_vehicle_item || []).filter(
+			(row) => row.status === "Installed"
+		);
+
+		if (!items.length) {
+			wrapper.html(`
+				<div class="text-muted">
+					No installed vehicle items found.
+				</div>
+			`);
+			return;
+		}
+
+		let rows = "";
+
+		items.forEach((row, index) => {
+			rows += `
+				<tr>
+					<td>${index + 1}</td>
+					<td>${frappe.utils.escape_html(row.item_type || "")}</td>
+					<td>${frappe.utils.escape_html(row.item || "")}</td>
+					<td>${frappe.utils.escape_html(row.status || "")}</td>
+					<td>${row.date ? frappe.datetime.str_to_user(row.date) : ""}</td>
+				</tr>
+			`;
+		});
+
+		wrapper.html(`
+			<div style="margin-top: 10px;">
+				<table class="table table-bordered">
+					<thead>
+						<tr>
+							<th style="width: 60px;">No.</th>
+							<th>Item Type</th>
+							<th>Item</th>
+							<th>Status</th>
+							<th>Date</th>
+						</tr>
+					</thead>
+					<tbody>
+						${rows}
+					</tbody>
+				</table>
+			</div>
+		`);
+	});
 }

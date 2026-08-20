@@ -18,7 +18,11 @@ class Job(Document):
 		self._set_date_from_task()
 		self._set_vehicle_number()
 		self._fetch_vehicle_details()
-		if self.status == "Pending" and self.item_installed_removed:
+		# if self.status == "Pending" and self.item_installed_removed:
+		# 	self.status = "In Progress"
+		if self.status == "Pending" and self.item_installed_removed and self.task_type != "Swap":
+			self.status = "In Progress"
+		elif self.status == "Pending" and self.items and self.task_type == "Swap":
 			self.status = "In Progress"
 
 	def validate(self):
@@ -85,7 +89,11 @@ class Job(Document):
 		self._sync_task_child_row()
 		self._recompute_task_status()
 		if self.status == "Completed":
-			self._handle_warehouse_movement()
+			# self._handle_warehouse_movement()
+			if self.task_type == "Swap":
+				self._handle_swap()
+			else:
+				self._handle_warehouse_movement()
 
 	def on_trash(self):
 		if self.task:
@@ -102,6 +110,211 @@ class Job(Document):
 			frappe.db.set_value("Task", self.task, "modified", frappe.utils.now())
 			from fleet.fleet.doctype.task.task import recompute_task_status
 			recompute_task_status(self.task)
+
+	###Swap Handling
+
+	def _handle_swap(self):
+		if not self.vehicle_number:
+			frappe.throw("Old Vehicle Number is required for Swap.")
+
+		if not self.new_vehicle_number:
+			frappe.throw("New Vehicle Number is required for Swap.")
+
+		if not frappe.db.exists("Vehicle", self.vehicle_number):
+			frappe.throw(
+				f"Old Vehicle <b>{self.vehicle_number}</b> not found."
+			)
+
+		new_vehicle_number = self.new_vehicle_number.replace(" ", "").upper()
+
+		if frappe.db.exists("Vehicle", new_vehicle_number):
+			frappe.throw(
+				f"New Vehicle <b>{new_vehicle_number}</b> already exists."
+			)
+
+		if not self.customer_warehouse:
+			frappe.throw("Customer warehouse not set.")
+
+		if not self.technician_warehouse:
+			frappe.throw("Technician warehouse not set.")
+
+		swap_items = self.get("items") or []
+
+		if not swap_items:
+			frappe.throw("Please add at least one item for Swap.")
+
+		old_vehicle = frappe.get_doc("Vehicle", self.vehicle_number)
+
+		old_vehicle_items = {
+			row.item: row
+			for row in old_vehicle.get("custom_vehicle_item", [])
+			if row.status == "Installed"
+		}
+
+		old_vehicle_rows = []
+		technician_rows = []
+
+		for row in swap_items:
+			item_code = row.items
+
+			if not item_code:
+				continue
+
+			if row.source == "Old Vehicle":
+				old_vehicle_rows.append(row)
+
+			elif row.source == "Technician":
+				technician_rows.append(row)
+
+			else:
+				frappe.throw(
+					f"Invalid Source <b>{row.source}</b> for item <b>{item_code}</b>."
+				)
+
+		if not old_vehicle_rows and not technician_rows:
+			return
+
+		for row in old_vehicle_rows:
+			item_code = row.items
+
+			if item_code not in old_vehicle_items:
+				frappe.throw(
+					f"Item <b>{item_code}</b> has Source <b>Old Vehicle</b> "
+					f"but is not installed in vehicle <b>{self.vehicle_number}</b>."
+				)
+
+		for row in old_vehicle_rows:
+			item_code = row.items
+
+			actual_qty = frappe.db.get_value(
+				"Bin",
+				{
+					"item_code": item_code,
+					"warehouse": self.customer_warehouse,
+				},
+				"actual_qty",
+			) or 0
+
+			if actual_qty <= 0:
+				frappe.throw(
+					f"Item <b>{item_code}</b> is not available in Customer Warehouse "
+					f"<b>{self.customer_warehouse}</b>."
+				)
+
+		for row in technician_rows:
+			item_code = row.items
+
+			actual_qty = frappe.db.get_value(
+				"Bin",
+				{
+					"item_code": item_code,
+					"warehouse": self.technician_warehouse,
+				},
+				"actual_qty",
+			) or 0
+
+			if actual_qty <= 0:
+				frappe.throw(
+					f"Item <b>{item_code}</b> is not available in Technician Warehouse "
+					f"<b>{self.technician_warehouse}</b>."
+				)
+
+		if old_vehicle_rows:
+			self._create_swap_stock_entry(
+				old_vehicle_rows,
+				self.customer_warehouse,
+				self.technician_warehouse,
+			)
+
+			for row in old_vehicle_rows:
+				item_code = row.items
+
+				vehicle_item = old_vehicle_items[item_code]
+				vehicle_item.status = "Removed"
+				vehicle_item.date = self.date
+
+			old_vehicle.flags.updated_from_job_document = 1
+			old_vehicle.save(ignore_permissions=True)
+
+		items_to_install = old_vehicle_rows + technician_rows
+
+		if items_to_install:
+			self._create_swap_stock_entry(
+				items_to_install,
+				self.technician_warehouse,
+				self.customer_warehouse,
+			)
+
+		new_vehicle = frappe.get_doc({
+			"doctype": "Vehicle",
+			"license_plate": new_vehicle_number,
+			"make": self.swap_make,
+			"model": self.swap_model,
+			"color": self.swap_color,
+			"custom_vehicle_type": self.swap_type or None,
+			"custom_customer": self.customer or None,
+		})
+
+		for row in items_to_install:
+			new_vehicle.append(
+				"custom_vehicle_item",
+				{
+					"item": row.items,
+					"item_type": row.item_type,
+					"status": "Installed",
+					"date": self.date,
+				},
+			)
+
+		new_vehicle.flags.updated_from_job_document = 1
+		new_vehicle.insert(ignore_permissions=True)
+
+		self._attach_job_images_to_vehicle(new_vehicle_number)
+
+		frappe.msgprint(
+			f"Vehicle Swap completed.<br>"
+			f"Old Vehicle: <b>{self.vehicle_number}</b><br>"
+			f"New Vehicle: <b>{new_vehicle_number}</b><br>"
+			f"Items Installed: <b>{len(items_to_install)}</b>",
+			alert=True,
+		)
+
+	def _create_swap_stock_entry(self, rows, source_warehouse, target_warehouse):
+		if not rows:
+			return
+
+		company = frappe.db.get_value(
+			"Warehouse",
+			source_warehouse,
+			"company",
+		)
+
+		stock_entry = frappe.get_doc({
+			"doctype": "Stock Entry",
+			"stock_entry_type": "Material Transfer",
+			"company": company,
+			"custom_job": self.name,
+			"items": [
+				{
+					"item_code": row.items,
+					"qty": 1,
+					"s_warehouse": source_warehouse,
+					"t_warehouse": target_warehouse,
+				}
+				for row in rows
+			],
+		})
+
+		stock_entry.insert(ignore_permissions=True)
+		stock_entry.submit()
+
+		from fleet.custom_py.item_warehouse import update_item_warehouse
+
+		for row in rows:
+			update_item_warehouse(row.items, target_warehouse)
+
+	#####
+
 
 	# Private helpers
 	def _set_vehicle_number(self):
