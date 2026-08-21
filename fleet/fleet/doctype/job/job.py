@@ -52,9 +52,18 @@ class Job(Document):
 			# 	)
 
 		self._validate_vehicle_existence()
+		self.validate_swap_vehicle()
 
 		if self.status == "Completed" and not self.completion_comment:
 			frappe.throw("Completion comment is mandatory before marking a Job as Completed.")
+
+	def validate_swap_vehicle(self):
+		if not self.new_vehicle_number or not self.task_type == "Swap":
+			return
+
+		vehicle_exists = frappe.db.exists("Vehicle", self.new_vehicle_number)
+		if vehicle_exists:
+			frappe.throw(f"Vehicle{self.new_vehicle_number} already registered in the system.")
 
 	def _validate_vehicle_existence(self):
 		if not self.vehicle_number or not self.task_type:
