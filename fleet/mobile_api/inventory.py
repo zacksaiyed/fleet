@@ -238,6 +238,7 @@ def get_transfer_targets():
           AND w.custom_employee IS NOT NULL
           AND w.custom_employee != ''
           AND w.name != %s
+          AND e.status = 'Active'
         ORDER BY e.employee_name
     """, my_wh, as_dict=True)
 

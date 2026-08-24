@@ -307,10 +307,17 @@ def get_all_technicians_summary():
 		if employee:
 			row = frappe.db.sql(
 				"""
-				SELECT
+					SELECT
 					COUNT(*) AS total_jobs,
 					COALESCE(SUM(unread_count_support), 0) AS total_unread,
-					SUM(CASE WHEN status = 'Completed' THEN 1 ELSE 0 END) AS completed,
+					SUM(
+						CASE
+							WHEN status = 'Completed'
+							AND DATE(modified) = CURDATE()
+						THEN 1
+						ELSE 0
+					END
+					) AS completed,
 					SUM(CASE WHEN status = 'In Progress' THEN 1 ELSE 0 END) AS in_progress,
 					SUM(CASE WHEN status = 'Pending' THEN 1 ELSE 0 END) AS pending
 				FROM `tabJob`
