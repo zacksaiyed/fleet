@@ -238,6 +238,7 @@ def get_transfer_targets():
           AND w.custom_employee IS NOT NULL
           AND w.custom_employee != ''
           AND w.name != %s
+          AND e.status = 'Active'
         ORDER BY e.employee_name
     """, my_wh, as_dict=True)
 
@@ -933,3 +934,27 @@ def check_vehicle(vehicle_number, customer=None):
         "installed_items":  installed,
         "removed_items":    removed,
     }
+
+##(api for getItems with exact item code match)
+@frappe.whitelist()
+def get_items(item_code):
+	if not item_code:
+		return []
+
+	item = frappe.db.get_value(
+		"Item",
+		{"item_code": item_code, "disabled": 0},
+		[
+			"name",
+			"item_code",
+			"item_name",
+			"description",
+			"stock_uom",
+		],
+		as_dict=True,
+	)
+
+	if not item:
+		return []
+
+	return [item]
