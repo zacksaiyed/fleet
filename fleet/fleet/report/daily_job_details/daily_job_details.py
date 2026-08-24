@@ -14,14 +14,40 @@ def execute(filters=None):
 def get_data(filters=None):
 	conditions = ""
 
+	# if filters.get("from_date") and not filters.get("to_date"):
+	# 	conditions += """ and j.date >= %(from_date)s """
+
+	# if filters.get("to_date") and not filters.get("from_date"):
+	# 	conditions += """ and j.date <= %(to_date)s """
+
+	# if filters.get("to_date") and filters.get("from_date"):
+	# 	conditions += """ and j.date BETWEEN %(from_date)s AND %(to_date)s """
 	if filters.get("from_date") and not filters.get("to_date"):
-		conditions += """ and j.date >= %(from_date)s """
+		conditions += """
+			and (
+				j.date >= %(from_date)s
+				or DATE(j.completed_on_technician) >= %(from_date)s
+				or DATE(j.completed_on_support) >= %(from_date)s
+			)
+		"""
 
 	if filters.get("to_date") and not filters.get("from_date"):
-		conditions += """ and j.date <= %(to_date)s """
+		conditions += """
+			and (
+				j.date <= %(to_date)s
+				or DATE(j.completed_on_technician) <= %(to_date)s
+				or DATE(j.completed_on_support) <= %(to_date)s
+			)
+		"""
 
-	if filters.get("to_date") and filters.get("from_date"):
-		conditions += """ and j.date BETWEEN %(from_date)s AND %(to_date)s """
+	if filters.get("from_date") and filters.get("to_date"):
+		conditions += """
+			and (
+				j.date between %(from_date)s and %(to_date)s
+				or DATE(j.completed_on_technician) between %(from_date)s and %(to_date)s
+				or DATE(j.completed_on_support) between %(from_date)s and %(to_date)s
+			)
+		"""
 
 	if filters.get("customer"):
 		conditions += " and ts.custom_customer = %(customer)s"
@@ -139,7 +165,7 @@ def get_data(filters=None):
 				if item_detail:
 					custom_sim_type = item_detail.get("custom_sim_type")
 					custom_serial_no = item_detail.get("custom_serial_no")
-					custom_mobile_number = item_detail.get("custom_mobile_number")
+					custom_mobile_number = item_detail.get("custom_mobile_number") or "Not Available"
 
 					if temp_row.get("removed_sim_no"):
 						temp_row["removed_sim_no"] += f", {row.item_name}"
@@ -173,7 +199,7 @@ def get_data(filters=None):
 					if temp_row.get("sim_no"):
 						custom_sim_type = item_detail.get("custom_sim_type")
 						custom_serial_no = item_detail.get("custom_serial_no")
-						custom_mobile_number = item_detail.get("custom_mobile_number")
+						custom_mobile_number = item_detail.get("custom_mobile_number") or "Not Available"
 
 						temp_row["sim_no"] += f", {row.item_name}"
 						temp_row["type"] += f", {custom_sim_type}"
