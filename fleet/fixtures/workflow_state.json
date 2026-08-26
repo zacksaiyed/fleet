@@ -3,6 +3,14 @@
   "docstatus": 0,
   "doctype": "Workflow State",
   "icon": "",
+  "name": "Draft",
+  "style": "Primary",
+  "workflow_state_name": "Draft"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "icon": "",
   "modified": "2026-02-26 00:19:14.347676",
   "name": "Completed",
   "style": "Success",
@@ -97,5 +105,13 @@
   "name": "Rejected",
   "style": "Danger",
   "workflow_state_name": "Rejected"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "icon": "",
+  "name": "Pending Customer Approval",
+  "style": "Warning",
+  "workflow_state_name": "Pending Customer Approval"
  }
 ]

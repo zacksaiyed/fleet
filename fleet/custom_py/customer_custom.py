@@ -1,6 +1,6 @@
 import frappe
 from frappe import _
-from frappe.utils import flt, now_datetime
+from frappe.utils import flt, now_datetime, today
 
 def validate_customer(doc, method=None):
 
@@ -10,6 +10,9 @@ def validate_customer(doc, method=None):
         set_default_fleet_billing_settings(doc)
         
     prepare_price_history_logs(doc)
+    
+    # NAYA CODE: Track Invoice Frequency Changes Before Save
+    track_invoice_frequency_change(doc)
 
 
 def on_update(doc, method=None):
@@ -17,6 +20,31 @@ def on_update(doc, method=None):
     create_customer_warehouse(doc.name)
     
     save_pending_history_logs(doc)
+
+
+# ==============================================================
+# UPDATED FUNCTION: Invoice frequency change track karne ke liye
+# ==============================================================
+def track_invoice_frequency_change(doc):
+    """Agar Invoice Frequency change hoti hai toh purani value ko Previous me dalo aur aaj ki date set karo"""
+    if not doc.is_new() and doc.get_doc_before_save():
+        old_doc = doc.get_doc_before_save()
+        
+        # Purani aur Nayi frequency nikalte hain (none aane par 0 set karte hain)
+        old_freq = old_doc.get("custom_invoice_frequency_months") or 0
+        new_freq = doc.get("custom_invoice_frequency_months") or 0
+        
+        # Dono ko string banakar compare karte hain taaki accurately change detect ho
+        if str(old_freq) != str(new_freq):
+            
+            # Dono possible fieldnames set kar rahe hain (Underscore ke sath aur bina underscore ke)
+            # Jo bhi DB me exact match hoga, usme data perfectly chala jayega
+            doc.custom_previous_invoice_frequency_months = old_freq
+            doc.custom_previous_invoice_frequency_months_ = old_freq
+            
+            # Changed On wali field mein aaj ki date set kar do
+            doc.custom_invoice_frequency_changed_on = today()
+# ==============================================================
 
 
 def create_customer_warehouse(customer_name):
@@ -33,7 +61,6 @@ def create_customer_warehouse(customer_name):
         })
         wh.flags.ignore_links = True  
         wh.insert(ignore_permissions=True)
-
 
 
 def prepare_price_history_logs(doc):
@@ -118,7 +145,6 @@ def create_history_log(customer, model, customer_price, effective_from, effectiv
     })
     history_doc.flags.ignore_links = True  
     history_doc.insert(ignore_permissions=True)
-
 
 
 def set_default_fleet_billing_settings(doc):

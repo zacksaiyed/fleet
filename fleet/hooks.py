@@ -67,6 +67,7 @@ doctype_list_js = {
 }
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
+app_include_js = "/assets/fleet/js/desktop_notification.js"
 
 # Svg Icons
 # ------------------
@@ -230,7 +231,7 @@ doc_events = {
 
     "Item": {
         "before_insert": "fleet.override.item.generate_item_details",
-        "on_update": "fleet.override.item.on_item_update"
+        "on_update": "fleet.override.item.on_item_update",
     },
     "Item Model": {
         "on_update": "fleet.override.item.on_item_model_update"
@@ -238,6 +239,9 @@ doc_events = {
     "Sales Invoice": {
         "before_submit": "fleet.api.billing.before_sales_invoice_submit",
         "on_submit": "fleet.api.billing.on_sales_invoice_submit"
+    },
+   "Sales Order": {
+        "on_submit": "fleet.custom_py.desktop_notification.on_sales_order_submit"
     }
 }
 
@@ -269,6 +273,9 @@ scheduler_events = {
             "fleet.scheduled.task_auto_reject.auto_reject_unaccepted_tasks"
         ],
     },
+    "monthly": [
+        "fleet.api.classification_scheduler.generate_vehicle_classification_logs"
+    ],
     "monthly": [
         "fleet.api.classification_scheduler.generate_vehicle_classification_logs"
     ]

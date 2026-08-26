@@ -1,5 +1,6 @@
 import frappe
-from frappe.utils import getdate, add_months, add_days, get_last_day
+# from frappe.utils import getdate, add_months, add_days, get_last_day
+from frappe.utils import getdate, add_months, add_days, get_last_day, today
 import calendar
 import json
 
@@ -20,6 +21,7 @@ def get_all_vehicles():
     return frappe.get_all("Vehicle", fields=["license_plate"])
 
 @frappe.whitelist()
+
 def get_vehicle_classification(vehicle_name, date):
     t_date = getdate(date)
     month_start = getdate(f"{t_date.year}-{t_date.month:02d}-01")
@@ -949,6 +951,10 @@ def generate_customer_invoice(customer_id, from_date=None, to_date=None, vehicle
 
         inv.insert(ignore_permissions=True)
         created_invoices.append(inv.name)
+        if inv.custom_billing_end_date and not inv.custom_partial_invoice:
+            c_date = frappe.db.get_value("Customer", inv.customer, "custom_last_billed_upto_date")
+            if not c_date or getdate(inv.custom_billing_end_date) > getdate(c_date):
+                frappe.db.set_value("Customer", inv.customer, "custom_last_billed_upto_date", inv.custom_billing_end_date)
 
     if not created_invoices:
         return {"status": "success", "message": "No invoices generated as all items in this period were waived."}
@@ -1096,3 +1102,85 @@ def get_default_billing_start_date(customer_id):
                 earliest_creation = v_c_date
                 
     return earliest_creation
+
+# @frappe.whitelist()
+# def process_automatic_billing():
+#     current_date = getdate(today())
+    
+#     # Un sabhi customers ko get karo jinka 'Billing Cycle' checkbox check hai
+#     eligible_customers = frappe.get_all(
+#         "Customer",
+#         filters={
+#             # "custom_billing_cycle": 1, 
+#             "disabled": 0 # Sirf active customers
+#         },
+#         fields=["name", "custom_last_billed_upto_date", "custom_invoice_frequency_months"]
+#     )
+    
+#     for cust in eligible_customers:
+#         freq_months = int(cust.custom_invoice_frequency_months or 1)
+#         last_billed = cust.custom_last_billed_upto_date
+        
+#         if last_billed:
+#             # Check karein ki next billing date kya honi chahiye
+#             next_billing_date = add_months(getdate(last_billed), freq_months)
+            
+#             # Agar aaj ki date next billing date ke barabar ya usse aage hai
+#             if current_date >= next_billing_date:
+#                 try:
+#                     # Aapka existing invoice generate karne wala function call karein
+#                     generate_customer_invoice(customer_id=cust.name)
+                    
+#                     # Database changes ko save karein
+#                     frappe.db.commit() 
+                    
+#                 except Exception as e:
+#                     frappe.db.rollback()
+#                     frappe.log_error(f"Auto Billing failed for {cust.name}: {str(e)}", "Automatic Fleet Billing Error")
+
+@frappe.whitelist()
+def process_automatic_billing():
+    current_date = getdate(today())
+    
+    # 'Billing Cycle' checkbox ka filter aaj ke liye comment kiya hua hai
+    eligible_customers = frappe.get_all(
+        "Customer",
+        filters={
+            # "custom_billing_cycle": 1, 
+            "disabled": 0 # Sirf active customers
+        },
+        fields=["name", "custom_last_billed_upto_date", "custom_invoice_frequency_months"]
+    )
+    
+    for cust in eligible_customers:
+        freq_months = int(cust.custom_invoice_frequency_months or 1)
+        last_billed = cust.custom_last_billed_upto_date
+        
+        # Ek variable banayenge baseline (start) date hold karne ke liye
+        baseline_date = None
+        
+        if last_billed:
+            # Agar purana customer hai to Last Billed se start karo
+            baseline_date = getdate(last_billed)
+        else:
+            # Agar FRESH customer hai, to system default start date (jaise installation date) nikalega
+            baseline_date = get_default_billing_start_date(cust.name)
+            
+            # Agar installation bhi aaj hi hui hai aur function ne date di hai, 
+            # to counting aaj se shuru hogi
+        
+        # Agar baseline date mil gayi hai (purani ya nayi)
+        if baseline_date:
+            # Baseline date mein frequency (jaise 2 months) add karke next date nikalo
+            next_billing_date = add_months(getdate(baseline_date), freq_months)
+            
+            if current_date >= next_billing_date:
+                try:
+                    generate_customer_invoice(customer_id=cust.name)
+                    
+                    # Database changes ko save karein
+                    frappe.db.commit() 
+                    
+                except Exception as e:
+                    frappe.db.rollback()
+                    frappe.log_error(f"Auto Billing failed for {cust.name}: {str(e)}", "Automatic Fleet Billing Error")

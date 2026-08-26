@@ -47,5 +47,29 @@
   "modified": "2026-02-26 00:10:23.676097",
   "name": "Cancel",
   "workflow_action_name": "Cancel"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow Action Master",
+  "name": "Send for Review",
+  "workflow_action_name": "Send for Review"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow Action Master",
+  "name": "Approve",
+  "workflow_action_name": "Approve"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow Action Master",
+  "name": "Customer Approve",
+  "workflow_action_name": "Customer Approve"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow Action Master",
+  "name": "Reject",
+  "workflow_action_name": "Reject"
  }
 ]
