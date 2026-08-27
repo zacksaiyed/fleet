@@ -166,7 +166,7 @@ frappe.pages['Technician Activity'].on_page_load = function(wrapper) {
     };
 };
 
-frappe.pages['Technician Response Pattern'].on_page_show = function(wrapper) {
+frappe.pages['Technician Activity'].on_page_show = function(wrapper) {
     // 1. Page open hote hi automatically Full-Width mode activate ho jayega
     $('body').addClass('full-width');
 
@@ -178,10 +178,10 @@ frappe.pages['Technician Response Pattern'].on_page_show = function(wrapper) {
         if(wrapper.date_field && wrapper.date_field.get_value() === frappe.datetime.get_today()) {
             wrapper.load_data(wrapper.date_field.get_value(), true); 
         }
-    }, 10000); 
+    }, 30000); 
 };
 
-frappe.pages['Technician Response Pattern'].on_page_hide = function(wrapper) {
+frappe.pages['Technician Activity'].on_page_hide = function(wrapper) {
     // 2. Page close/change karte hi Full-Width mode remove ho jayega taki baki pages normal rahein
     $('body').removeClass('full-width');
 
