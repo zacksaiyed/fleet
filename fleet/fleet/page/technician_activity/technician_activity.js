@@ -189,3 +189,15 @@ frappe.pages['Technician Activity'].on_page_hide = function(wrapper) {
         clearInterval(wrapper.refresh_interval);
     }
 };
+
+// Ye code route change ko hamesha track karega aur class remove kar dega
+frappe.router.on('change', function() {
+    let current_route = frappe.get_route();
+    
+    // Agar current page 'Technician Activity' nahi hai, toh full-width hata do
+    if (current_route && current_route[0] !== 'Technician Activity') {
+        $('body').removeClass('full-width');
+    }
+});
+
+
