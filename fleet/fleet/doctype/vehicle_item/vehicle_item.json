@@ -9,8 +9,12 @@
   "item_type",
   "item",
   "status",
+  "date_of_installation",
+  "date_of_removal",
   "date",
-  "vehicle_image"
+  "vehicle_image",
+  "is_chargeable",
+  "billed"
  ],
  "fields": [
   {
@@ -44,13 +48,35 @@
    "fieldtype": "Date",
    "in_list_view": 1,
    "label": "Date"
+  },
+  {
+   "fieldname": "date_of_installation",
+   "fieldtype": "Date",
+   "label": "Date of Installation"
+  },
+  {
+   "fieldname": "date_of_removal",
+   "fieldtype": "Date",
+   "label": "Date of Removal"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_chargeable",
+   "fieldtype": "Check",
+   "label": "Is Chargeable"
+  },
+  {
+   "default": "0",
+   "fieldname": "billed",
+   "fieldtype": "Check",
+   "label": "Billed"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2026-02-21 10:44:52.939819",
+ "modified": "2026-08-29 21:32:12.142061",
  "modified_by": "Administrator",
  "module": "Fleet",
  "name": "Vehicle Item",
