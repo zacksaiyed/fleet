@@ -1,5 +1,5 @@
-# Copyright (c) 2026, XBarq Technologies and contributors
-# For license information, please see license.txt
+# # Copyright (c) 2026, XBarq Technologies and contributors
+# # For license information, please see license.txt
 
 import frappe
 from frappe import _
@@ -22,7 +22,9 @@ class MaterialTransfer(Document):
 	def validate(self):
 		self.validate_source_target()
 		self.validate_items()
+		self.validate_purpose_warehouses()
 		self.validate_item_not_reserved()
+		self.sync_item_lock_state()
 
 	# def validate_items(self):
 	# 	if not self.items:
@@ -52,9 +54,161 @@ class MaterialTransfer(Document):
 		if self.source and self.target and self.source == self.target:
 			frappe.throw(_("Source and Target Warehouse cannot be the same."))
 
+	def validate_purpose_warehouses(self):
+		"""
+		Server-side enforcement of the warehouse matrix used by the client filters.
+		This prevents invalid combinations from being saved through API/imports.
+		"""
+		if not self.purpose:
+			return
+
+		config = _get_material_transfer_warehouse_config()
+		store_warehouse = config.get("store_warehouse")
+		damage_warehouse = config.get("damage_warehouse")
+		lost_warehouse = config.get("lost_warehouse")
+
+		def warehouse_type(warehouse):
+			if not warehouse:
+				return None
+			return frappe.db.get_value("Warehouse", warehouse, "warehouse_type")
+
+		def require_source(expected, label):
+			if not self.source:
+				frappe.throw(_("Source Warehouse is required for {0}.").format(self.purpose))
+			if self.source != expected:
+				frappe.throw(
+					_("Source Warehouse for {0} must be {1}.").format(
+						self.purpose, label
+					)
+				)
+
+		def require_target(expected, label):
+			if not self.target:
+				frappe.throw(_("Target Warehouse is required for {0}.").format(self.purpose))
+			if self.target != expected:
+				frappe.throw(
+					_("Target Warehouse for {0} must be {1}.").format(
+						self.purpose, label
+					)
+				)
+
+		if self.purpose in ("Material Issue", "Material Request"):
+			if not store_warehouse:
+				frappe.throw(_("Stores warehouse is not configured."))
+			require_source(store_warehouse, store_warehouse)
+
+			if not self.target:
+				frappe.throw(_("Target Warehouse is required for {0}.").format(self.purpose))
+			if warehouse_type(self.target) != "Technician":
+				frappe.throw(_("Target Warehouse for {0} must be a Technician warehouse.").format(self.purpose))
+
+		elif self.purpose == "Material Return":
+			if not self.source:
+				frappe.throw(_("Source Warehouse is required for Material Return."))
+			if warehouse_type(self.source) != "Technician":
+				frappe.throw(_("Source Warehouse for Material Return must be a Technician warehouse."))
+
+			allowed_return_warehouses = {
+				w for w in (store_warehouse, damage_warehouse, lost_warehouse) if w
+			}
+			for row in self.items or []:
+				if not row.return_type:
+					frappe.throw(_("Return Type is required in row {0}.").format(row.idx))
+				if row.return_type not in ("Store", "Damage", "Lost"):
+					frappe.throw(
+						_("Return Type in row {0} must be Store, Damage or Lost.").format(row.idx)
+					)
+				if not row.warehouse:
+					frappe.throw(_("Return Warehouse is required in row {0}.").format(row.idx))
+				if row.warehouse not in allowed_return_warehouses:
+					frappe.throw(
+						_("Invalid Return Warehouse {0} in row {1}.").format(
+							row.warehouse, row.idx
+						)
+					)
+
+		elif self.purpose == "Material Handover":
+			if not self.source or warehouse_type(self.source) != "Technician":
+				frappe.throw(_("Source Warehouse for Material Handover must be a Technician warehouse."))
+			if not self.target or warehouse_type(self.target) != "Technician":
+				frappe.throw(_("Target Warehouse for Material Handover must be a Technician warehouse."))
+			if self.source == self.target:
+				frappe.throw(_("Source and Target Technician Warehouse cannot be the same."))
+
+		elif self.purpose == "Customer to Store":
+			if not self.source or warehouse_type(self.source) != "Customer":
+				frappe.throw(_("Source Warehouse for Customer to Store must be a Customer warehouse."))
+			if not store_warehouse:
+				frappe.throw(_("Stores warehouse is not configured."))
+			require_target(store_warehouse, store_warehouse)
+
+		elif self.purpose == "Material Restore":
+			allowed_sources = {w for w in (damage_warehouse, lost_warehouse) if w}
+			if not self.source or self.source not in allowed_sources:
+				frappe.throw(_("Source Warehouse for Material Restore must be the configured Damage or Lost warehouse."))
+			if not store_warehouse:
+				frappe.throw(_("Stores warehouse is not configured."))
+			require_target(store_warehouse, store_warehouse)
+
+		elif self.purpose == "Store to Customer":
+			if not store_warehouse:
+				frappe.throw(_("Stores warehouse is not configured."))
+			require_source(store_warehouse, store_warehouse)
+			if not self.target or warehouse_type(self.target) != "Customer":
+				frappe.throw(_("Target Warehouse for Store to Customer must be a Customer warehouse."))
+
+		elif self.purpose == "Store to Damage":
+			if not store_warehouse:
+				frappe.throw(_("Stores warehouse is not configured."))
+			if not damage_warehouse:
+				frappe.throw(_("Default Damage Warehouse is not configured in Company."))
+			require_source(store_warehouse, store_warehouse)
+			require_target(damage_warehouse, damage_warehouse)
+
+		elif self.purpose == "Store to Lost":
+			if not store_warehouse:
+				frappe.throw(_("Stores warehouse is not configured."))
+			if not lost_warehouse:
+				frappe.throw(_("Default Lost Warehouse is not configured in Company."))
+			require_source(store_warehouse, store_warehouse)
+			require_target(lost_warehouse, lost_warehouse)
+
+	def sync_item_lock_state(self):
+		"""
+		Reserve serialised/unique items while a Material Transfer is active.
+
+		Initiated / Approval Pending -> custom_is_locked = 1
+		Approved / Rejected / Cancelled -> custom_is_locked = 0
+
+		If an item is removed from an Initiated/Approval Pending document,
+		unlock that removed item as well.
+		"""
+		current_items = {row.item for row in (self.items or []) if row.item}
+		previous_items = set()
+
+		if self.name and frappe.db.exists("Material Transfer", self.name):
+			previous_items = set(
+				frappe.get_all(
+					"Material Transfer Item",
+					filters={"parent": self.name},
+					pluck="item",
+				)
+			)
+
+		if self.workflow_state in ("Initiated", "Approval Pending"):
+			_set_items_locked(current_items, 1)
+
+			removed_items = previous_items - current_items
+			if removed_items:
+				_set_items_locked(removed_items, 0)
+
+		elif self.workflow_state in ("Approved", "Rejected", "Cancelled"):
+			_set_items_locked(current_items | previous_items, 0)
+
 	def validate_item_not_reserved(self):
-		# only block when moving towards Approval Pending
-		if self.workflow_state != "Approval Pending":
+		# Active Material Transfers reserve their items. This also protects
+		# barcode/API flows that can bypass the Link-field query.
+		if self.workflow_state not in ("Initiated", "Approval Pending"):
 			return
 
 		if not self.items:
@@ -63,17 +217,17 @@ class MaterialTransfer(Document):
 		item_codes = [row.item for row in self.items]
 
 		conflicts = frappe.db.sql("""
-			SELECT 
+			SELECT
 				mt.name,
 				mti.item
-			FROM 
+			FROM
 				`tabMaterial Transfer` mt
-			JOIN 
+			JOIN
 				`tabMaterial Transfer Item` mti ON mti.parent = mt.name
-			WHERE 
+			WHERE
 				mt.name != %s
 				AND mt.docstatus = 0
-				AND mt.workflow_state = 'Approval Pending'
+				AND mt.workflow_state IN ('Initiated', 'Approval Pending')
 				AND mti.item IN %s
 		""", (self.name, item_codes), as_dict=True)
 
@@ -92,7 +246,7 @@ class MaterialTransfer(Document):
 			])
 
 			frappe.throw(_(
-				"Following items are already used in another Material Transfer (Approval Pending):<br><br>{0}<br><br>Please remove them."
+				"Following items are already reserved in another active Material Transfer:<br><br>{0}<br><br>Please remove them."
 			).format(formatted))
 
 	def before_submit(self):
@@ -109,12 +263,20 @@ class MaterialTransfer(Document):
 		_create_stock_entry(self.name)
 
 	def on_cancel(self):
+		# Always release item reservation when the Material Transfer is cancelled.
+		_set_items_locked(
+			{row.item for row in (self.items or []) if row.item},
+			0,
+		)
+
 		# cancel the linked stock entry when MT is cancelled
 		if not self.stock_entry:
 			return
+
 		se = frappe.get_doc("Stock Entry", self.stock_entry)
 		if se.docstatus == 1:
 			se.cancel()
+
 		frappe.db.set_value("Material Transfer", self.name, "stock_entry", "")
 
 		from fleet.custom_py.item_warehouse import update_item_warehouse
@@ -297,12 +459,85 @@ def notify_target_warehouse(doc_name):
 
 
 # returns only items with actual_qty > 0 in the given warehouse,
-# excluding items already reserved in another pending-approval MT
+# excluding items already reserved in another active MT
 # used by child table item field set_query in js
+# @frappe.whitelist()
+# @frappe.validate_and_sanitize_search_inputs
+# def get_items_in_warehouse(doctype, txt, searchfield, start, page_len, filters):
+# 	warehouse = filters.get("warehouse") if filters else None
+
+# 	conditions = """
+# 		i.disabled = 0
+# 		and i.is_stock_item = 1
+# 		and (
+# 			i.name like %(txt)s
+# 			or i.item_name like %(txt)s
+# 		)
+# 		and i.name not in (
+# 			select mti.item
+# 			from `tabMaterial Transfer Item` mti
+# 			join `tabMaterial Transfer` mt on mt.name = mti.parent
+# 			where mt.docstatus = 0
+# 			  and mt.workflow_state in ('Initiated', 'Approval Pending')
+# 		)
+# 	"""
+
+# 	params = {
+# 		"txt": "%%%s%%" % txt,
+# 		"start": start,
+# 		"page_len": page_len,
+# 	}
+
+# 	# if warehouse selected → enforce stock check
+# 	if warehouse:
+# 		conditions += " and b.warehouse = %(warehouse)s and b.actual_qty > 0"
+# 		params["warehouse"] = warehouse
+
+# 		query = f"""
+# 			select
+# 				i.name,
+# 				i.item_name,
+# 				i.item_group
+# 			from
+# 				`tabItem` i
+# 			inner join
+# 				`tabBin` b on b.item_code = i.name
+# 			where
+# 				{conditions}
+# 			order by
+# 				i.name asc
+# 			limit %(start)s, %(page_len)s
+# 		"""
+# 	else:
+# 		# no warehouse → don't join Bin
+# 		query = f"""
+# 			select
+# 				i.name,
+# 				i.item_name,
+# 				i.item_group
+# 			from
+# 				`tabItem` i
+# 			where
+# 				{conditions}
+# 			order by
+# 				i.name asc
+# 			limit %(start)s, %(page_len)s
+# 		"""
+
+# 	return frappe.db.sql(query, params)
+
 @frappe.whitelist()
 @frappe.validate_and_sanitize_search_inputs
-def get_items_in_warehouse(doctype, txt, searchfield, start, page_len, filters):
+def get_items_in_warehouse(
+	doctype,
+	txt,
+	searchfield,
+	start,
+	page_len,
+	filters,
+):
 	warehouse = filters.get("warehouse") if filters else None
+	purpose = filters.get("purpose") if filters else None
 
 	conditions = """
 		i.disabled = 0
@@ -316,7 +551,7 @@ def get_items_in_warehouse(doctype, txt, searchfield, start, page_len, filters):
 			from `tabMaterial Transfer Item` mti
 			join `tabMaterial Transfer` mt on mt.name = mti.parent
 			where mt.docstatus = 0
-			  and mt.workflow_state = 'Approval Pending'
+			  and mt.workflow_state in ('Initiated', 'Approval Pending')
 		)
 	"""
 
@@ -326,9 +561,16 @@ def get_items_in_warehouse(doctype, txt, searchfield, start, page_len, filters):
 		"page_len": page_len,
 	}
 
-	# if warehouse selected → enforce stock check
+	# Exclude items reserved/locked by an active Material Transfer.
+	conditions += """
+		and ifnull(i.custom_is_locked, 0) = 0
+	"""
+
 	if warehouse:
-		conditions += " and b.warehouse = %(warehouse)s and b.actual_qty > 0"
+		conditions += """
+			and b.warehouse = %(warehouse)s
+			and b.actual_qty > 0
+		"""
 		params["warehouse"] = warehouse
 
 		query = f"""
@@ -347,7 +589,6 @@ def get_items_in_warehouse(doctype, txt, searchfield, start, page_len, filters):
 			limit %(start)s, %(page_len)s
 		"""
 	else:
-		# no warehouse → don't join Bin
 		query = f"""
 			select
 				i.name,
@@ -364,7 +605,6 @@ def get_items_in_warehouse(doctype, txt, searchfield, start, page_len, filters):
 
 	return frappe.db.sql(query, params)
 
-
 # returns the MT name if the item is already reserved in another pending-approval MT
 @frappe.whitelist()
 def is_item_pending_approval(item_code, current_doc=None):
@@ -378,7 +618,7 @@ def is_item_pending_approval(item_code, current_doc=None):
 		FROM `tabMaterial Transfer` mt
 		JOIN `tabMaterial Transfer Item` mti ON mti.parent = mt.name
 		WHERE mt.docstatus = 0
-		  AND mt.workflow_state = 'Approval Pending'
+		  AND mt.workflow_state IN ('Initiated', 'Approval Pending')
 		  AND mti.item = %s
 		  {exclude_self}
 		LIMIT 1
@@ -391,104 +631,329 @@ def is_item_pending_approval(item_code, current_doc=None):
 # called only from on_submit — no permission check needed here
 # the workflow already enforced who can click Approve
 # if anything throws, frappe rolls back the entire submit transaction
+# def _create_stock_entry(doc_name):
+# 	doc = frappe.get_doc("Material Transfer", doc_name)
+
+# 	# guard: already has a stock entry (should not happen via on_submit but be safe)
+# 	if doc.stock_entry:
+# 		return doc.stock_entry
+
+# 	if not doc.items:
+# 		frappe.throw(_("No items found in Material Transfer {0}.").format(doc_name))
+
+# 	# verify stock availability
+# 	errors = []
+# 	for mt_item in doc.items:
+# 		actual_qty = frappe.db.get_value(
+# 			"Bin",
+# 			{"item_code": mt_item.item, "warehouse": doc.source},
+# 			"actual_qty",
+# 		) or 0
+
+# 		if frappe.utils.flt(actual_qty) < 1:
+# 			errors.append(
+# 				_("Item {0} ({1}) is no longer available in {2}").format(
+# 					mt_item.item, mt_item.item_name, doc.source
+# 				)
+# 			)
+
+# 	if errors:
+# 		frappe.throw(
+# 			_("Cannot create Stock Entry, stock unavailable:<br>{0}").format("<br>".join(errors))
+# 		)
+
+# 	company = frappe.db.get_value("Warehouse", doc.source, "company")
+# 	if not company:
+# 		frappe.throw(_("Could not determine Company from Source Warehouse {0}.").format(doc.source))
+
+# 	# Determine posting time — must be strictly after any existing SLE for
+# 	# the source warehouse to avoid stock ledger ordering conflicts that can
+# 	# produce a false NegativeStockError even when the bin shows stock.
+# 	posting_date = nowdate()
+# 	posting_time = nowtime()
+
+# 	item_codes = [mt_item.item for mt_item in doc.items]
+# 	placeholders = ", ".join(["%s"] * len(item_codes))
+# 	latest_sle_time = frappe.db.sql(
+# 		"""
+# 		SELECT MAX(TIMESTAMP(posting_date, posting_time))
+# 		FROM `tabStock Ledger Entry`
+# 		WHERE item_code IN ({placeholders})
+# 		  AND warehouse = %s
+# 		  AND is_cancelled = 0
+# 		""".format(placeholders=placeholders),
+# 		item_codes + [doc.source],
+# 	)[0][0]
+
+# 	if latest_sle_time:
+# 		latest_dt = get_datetime(str(latest_sle_time))
+# 		now_dt    = get_datetime("{} {}".format(posting_date, posting_time))
+# 		if now_dt <= latest_dt:
+# 			bumped  = add_to_date(latest_dt, seconds=1)
+# 			posting_date = bumped.strftime("%Y-%m-%d")
+# 			posting_time = bumped.strftime("%H:%M:%S")
+
+# 	se = frappe.new_doc("Stock Entry")
+# 	se.stock_entry_type = "Material Transfer"
+# 	se.purpose          = "Material Transfer"
+# 	se.company          = company
+# 	se.posting_date     = posting_date
+# 	se.posting_time     = posting_time
+# 	se.from_warehouse   = doc.source
+# 	se.to_warehouse     = doc.target
+# 	se.remarks          = "auto-created from material transfer {0}".format(doc_name)
+
+# 	for mt_item in doc.items:
+# 		stock_uom = frappe.db.get_value("Item", mt_item.item, "stock_uom") or mt_item.uom or "Nos"
+
+# 		se.append("items", {
+# 			"item_code"         : mt_item.item,
+# 			"item_name"         : mt_item.item_name,
+# 			"qty"               : 1,
+# 			"uom"               : stock_uom,
+# 			"stock_uom"         : stock_uom,
+# 			"conversion_factor" : 1,
+# 			"s_warehouse"       : doc.source,
+# 			"t_warehouse"       : doc.target,
+# 		})
+
+# 	se.insert(ignore_permissions=True)
+# 	se.submit()
+
+# 	frappe.db.set_value("Material Transfer", doc_name, "stock_entry", se.name)
+
+# 	from fleet.custom_py.item_warehouse import update_item_warehouse
+# 	for mt_item in doc.items:
+# 		update_item_warehouse(mt_item.item, doc.target)
+
+# 	_notify_creator_approved(doc, se.name)
+
+# 	return se.name
+
 def _create_stock_entry(doc_name):
 	doc = frappe.get_doc("Material Transfer", doc_name)
 
-	# guard: already has a stock entry (should not happen via on_submit but be safe)
 	if doc.stock_entry:
 		return doc.stock_entry
 
 	if not doc.items:
-		frappe.throw(_("No items found in Material Transfer {0}.").format(doc_name))
+		frappe.throw(
+			_("No items found in Material Transfer {0}.").format(doc_name)
+		)
 
-	# verify stock availability
+	is_material_return = doc.purpose == "Material Return"
+
+	if not doc.source:
+		frappe.throw(_("Source Warehouse is required."))
+
+	if not is_material_return and not doc.target:
+		frappe.throw(_("Target Warehouse is required."))
+
 	errors = []
+
 	for mt_item in doc.items:
 		actual_qty = frappe.db.get_value(
 			"Bin",
-			{"item_code": mt_item.item, "warehouse": doc.source},
+			{
+				"item_code": mt_item.item,
+				"warehouse": doc.source,
+			},
 			"actual_qty",
 		) or 0
 
 		if frappe.utils.flt(actual_qty) < 1:
 			errors.append(
 				_("Item {0} ({1}) is no longer available in {2}").format(
-					mt_item.item, mt_item.item_name, doc.source
+					mt_item.item,
+					mt_item.item_name,
+					doc.source,
 				)
 			)
 
+		if is_material_return:
+			if not mt_item.warehouse:
+				errors.append(
+					_(
+						"Return Warehouse is not set for item {0} ({1}) in row {2}"
+					).format(
+						mt_item.item,
+						mt_item.item_name,
+						mt_item.idx,
+					)
+				)
+
+			elif mt_item.warehouse == doc.source:
+				errors.append(
+					_(
+						"Source Warehouse and Return Warehouse cannot be the same "
+						"for item {0} ({1}) in row {2}"
+					).format(
+						mt_item.item,
+						mt_item.item_name,
+						mt_item.idx,
+					)
+				)
+
 	if errors:
 		frappe.throw(
-			_("Cannot create Stock Entry, stock unavailable:<br>{0}").format("<br>".join(errors))
+			_(
+				"Cannot create Stock Entry:<br>{0}"
+			).format(
+				"<br>".join(errors)
+			)
 		)
 
-	company = frappe.db.get_value("Warehouse", doc.source, "company")
-	if not company:
-		frappe.throw(_("Could not determine Company from Source Warehouse {0}.").format(doc.source))
+	company = frappe.db.get_value(
+		"Warehouse",
+		doc.source,
+		"company",
+	)
 
-	# Determine posting time — must be strictly after any existing SLE for
-	# the source warehouse to avoid stock ledger ordering conflicts that can
-	# produce a false NegativeStockError even when the bin shows stock.
+	if not company:
+		frappe.throw(
+			_(
+				"Could not determine Company from Source Warehouse {0}."
+			).format(doc.source)
+		)
+
 	posting_date = nowdate()
 	posting_time = nowtime()
 
-	item_codes = [mt_item.item for mt_item in doc.items]
-	placeholders = ", ".join(["%s"] * len(item_codes))
+	item_codes = [
+		mt_item.item
+		for mt_item in doc.items
+	]
+
+	placeholders = ", ".join(
+		["%s"] * len(item_codes)
+	)
+
 	latest_sle_time = frappe.db.sql(
 		"""
-		SELECT MAX(TIMESTAMP(posting_date, posting_time))
-		FROM `tabStock Ledger Entry`
-		WHERE item_code IN ({placeholders})
-		  AND warehouse = %s
-		  AND is_cancelled = 0
-		""".format(placeholders=placeholders),
+		SELECT
+			MAX(TIMESTAMP(posting_date, posting_time))
+		FROM
+			`tabStock Ledger Entry`
+		WHERE
+			item_code IN ({placeholders})
+			AND warehouse = %s
+			AND is_cancelled = 0
+		""".format(
+			placeholders=placeholders
+		),
 		item_codes + [doc.source],
 	)[0][0]
 
 	if latest_sle_time:
-		latest_dt = get_datetime(str(latest_sle_time))
-		now_dt    = get_datetime("{} {}".format(posting_date, posting_time))
+		latest_dt = get_datetime(
+			str(latest_sle_time)
+		)
+
+		now_dt = get_datetime(
+			"{} {}".format(
+				posting_date,
+				posting_time,
+			)
+		)
+
 		if now_dt <= latest_dt:
-			bumped  = add_to_date(latest_dt, seconds=1)
-			posting_date = bumped.strftime("%Y-%m-%d")
-			posting_time = bumped.strftime("%H:%M:%S")
+			bumped = add_to_date(
+				latest_dt,
+				seconds=1,
+			)
+
+			posting_date = bumped.strftime(
+				"%Y-%m-%d"
+			)
+
+			posting_time = bumped.strftime(
+				"%H:%M:%S"
+			)
 
 	se = frappe.new_doc("Stock Entry")
+
 	se.stock_entry_type = "Material Transfer"
-	se.purpose          = "Material Transfer"
-	se.company          = company
-	se.posting_date     = posting_date
-	se.posting_time     = posting_time
-	se.from_warehouse   = doc.source
-	se.to_warehouse     = doc.target
-	se.remarks          = "auto-created from material transfer {0}".format(doc_name)
+	se.purpose = "Material Transfer"
+	se.company = company
+	se.posting_date = posting_date
+	se.posting_time = posting_time
+	se.from_warehouse = doc.source
+
+	if not is_material_return:
+		se.to_warehouse = doc.target
+
+	if is_material_return:
+		se.remarks = (
+			"Auto-created from Material Return {0}"
+		).format(doc_name)
+	else:
+		se.remarks = (
+			"Auto-created from Material Transfer {0}"
+		).format(doc_name)
 
 	for mt_item in doc.items:
-		stock_uom = frappe.db.get_value("Item", mt_item.item, "stock_uom") or mt_item.uom or "Nos"
+		stock_uom = (
+			frappe.db.get_value(
+				"Item",
+				mt_item.item,
+				"stock_uom",
+			)
+			or mt_item.uom
+			or "Nos"
+		)
 
-		se.append("items", {
-			"item_code"         : mt_item.item,
-			"item_name"         : mt_item.item_name,
-			"qty"               : 1,
-			"uom"               : stock_uom,
-			"stock_uom"         : stock_uom,
-			"conversion_factor" : 1,
-			"s_warehouse"       : doc.source,
-			"t_warehouse"       : doc.target,
-		})
+		if is_material_return:
+			target_warehouse = mt_item.warehouse
+		else:
+			target_warehouse = doc.target
 
-	se.insert(ignore_permissions=True)
+		se.append(
+			"items",
+			{
+				"item_code": mt_item.item,
+				"item_name": mt_item.item_name,
+				"qty": 1,
+				"uom": stock_uom,
+				"stock_uom": stock_uom,
+				"conversion_factor": 1,
+				"s_warehouse": doc.source,
+				"t_warehouse": target_warehouse,
+			},
+		)
+
+	se.insert(
+		ignore_permissions=True
+	)
+
 	se.submit()
 
-	frappe.db.set_value("Material Transfer", doc_name, "stock_entry", se.name)
+	frappe.db.set_value(
+		"Material Transfer",
+		doc_name,
+		"stock_entry",
+		se.name,
+	)
 
 	from fleet.custom_py.item_warehouse import update_item_warehouse
-	for mt_item in doc.items:
-		update_item_warehouse(mt_item.item, doc.target)
 
-	_notify_creator_approved(doc, se.name)
+	for mt_item in doc.items:
+		if is_material_return:
+			target_warehouse = mt_item.warehouse
+		else:
+			target_warehouse = doc.target
+
+		update_item_warehouse(
+			mt_item.item,
+			target_warehouse,
+		)
+
+	_notify_creator_approved(
+		doc,
+		se.name,
+	)
 
 	return se.name
+
 
 
 # private helpers
@@ -548,3 +1013,108 @@ def _get_users_for_warehouse(warehouse):
 		return []
 
 	return [user_id]
+
+def _set_items_locked(item_codes, locked):
+	item_codes = {item for item in (item_codes or []) if item}
+	if not item_codes:
+		return
+
+	for item_code in item_codes:
+		frappe.db.set_value(
+			"Item",
+			item_code,
+			"custom_is_locked",
+			1 if locked else 0,
+			update_modified=False,
+		)
+
+
+def _get_material_transfer_warehouse_config(company=None):
+	if not company:
+		company = frappe.defaults.get_user_default("Company")
+
+	store_warehouse = None
+	damage_warehouse = None
+	lost_warehouse = None
+	customer_warehouse = None
+	user_warehouse = get_user_warehouse(frappe.session.user)
+
+	if company:
+		company_meta = frappe.get_meta("Company")
+
+		def company_default(fieldname):
+			# Optional custom fields are read only when they actually exist.
+			if company_meta.has_field(fieldname):
+				return frappe.db.get_value("Company", company, fieldname)
+			return None
+
+		store_warehouse = company_default("custom_default_store_warehouse")
+		damage_warehouse = company_default("custom_default_damage_warehouse")
+		lost_warehouse = company_default("custom_default_lost_warehouse")
+		customer_warehouse = company_default("custom_default_customer_warehouse")
+
+		# Store fallback 1: warehouse_name = Stores / Store for this Company.
+		if not store_warehouse:
+			store_warehouse = frappe.db.get_value(
+				"Warehouse",
+				{
+					"company": company,
+					"is_group": 0,
+					"warehouse_name": ["in", ["Stores", "Store"]],
+				},
+				"name",
+			)
+
+		# Store fallback 2: use the Company's abbreviation, e.g. Stores - FM.
+		if not store_warehouse:
+			abbr = frappe.db.get_value("Company", company, "abbr")
+			if abbr:
+				for candidate in (f"Stores - {abbr}", f"Store - {abbr}"):
+					if frappe.db.exists("Warehouse", candidate):
+						store_warehouse = candidate
+						break
+
+	# Final compatibility fallback for the existing fleet setup.
+	if not store_warehouse and frappe.db.exists("Warehouse", "Stores - FM"):
+		store_warehouse = "Stores - FM"
+
+	return {
+		"company": company,
+		"store_warehouse": store_warehouse,
+		"damage_warehouse": damage_warehouse,
+		"lost_warehouse": lost_warehouse,
+		"customer_warehouse": customer_warehouse,
+		"user_warehouse": user_warehouse,
+	}
+
+
+@frappe.whitelist()
+def get_material_transfer_warehouse_config():
+	return _get_material_transfer_warehouse_config()
+
+
+@frappe.whitelist()
+def get_return_warehouse(return_type):
+	config = _get_material_transfer_warehouse_config()
+	company = config.get("company")
+
+	if not company:
+		frappe.throw("Default Company is not set for the current user.")
+
+	warehouse = None
+
+	if return_type == "Damage":
+		warehouse = config.get("damage_warehouse")
+	elif return_type == "Lost":
+		warehouse = config.get("lost_warehouse")
+	elif return_type == "Store":
+		warehouse = config.get("store_warehouse")
+	else:
+		return None
+
+	if not warehouse:
+		frappe.throw(
+			f"Default {return_type} Warehouse is not configured for Company {company}."
+		)
+
+	return warehouse

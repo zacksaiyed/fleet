@@ -13,15 +13,6 @@ def execute(filters=None):
 
 def get_data(filters=None):
 	conditions = ""
-
-	# if filters.get("from_date") and not filters.get("to_date"):
-	# 	conditions += """ and j.date >= %(from_date)s """
-
-	# if filters.get("to_date") and not filters.get("from_date"):
-	# 	conditions += """ and j.date <= %(to_date)s """
-
-	# if filters.get("to_date") and filters.get("from_date"):
-	# 	conditions += """ and j.date BETWEEN %(from_date)s AND %(to_date)s """
 	if filters.get("from_date") and not filters.get("to_date"):
 		conditions += """
 			and (

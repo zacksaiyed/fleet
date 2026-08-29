@@ -6,6 +6,7 @@
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
+  "purpose",
   "date",
   "column_break_qdkg",
   "accepted_by",
@@ -33,13 +34,14 @@
    "reqd": 1
   },
   {
+   "depends_on": "eval:doc.purpose != \"Material Return\"",
    "fieldname": "target",
    "fieldtype": "Link",
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Target",
-   "options": "Warehouse",
-   "reqd": 1
+   "mandatory_depends_on": "eval:doc.purpose != \"Material Return\"",
+   "options": "Warehouse"
   },
   {
    "fieldname": "column_break_crbu",
@@ -115,6 +117,12 @@
    "fieldtype": "Data",
    "label": "Reject Reason",
    "read_only": 1
+  },
+  {
+   "fieldname": "purpose",
+   "fieldtype": "Select",
+   "label": "Purpose",
+   "options": "\nMaterial Issue\nMaterial Request\nMaterial Return\nMaterial Handover\nCustomer to Store\nMaterial Restore\nStore to Customer\nStore to Damage\nStore to Lost"
   }
  ],
  "grid_page_length": 50,
@@ -122,7 +130,7 @@
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-05-02 15:08:25.761004",
+ "modified": "2026-08-26 10:24:11.021027",
  "modified_by": "Administrator",
  "module": "Fleet",
  "name": "Material Transfer",

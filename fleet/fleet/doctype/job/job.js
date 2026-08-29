@@ -3,6 +3,14 @@ frappe.ui.form.on("Job Item", {
 		const row = locals[cdt][cdn];
 		if (!row.item) return;
 
+		if (
+			["In Progress", "In Review"].includes(frm.doc.status)
+			&& row.item
+			&& row.installed_or_removed === "Installed"
+		) {
+			set_item_lock(row.item, true);
+		}
+
 		const duplicate = (frm.doc.item_installed_removed || []).find(
 			r => r.item === row.item && r.name !== cdn
 		);
@@ -29,6 +37,22 @@ frappe.ui.form.on("Job Item", {
 					}
 				},
 			});
+		}
+	},
+	item_installed_removed_remove(frm, cdt, cdn) {
+		const row = locals[cdt][cdn];
+
+		if (
+			["In Progress", "In Review"].includes(frm.doc.status)
+			&& row.item
+			&& row.installed_or_removed === "Installed"
+		) {
+			frappe.db.set_value(
+				"Item",
+				row.item,
+				"custom_is_locked",
+				0
+			);
 		}
 	},
 
@@ -145,9 +169,31 @@ frappe.ui.form.on("Job", {
 				if (!doc.technician_warehouse) return {};
 				return {
 					query: "fleet.fleet.doctype.job.job.get_items_in_warehouse",
-					filters: { warehouse: doc.technician_warehouse },
+					filters: { warehouse: doc.technician_warehouse ,custom_is_locked: 0},
 				};
 			} else if (row.installed_or_removed === "Removed") {
+				if (!doc.customer_warehouse) return {};
+				return {
+					query: "fleet.fleet.doctype.job.job.get_removable_items",
+					filters: {
+						warehouse: doc.customer_warehouse,
+						vehicle_number: doc.vehicle_number || "",
+						customer: doc.customer || "",
+					},
+				};
+			}
+			return {};
+		});
+
+		frm.set_query("items", "items", function(doc, cdt, cdn) {
+			const row = locals[cdt][cdn];
+			if (row.source === "Technician") {
+				if (!doc.technician_warehouse) return {};
+				return {
+					query: "fleet.fleet.doctype.job.job.get_items_in_warehouse",
+					filters: { warehouse: doc.technician_warehouse ,custom_is_locked: 0},
+				};
+			} else if (row.source === "Old Vehicle") {
 				if (!doc.customer_warehouse) return {};
 				return {
 					query: "fleet.fleet.doctype.job.job.get_removable_items",
@@ -596,4 +642,16 @@ function render_vehicle_items(frm) {
 			</div>
 		`);
 	});
+}
+
+
+function set_item_lock(item, locked) {
+	if (!item) return;
+
+	frappe.db.set_value(
+		"Item",
+		item,
+		"custom_is_locked",
+		locked ? 1 : 0
+	);
 }

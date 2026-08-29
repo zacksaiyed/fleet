@@ -118,7 +118,7 @@ frappe.ui.form.on("Material Transfer", {
 			}, 2000);
 		}
 
-		if (state === "Approval Pending") {
+		if (state === "Approval Pending" && frm.doc.purpose != "Material Return") {
 			if (!frm.doc.source || !frm.doc.target) {
 				frappe.msgprint(__("Please set Source and Target Warehouse before sending for approval."));
 				return;
@@ -155,6 +155,28 @@ frappe.ui.form.on("Material Transfer", {
 		}
 	},
 
+	// purpose controls the allowed source/target warehouse combinations
+	purpose: async function (frm) {
+		// invalidate any older async filter application
+		frm.__mt_filter_run_id = (frm.__mt_filter_run_id || 0) + 1;
+
+		if (frm.doc.items && frm.doc.items.length) {
+			frm.clear_table("items");
+			frm.refresh_field("items");
+		}
+
+		// Wait for old values to clear BEFORE auto-populating the new purpose.
+		if (frm.doc.source) {
+			await frm.set_value("source", "");
+		}
+		if (frm.doc.target) {
+			await frm.set_value("target", "");
+		}
+
+		await set_warehouse_filters(frm);
+		set_item_query(frm);
+	},
+
 	// clear items table and update item dropdown filter when source changes
 	source: function (frm) {
 		if (frm.doc.items && frm.doc.items.length) {
@@ -169,12 +191,15 @@ frappe.ui.form.on("Material Transfer", {
 		set_item_query(frm);
 	},
 
-	// propagate target to all child rows
+	// propagate target to all child rows, except Material Return
+	// where the destination is selected at item level.
 	target: function (frm) {
-		(frm.doc.items || []).forEach(row => {
-			frappe.model.set_value(row.doctype, row.name, "t_warehouse", frm.doc.target);
-		});
-		frm.refresh_field("items");
+		if (frm.doc.purpose !== "Material Return") {
+			(frm.doc.items || []).forEach(row => {
+				frappe.model.set_value(row.doctype, row.name, "t_warehouse", frm.doc.target);
+			});
+			frm.refresh_field("items");
+		}
 		validate_source_target(frm);
 	},
 
@@ -237,66 +262,252 @@ fleet.MaterialTransfer = class MaterialTransfer extends frappe.ui.form.Controlle
 extend_cscript(cur_frm.cscript, new fleet.MaterialTransfer({ frm: cur_frm }));
 
 
-// warehouse filter — role based
-// technician sees only their own warehouse in source (auto-filled)
-// support team and others see all non-customer warehouses
-function set_warehouse_filters(frm) {
-	const roles = frappe.user_roles;
+// warehouse filters + fixed warehouse auto-population
+// Config is fetched once per form. Purpose changes only re-apply local rules,
+// so an older server callback cannot overwrite a newer filter.
+async function get_mt_warehouse_config(frm) {
+	if (frm.__mt_warehouse_config) {
+		return frm.__mt_warehouse_config;
+	}
 
-	const base_filters = {
-		is_group: 0,
-		warehouse_type: ["not in", ["Customer"]],
-	};
+	if (!frm.__mt_warehouse_config_promise) {
+		frm.__mt_warehouse_config_promise = frappe.call({
+			method: "fleet.fleet.doctype.material_transfer.material_transfer.get_material_transfer_warehouse_config",
+		}).then((r) => {
+			frm.__mt_warehouse_config = r.message || {};
+			return frm.__mt_warehouse_config;
+		}).catch((e) => {
+			frm.__mt_warehouse_config_promise = null;
+			throw e;
+		});
+	}
 
-	// only restrict source for pure technicians (not support team)
+	return frm.__mt_warehouse_config_promise;
+}
+
+function set_source_query(frm, filters) {
+	frm.set_query("source", function () {
+		return {
+			filters: Object.assign({ is_group: 0 }, filters || {}),
+		};
+	});
+}
+
+function set_target_query(frm, filters) {
+	frm.set_query("target", function () {
+		return {
+			filters: Object.assign({ is_group: 0 }, filters || {}),
+		};
+	});
+}
+
+function apply_immediate_purpose_queries(frm) {
+	const purpose = frm.doc.purpose || "";
+
+	// Reset previous query/read-only state first.
+	frm.set_df_property("source", "read_only", 0);
+	frm.set_df_property("target", "read_only", 0);
+	set_source_query(frm, {});
+	set_target_query(frm, {});
+
+	switch (purpose) {
+		case "Material Issue":
+		case "Material Request":
+			set_target_query(frm, { warehouse_type: "Technician" });
+			break;
+
+		case "Material Return":
+			set_source_query(frm, { warehouse_type: "Technician" });
+			break;
+
+		case "Material Handover":
+			set_source_query(frm, { warehouse_type: "Technician" });
+			frm.set_query("target", function () {
+				const filters = {
+					is_group: 0,
+					warehouse_type: "Technician",
+				};
+				if (frm.doc.source) {
+					filters.name = ["!=", frm.doc.source];
+				}
+				return { filters };
+			});
+			break;
+
+		case "Customer to Store":
+			// IMPORTANT: Source must show ONLY Customer warehouses.
+			set_source_query(frm, { warehouse_type: "Customer" });
+			break;
+
+		case "Store to Customer":
+			// IMPORTANT: Target must show ONLY Customer warehouses.
+			set_target_query(frm, { warehouse_type: "Customer" });
+			break;
+	}
+}
+
+async function set_warehouse_filters(frm) {
+	const run_id = (frm.__mt_filter_run_id || 0) + 1;
+	frm.__mt_filter_run_id = run_id;
+
+	// Apply type filters immediately. Customer filtering does not wait for API.
+	apply_immediate_purpose_queries(frm);
+
+	const purpose = frm.doc.purpose || "";
+	let cfg;
+	try {
+		cfg = await get_mt_warehouse_config(frm);
+	} catch (e) {
+		frappe.msgprint(__("Could not load Material Transfer warehouse configuration."));
+		return;
+	}
+
+	// Ignore stale calls created by an older refresh/purpose value.
+	if (run_id !== frm.__mt_filter_run_id || purpose !== (frm.doc.purpose || "")) {
+		return;
+	}
+
+	// Stores - FM is retained as a final compatibility fallback because your
+	// existing implementation already uses this warehouse name.
+	const store_warehouse = cfg.store_warehouse || "Stores - FM";
+	const damage_warehouse = cfg.damage_warehouse || "";
+	const lost_warehouse = cfg.lost_warehouse || "";
+	const customer_warehouse = cfg.customer_warehouse || "";
+	const user_warehouse = cfg.user_warehouse || "";
+
+	const roles = frappe.user_roles || [];
 	const is_technician_only = (
 		roles.includes(ROLE_TECHNICIAN) && !roles.includes(ROLE_STORE)
 	);
 
-	if (is_technician_only) {
-		frappe.call({
-			method: "fleet.fleet.doctype.material_transfer.material_transfer.get_user_warehouse",
-			args: { user: frappe.session.user },
-			callback: function (r) {
-				if (r.message) {
-					// lock source to only their warehouse
-					frm.set_query("source", function () {
-						return {
-							filters: {
-								name: r.message,
-								is_group: 0,
-								warehouse_type: ["not in", ["Customer"]],
-							},
-						};
-					});
-					// auto-fill if empty
-					if (!frm.doc.source) {
-						frm.set_value("source", r.message);
-					}
-				} else {
-					frm.set_query("source", function () {
-						return { filters: base_filters };
-					});
-				}
-			},
-			error: function () {
-				frm.set_query("source", function () {
-					return { filters: base_filters };
-				});
-			},
-		});
-	} else {
-		frm.set_query("source", function () {
-			return { filters: base_filters };
-		});
+	function still_current() {
+		return (
+			run_id === frm.__mt_filter_run_id &&
+			purpose === (frm.doc.purpose || "")
+		);
 	}
 
-	// target: everyone sees all non-customer warehouses
-	frm.set_query("target", function () {
-		return { filters: base_filters };
-	});
-}
+	function fixed_source(warehouse) {
+		if (!still_current()) return;
+		if (!warehouse) {
+			frappe.msgprint(__("Source warehouse is not configured for {0}.", [purpose]));
+			return;
+		}
+		set_source_query(frm, { name: warehouse });
+		frm.set_df_property("source", "read_only", 1);
+		if (frm.doc.source !== warehouse) {
+			frm.set_value("source", warehouse);
+		}
+	}
 
+	function fixed_target(warehouse) {
+		if (!still_current()) return;
+		if (!warehouse) {
+			frappe.msgprint(__("Target warehouse is not configured for {0}.", [purpose]));
+			return;
+		}
+		set_target_query(frm, { name: warehouse });
+		frm.set_df_property("target", "read_only", 1);
+		if (frm.doc.target !== warehouse) {
+			frm.set_value("target", warehouse);
+		}
+	}
+
+	switch (purpose) {
+		case "Material Issue":
+			// Stores -> Technician
+			fixed_source(store_warehouse);
+			set_target_query(frm, { warehouse_type: "Technician" });
+			break;
+
+		case "Material Request":
+			// Stores -> logged-in Technician (for technician users)
+			fixed_source(store_warehouse);
+			if (is_technician_only && user_warehouse) {
+				fixed_target(user_warehouse);
+			} else {
+				set_target_query(frm, { warehouse_type: "Technician" });
+			}
+			break;
+
+		case "Material Return":
+			// Technician -> item-level Store / Damage / Lost
+			if (is_technician_only && user_warehouse) {
+				fixed_source(user_warehouse);
+			} else {
+				set_source_query(frm, { warehouse_type: "Technician" });
+			}
+			// Parent Target is intentionally not used for Material Return.
+			frm.set_df_property("target", "read_only", 1);
+			if (frm.doc.target) {
+				frm.set_value("target", "");
+			}
+			break;
+
+		case "Material Handover":
+			// Technician -> another Technician
+			if (is_technician_only && user_warehouse) {
+				fixed_source(user_warehouse);
+			} else {
+				set_source_query(frm, { warehouse_type: "Technician" });
+			}
+			frm.set_query("target", function () {
+				const filters = {
+					is_group: 0,
+					warehouse_type: "Technician",
+				};
+				if (frm.doc.source) {
+					filters.name = ["!=", frm.doc.source];
+				}
+				return { filters };
+			});
+			break;
+
+		case "Customer to Store":
+			// Customer -> Stores
+			set_source_query(frm, { warehouse_type: "Customer" });
+			fixed_target(store_warehouse);
+			if (!frm.doc.source && customer_warehouse) {
+				frm.set_value("source", customer_warehouse);
+			}
+			break;
+
+		case "Material Restore": {
+			// Damage/Lost -> Stores
+			const sources = [damage_warehouse, lost_warehouse].filter(Boolean);
+			set_source_query(frm, {
+				name: sources.length ? ["in", sources] : "__NO_RESTORE_WAREHOUSE__",
+			});
+			fixed_target(store_warehouse);
+			break;
+		}
+
+		case "Store to Customer":
+			// Stores -> Customer
+			fixed_source(store_warehouse);
+			set_target_query(frm, { warehouse_type: "Customer" });
+			if (!frm.doc.target && customer_warehouse) {
+				frm.set_value("target", customer_warehouse);
+			}
+			break;
+
+		case "Store to Damage":
+			// Both are fixed.
+			fixed_source(store_warehouse);
+			fixed_target(damage_warehouse);
+			break;
+
+		case "Store to Lost":
+			// Both are fixed.
+			fixed_source(store_warehouse);
+			fixed_target(lost_warehouse);
+			break;
+
+		default:
+			set_source_query(frm, { warehouse_type: ["not in", ["Customer"]] });
+			set_target_query(frm, { warehouse_type: ["not in", ["Customer"]] });
+	}
+}
 
 // item query — only shows items with actual stock in source warehouse,
 // and excludes items already pending approval in another MT
@@ -306,6 +517,7 @@ function set_item_query(frm) {
 			query: "fleet.fleet.doctype.material_transfer.material_transfer.get_items_in_warehouse",
 			filters: {
 				warehouse: frm.doc.source || "",
+				purpose: frm.doc.purpose || ""
 			},
 		};
 	});
@@ -314,6 +526,7 @@ function set_item_query(frm) {
 
 // source and target cannot be the same warehouse
 function validate_source_target(frm) {
+	if (frm.doc.purpose === "Material Return") return true;
 	if (!frm.doc.source || !frm.doc.target) return true;
 
 	if (frm.doc.source === frm.doc.target) {
@@ -422,6 +635,34 @@ function add_item_row(frm, item_code) {
 
 // child table events — manual row entry
 frappe.ui.form.on("Material Transfer Item", {
+	return_type: function (frm, cdt, cdn) {
+		const row = locals[cdt][cdn];
+
+		if (!row.return_type) {
+			frappe.model.set_value(cdt, cdn, "warehouse", "");
+			return;
+		}
+
+		if (!["Store", "Damage", "Lost"].includes(row.return_type)) {
+			frappe.model.set_value(cdt, cdn, "warehouse", "");
+			return;
+		}
+
+		frappe.call({
+			method: "fleet.fleet.doctype.material_transfer.material_transfer.get_return_warehouse",
+			args: {
+				return_type: row.return_type,
+			},
+			callback: function (r) {
+				frappe.model.set_value(
+					cdt,
+					cdn,
+					"warehouse",
+					r.message || ""
+				);
+			},
+		});
+	},
 
 	item: function (frm, cdt, cdn) {
 		const row = locals[cdt][cdn];
