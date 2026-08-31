@@ -62,46 +62,46 @@ frappe.ui.form.on("Job Item", {
 });
 
 function _attachVehicleNumberMask(frm) {
-	const field = frm.get_field("vehicle_number");		
+	const field = frm.get_field("vehicle_number");
 	// if (e.key === " ") { e.preventDefault(); return; }
 
 	if (!field || !field.$input) return;
 
 	field.$input.off("keydown.vnr input.vnr blur.vnr");
 
-	// Block spaces, non-alphanumeric, and position-based mismatches while typing
-	field.$input.on("keydown.vnr", function (e) {
-		const isNav  = [8, 9, 13, 27, 35, 36, 37, 38, 39, 40, 46].includes(e.keyCode);
-		const isCtrl = (e.ctrlKey || e.metaKey) && [65, 67, 86, 88, 90].includes(e.keyCode);
-		if (isNav || isCtrl) return;
-		if (e.key === " ") { e.preventDefault(); return; }
-		if (!/^[a-zA-Z0-9]$/.test(e.key)) { e.preventDefault(); return; }
+	// // Block spaces, non-alphanumeric, and position-based mismatches while typing
+	// field.$input.on("keydown.vnr", function (e) {
+	// 	const isNav  = [8, 9, 13, 27, 35, 36, 37, 38, 39, 40, 46].includes(e.keyCode);
+	// 	const isCtrl = (e.ctrlKey || e.metaKey) && [65, 67, 86, 88, 90].includes(e.keyCode);
+	// 	if (isNav || isCtrl) return;
+	// 	if (e.key === " ") { e.preventDefault(); return; }
+	// 	if (!/^[a-zA-Z0-9]$/.test(e.key)) { e.preventDefault(); return; }
 
-		const hasSel = this.selectionStart !== this.selectionEnd;
-		const pos    = this.selectionStart;
-		if (!hasSel) {
-			if (this.value.replace(/[^a-zA-Z0-9]/g, "").length >= 7) { e.preventDefault(); return; }
-			if (pos < 3  && !/^[a-zA-Z]$/.test(e.key)) { e.preventDefault(); return; }
-			if (pos >= 3 && !/^\d$/.test(e.key))        { e.preventDefault(); return; }
-		}
-	});
+	// 	const hasSel = this.selectionStart !== this.selectionEnd;
+	// 	const pos    = this.selectionStart;
+	// 	if (!hasSel) {
+	// 		if (this.value.replace(/[^a-zA-Z0-9]/g, "").length >= 7) { e.preventDefault(); return; }
+	// 		if (pos < 3  && !/^[a-zA-Z]$/.test(e.key)) { e.preventDefault(); return; }
+	// 		if (pos >= 3 && !/^\d$/.test(e.key))        { e.preventDefault(); return; }
+	// 	}
+	// });
 
-	// Normalize on every input (handles paste, autofill, etc.)
-	field.$input.on("input.vnr", function () {
-		const cursor = this.selectionStart;
-		let letters = "", digits = "";
-		for (const ch of this.value.toUpperCase().replace(/[^A-Z0-9]/g, "")) {
-			if (/[A-Z]/.test(ch) && letters.length < 3)                         letters += ch;
-			else if (/[0-9]/.test(ch) && letters.length === 3 && digits.length < 4) digits += ch;
-		}
-		const fmt = letters + digits;
-		if (this.value !== fmt) {
-			this.value = fmt;
-			this.setSelectionRange(Math.min(cursor, fmt.length), Math.min(cursor, fmt.length));
-		}
-		frm.doc.vehicle_number = this.value;
-		frm.dirty();
-	});
+	// // Normalize on every input (handles paste, autofill, etc.)
+	// field.$input.on("input.vnr", function () {
+	// 	const cursor = this.selectionStart;
+	// 	let letters = "", digits = "";
+	// 	for (const ch of this.value.toUpperCase().replace(/[^A-Z0-9]/g, "")) {
+	// 		if (/[A-Z]/.test(ch) && letters.length < 3)                         letters += ch;
+	// 		else if (/[0-9]/.test(ch) && letters.length === 3 && digits.length < 4) digits += ch;
+	// 	}
+	// 	const fmt = letters + digits;
+	// 	if (this.value !== fmt) {
+	// 		this.value = fmt;
+	// 		this.setSelectionRange(Math.min(cursor, fmt.length), Math.min(cursor, fmt.length));
+	// 	}
+	// 	frm.doc.vehicle_number = this.value;
+	// 	frm.dirty();
+	// });
 
 	// Validate and fetch details once the user leaves the field.
 	// The Frappe form event is unreliable here because the mask sets frm.doc directly,
@@ -118,7 +118,13 @@ frappe.ui.form.on("Job", {
 
 	refresh(frm) {
 		_attachVehicleNumberMask(frm);
+		if (frm.is_new()) {
+			return;
+		}
 
+		frm.add_custom_button(__("Go to Chat"), () => {
+			go_to_chat(frm);
+		});
 		// Auto-populate vehicle items once for Removal jobs — only when Pending
 		// (status moves to In Progress on first save, so this never re-fires after user clears rows)
 		if (
@@ -460,4 +466,114 @@ function fetch_vehicle_details(frm) {
             }
         }
     });
+}
+function go_to_chat(frm) {
+	if (!frm.doc.assigned_technician) {
+		frappe.msgprint(__("Technician is not assigned."));
+		return;
+	}
+
+	frappe.db.get_value(
+		"Employee",
+		frm.doc.assigned_technician,
+		"user_id"
+	).then((r) => {
+		const technician_user = r.message?.user_id;
+
+		if (!technician_user) {
+			frappe.msgprint(
+				__("User ID is not linked with the assigned technician.")
+			);
+			return;
+		}
+
+		open_job_chat(
+			technician_user,
+			frm.doc.name,
+			frm.doc.status
+		);
+	});
+}
+
+function open_job_chat(technician_user, job_name, job_status) {
+	frappe.set_route("support-dashboard-chat");
+
+	let attempts = 0;
+
+	const wait_for_dashboard = setInterval(() => {
+		attempts++;
+
+		if (
+			typeof fleet === "undefined" ||
+			!fleet.support_dashboard_chat ||
+			!fleet.support_dashboard_chat.instance
+		) {
+			if (attempts >= 50) {
+				clearInterval(wait_for_dashboard);
+			}
+			return;
+		}
+
+		const instance = fleet.support_dashboard_chat.instance;
+
+		if (!instance.technicians.length) {
+			return;
+		}
+
+		clearInterval(wait_for_dashboard);
+
+		const technician = instance.technicians.find(
+			row => row.name === technician_user
+		);
+
+		if (!technician) {
+			frappe.msgprint(
+				__("Technician was not found in Support Dashboard.")
+			);
+			return;
+		}
+
+		const is_completed = job_status === "Completed";
+
+		instance.show_completed_tasks = is_completed;
+
+		$("#sd-show-completed-tasks")
+			.prop("checked", is_completed);
+
+		instance._select_technician(technician);
+
+		wait_for_job(
+			instance,
+			job_name,
+			technician.name
+		);
+	}, 100);
+}
+
+
+function wait_for_job(instance, job_name, technician) {
+	let attempts = 0;
+
+	const wait_for_jobs = setInterval(() => {
+		attempts++;
+
+		const job = instance.jobs.find(
+			row => row.name === job_name
+		);
+
+		if (job) {
+			clearInterval(wait_for_jobs);
+
+			instance._select_job(job);
+			return;
+		}
+
+		if (attempts >= 50) {
+			clearInterval(wait_for_jobs);
+
+			frappe.msgprint(
+				__("Job was not found in Support Dashboard.")
+			);
+		}
+	}, 100);
 }

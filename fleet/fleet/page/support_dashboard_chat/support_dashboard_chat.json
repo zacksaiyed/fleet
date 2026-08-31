@@ -4,7 +4,7 @@
  "docstatus": 0,
  "doctype": "Page",
  "idx": 4,
- "modified": "2026-05-22 10:12:43.756076",
+ "modified": "2026-08-15 09:57:13.298739",
  "modified_by": "Administrator",
  "module": "Fleet",
  "name": "support-dashboard-chat",
@@ -22,6 +22,9 @@
   },
   {
    "role": "Fleet Manager"
+  },
+  {
+   "role": "Technician"
   }
  ],
  "script": null,

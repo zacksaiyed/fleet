@@ -2,7 +2,8 @@ import re
 
 import frappe
 from frappe.model.document import Document
-from frappe.utils import flt, getdate, now, nowdate
+from frappe.query_builder.functions import Max
+from frappe.utils import add_to_date, flt, getdate, now, nowdate, now_datetime
 
 # _VEH_RE = re.compile(r"^[A-Z]{3}\d{3,4}$")
 GPS_ITEM_TYPE = "GPS Device"
@@ -107,7 +108,7 @@ class Job(Document):
 	def _set_vehicle_number(self):
 		if self.vehicle_number:
 			self.vehicle_number = self.vehicle_number.replace(" ", "").upper()
-	
+
 	def _fetch_vehicle_details(self):
 		if not self.vehicle_number or self.task_type == "Installation":
 			return
@@ -123,7 +124,7 @@ class Job(Document):
 			self.model = vehicle.model
 			self.color = vehicle.color
 			self.type  = vehicle.custom_vehicle_type
-			
+
 	def _set_date_from_task(self):
 		if not self.date and self.task:
 			task_date = frappe.db.get_value("Task", self.task, "custom_date")
@@ -222,7 +223,7 @@ class Job(Document):
 			if missing_items:
 				frappe.throw(
 					f"Cannot complete — the following item(s) are not in customer warehouse "
-					f"<b>{self.customer_warehouse}</b>:<br>"	
+					f"<b>{self.customer_warehouse}</b>:<br>"
 					+ "<br>".join(missing_items)
 				)
 
@@ -302,6 +303,7 @@ class Job(Document):
 				"status":    "Installed",
 				"date":      self.date,
 			})
+		vehicle.flags.updated_from_job_document = 1
 		vehicle.insert(ignore_permissions=True)
 
 		# Create Vehicle Transfer Log for new installation
@@ -351,6 +353,7 @@ class Job(Document):
 			vi.status = "Removed"
 			vi.date   = self.date
 
+		vehicle.flags.updated_from_job_document = 1
 		vehicle.save(ignore_permissions=True)
 		self._attach_job_images_to_vehicle(self.vehicle_number)
 
@@ -412,6 +415,7 @@ class Job(Document):
 						"date":      self.date,
 					})
 
+		vehicle.flags.updated_from_job_document = 1
 		vehicle.save(ignore_permissions=True)
 		self._attach_job_images_to_vehicle(self.vehicle_number)
 
@@ -448,6 +452,8 @@ class Job(Document):
 					"status":    "Installed",
 					"date":      self.date,
 				})
+
+		vehicle.flags.updated_from_job_document = 1
 		vehicle.save(ignore_permissions=True)
 		self._attach_job_images_to_vehicle(self.vehicle_number)
 
@@ -726,3 +732,32 @@ def add_in_customer_row(job: str, comment: str | None = None):
     }
 
 
+def set_progress_jobs_to_pending():
+	four_hours_ago = add_to_date(now_datetime(), hours=-4)
+
+	jobs = frappe.get_all(
+		"Job",
+		filters={
+			"status": "In Progress",
+			"modified": ["<=", four_hours_ago],
+		},
+		fields=["name", "modified"],
+	)
+
+	for job in jobs:
+		last_message = frappe.db.get_value(
+			"Job Message",
+			{"job": job.name},
+			"creation",
+			order_by="creation desc",
+		)
+
+		if last_message and last_message > four_hours_ago:
+			continue
+
+		frappe.db.set_value(
+			"Job",
+			job.name,
+			"status",
+			"Pending",
+		)

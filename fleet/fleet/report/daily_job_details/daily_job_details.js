@@ -32,6 +32,12 @@ frappe.query_reports["Daily Job Details"] = {
             "label": __("Vehicle"),
             "fieldtype": "Link",
             "options": "Vehicle"
+        },
+		{
+            "fieldname": "status",
+            "label": __("Status"),
+            "fieldtype": "Select",
+            "options": "\nPending\nIn Progress\nIn Review\nCompleted"
         }
     ]
 };

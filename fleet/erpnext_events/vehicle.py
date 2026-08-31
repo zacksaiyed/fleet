@@ -757,13 +757,13 @@ def capture_pre_save_warehouses(doc, method=None):
 
 
 def handle_manual_installation_after_insert(doc, method=None):
-    if _is_data_import(doc) or frappe.flags.in_job:
+    if _is_data_import(doc) or frappe.flags.in_job or doc.flags.updated_from_job_document:
         return
     _process_manual_stock_transfers(doc)
 
 
 def handle_manual_installation_on_update(doc, method=None):
-    if _is_data_import(doc) or frappe.flags.in_job:
+    if _is_data_import(doc) or frappe.flags.in_job or doc.flags.updated_from_job_document:
         return
     _process_manual_stock_transfers(doc)
 

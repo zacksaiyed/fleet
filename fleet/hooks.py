@@ -264,10 +264,16 @@ doc_events = {
 
 scheduler_events = {
     "cron": {
-        # Run every 5 minutes — auto-reject tasks not accepted within 1 hour
         "*/5 * * * *": [
             "fleet.scheduled.task_auto_reject.auto_reject_unaccepted_tasks"
         ],
+	"0 22 * * *": [
+		"fleet.fleet.doctype.job.job.set_progress_jobs_to_pending",
+	],
+        "*/5 7-21 * * *": [
+		"fleet.fleet.doctype.job.job.set_progress_jobs_to_pending",
+	],
+
     },
     "monthly": [
         "fleet.api.classification_scheduler.generate_vehicle_classification_logs"
