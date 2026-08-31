@@ -11,6 +11,9 @@ def execute(filters=None):
 	return columns, data
 
 def get_date(filters=None):
+	if not filters:
+		filters = {}
+
 	conditions = ""
 
 	if filters.get("from_date") and not filters.get("to_date"):

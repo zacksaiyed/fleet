@@ -12,6 +12,9 @@ def execute(filters=None):
 
 
 def get_data(filters=None):
+	if not filters:
+		filters = {}
+
 	conditions = ""
 
 	if filters.get("from_date") and not filters.get("to_date"):
