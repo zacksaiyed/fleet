@@ -23,8 +23,10 @@
   "column_break_ameg",
   "color",
   "section_break_wthp",
+  "item_details",
   "item_installed_removed",
   "section_break_zlps",
+  "job_image",
   "job_images",
   "section_break_thhl",
   "done_comment",
@@ -314,13 +316,24 @@
    "fieldname": "vehicle_details",
    "fieldtype": "Section Break",
    "label": "Vehicle Details"
+  },
+  {
+   "depends_on": "eval:doc.task_type != \"Installation\"",
+   "fieldname": "item_details",
+   "fieldtype": "HTML",
+   "label": "Item Details"
+  },
+  {
+   "fieldname": "job_image",
+   "fieldtype": "HTML",
+   "label": "Job Image"
   }
  ],
  "hide_toolbar": 1,
  "in_create": 1,
  "links": [],
  "make_attachments_public": 1,
- "modified": "2026-05-01 14:42:00.821522",
+ "modified": "2026-08-31 22:48:08.963070",
  "modified_by": "Administrator",
  "module": "Fleet",
  "name": "Job",

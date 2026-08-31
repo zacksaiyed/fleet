@@ -121,6 +121,8 @@ frappe.ui.form.on("Job", {
 		if (frm.is_new()) {
 			return;
 		}
+		render_vehicle_items(frm)
+		render_job_images(frm)
 
 		frm.add_custom_button(__("Go to Chat"), () => {
 			go_to_chat(frm);
@@ -138,7 +140,7 @@ frappe.ui.form.on("Job", {
 			_populate_removal_items(frm);
 		}
 
-		frm.set_query("item", "item_installed_removed", function(doc, cdt, cdn) {
+		frm.set_query("item", "item_installed_removed", function (doc, cdt, cdn) {
 			const row = locals[cdt][cdn];
 			if (row.installed_or_removed === "Installed") {
 				if (!doc.technician_warehouse) return {};
@@ -162,10 +164,10 @@ frappe.ui.form.on("Job", {
 
 		if (frm.is_new()) return;
 
-		const roles      = frappe.user_roles;
+		const roles = frappe.user_roles;
 		const is_support = roles.includes("Support Team");
-		const is_tech    = roles.includes("Technician");
-		const status     = frm.doc.status;
+		const is_tech = roles.includes("Technician");
+		const status = frm.doc.status;
 
 		if (["Completed", "Cancelled"].includes(status)) {
 			frm.disable_save();
@@ -255,9 +257,18 @@ frappe.ui.form.on("Job", {
 			);
 		}
 	},
+	job_images_add(frm) {
+		render_job_images(frm);
+	},
+
+	job_images_remove(frm) {
+		render_job_images(frm);
+	},
+
 
 	vehicle_number(frm) {
 		fetch_vehicle_details(frm);
+		render_vehicle_items(frm)
 	},
 
 	task_type(frm) {
@@ -343,10 +354,10 @@ function _populate_removal_items(frm) {
 								const row = frm.add_child("item_installed_removed");
 								const detail = item_map[vi.item] || {};
 								row.installed_or_removed = "Removed";
-								row.item      = vi.item;
+								row.item = vi.item;
 								row.item_type = vi.item_type;
 								row.item_name = detail.item_name || "";
-								row.brand     = detail.brand     || "";
+								row.brand = detail.brand || "";
 							});
 							frm.refresh_field("item_installed_removed");
 						},
@@ -358,73 +369,73 @@ function _populate_removal_items(frm) {
 }
 
 function _clearVehicleDetails(frm) {
-    frm.set_value("make",  "");
-    frm.set_value("model", "");
-    frm.set_value("color", "");
-    frm.set_value("type",  "");
+	frm.set_value("make", "");
+	frm.set_value("model", "");
+	frm.set_value("color", "");
+	frm.set_value("type", "");
 }
 
 function fetch_vehicle_details(frm) {
-    const vehicle_number = frm.doc.vehicle_number;
+	const vehicle_number = frm.doc.vehicle_number;
 
-    if (!vehicle_number) {
-        _clearVehicleDetails(frm);
-        return;
-    }
+	if (!vehicle_number) {
+		_clearVehicleDetails(frm);
+		return;
+	}
 
-    // const normalized = vehicle_number.replace(/\s+/g, "").toUpperCase();
-	   const normalized = vehicle_number.toUpperCase();
+	// const normalized = vehicle_number.replace(/\s+/g, "").toUpperCase();
+	const normalized = vehicle_number.toUpperCase();
 
-    frappe.db.get_value(
-        "Vehicle",
-        normalized,
-        ["name", "make", "model", "color", "custom_vehicle_type", "custom_customer"]
-    ).then(r => {
-        // Bail if the field changed while the request was in flight
-        if (frm.doc.vehicle_number !== normalized) return;
+	frappe.db.get_value(
+		"Vehicle",
+		normalized,
+		["name", "make", "model", "color", "custom_vehicle_type", "custom_customer"]
+	).then(r => {
+		// Bail if the field changed while the request was in flight
+		if (frm.doc.vehicle_number !== normalized) return;
 
-        const vehicle   = r.message;
-        const exists    = !!(vehicle && vehicle.name);
-        const task_type = frm.doc.task_type;   // read fresh from doc, not closure
+		const vehicle = r.message;
+		const exists = !!(vehicle && vehicle.name);
+		const task_type = frm.doc.task_type;   // read fresh from doc, not closure
 
-        if (task_type === "Installation") {
-            if (exists) {
-                frappe.msgprint({
-                    title:     __("Vehicle Already Registered"),
-                    message:   __("Vehicle <b>{0}</b> is already in the system. Installation is only for new vehicles.", [normalized]),
-                    indicator: "red",
-                });
-                frm.set_value("vehicle_number", "");
-                _clearVehicleDetails(frm);
-            }
-            // else: new vehicle — OK for Installation, nothing to fetch
-        } else {
-            if (exists) {
-                if (vehicle.custom_customer && frm.doc.customer && vehicle.custom_customer !== frm.doc.customer) {
-                    frappe.msgprint({
-                        title:     __("Customer Mismatch"),
-                        message:   __("Vehicle <b>{0}</b> belongs to <b>{1}</b>, not <b>{2}</b>.", [normalized, vehicle.custom_customer, frm.doc.customer]),
-                        indicator: "red",
-                    });
-                    frm.set_value("vehicle_number", "");
-                    _clearVehicleDetails(frm);
-                    return;
-                }
-                frm.set_value("make",  vehicle.make                || "");
-                frm.set_value("model", vehicle.model               || "");
-                frm.set_value("color", vehicle.color               || "");
-                frm.set_value("type",  vehicle.custom_vehicle_type || "");
-            } else {
-                frappe.msgprint({
-                    title:     __("Vehicle Not Found"),
-                    message:   __("Vehicle <b>{0}</b> is not registered in the system.", [normalized]),
-                    indicator: "orange",
-                });
-                frm.set_value("vehicle_number", "");
-                _clearVehicleDetails(frm);
-            }
-        }
-    });
+		if (task_type === "Installation") {
+			if (exists) {
+				frappe.msgprint({
+					title: __("Vehicle Already Registered"),
+					message: __("Vehicle <b>{0}</b> is already in the system. Installation is only for new vehicles.", [normalized]),
+					indicator: "red",
+				});
+				frm.set_value("vehicle_number", "");
+				_clearVehicleDetails(frm);
+			}
+			// else: new vehicle — OK for Installation, nothing to fetch
+		} else {
+			if (exists) {
+				if (vehicle.custom_customer && frm.doc.customer && vehicle.custom_customer !== frm.doc.customer) {
+					frappe.msgprint({
+						title: __("Customer Mismatch"),
+						message: __("Vehicle <b>{0}</b> belongs to <b>{1}</b>, not <b>{2}</b>.", [normalized, vehicle.custom_customer, frm.doc.customer]),
+						indicator: "red",
+					});
+					frm.set_value("vehicle_number", "");
+					_clearVehicleDetails(frm);
+					return;
+				}
+				frm.set_value("make", vehicle.make || "");
+				frm.set_value("model", vehicle.model || "");
+				frm.set_value("color", vehicle.color || "");
+				frm.set_value("type", vehicle.custom_vehicle_type || "");
+			} else {
+				frappe.msgprint({
+					title: __("Vehicle Not Found"),
+					message: __("Vehicle <b>{0}</b> is not registered in the system.", [normalized]),
+					indicator: "orange",
+				});
+				frm.set_value("vehicle_number", "");
+				_clearVehicleDetails(frm);
+			}
+		}
+	});
 }
 function go_to_chat(frm) {
 	if (!frm.doc.assigned_technician) {
@@ -509,6 +520,66 @@ function open_job_chat(technician_user, job_name, job_status) {
 	}, 100);
 }
 
+function render_vehicle_items(frm) {
+	if (frm.doc.task_type === "Installation") {
+		return;
+	}
+	const wrapper = frm.fields_dict.item_details.$wrapper;
+
+	if (!frm.doc.vehicle_number) {
+		wrapper.empty();
+		return;
+	}
+
+	frappe.db.get_doc("Vehicle", frm.doc.vehicle_number).then((vehicle) => {
+		const items = (vehicle.custom_vehicle_item || []).filter(
+			(row) => row.status === "Installed"
+		);
+
+		if (!items.length) {
+			wrapper.html(`
+				<div class="text-muted">
+					No installed vehicle items found.
+				</div>
+			`);
+			return;
+		}
+
+		let rows = "";
+
+		items.forEach((row, index) => {
+			rows += `
+				<tr>
+					<td>${index + 1}</td>
+					<td>${frappe.utils.escape_html(row.item_type || "")}</td>
+					<td>${frappe.utils.escape_html(row.item || "")}</td>
+					<td>${frappe.utils.escape_html(row.status || "")}</td>
+					<td>${row.date ? frappe.datetime.str_to_user(row.date) : ""}</td>
+				</tr>
+			`;
+		});
+
+		wrapper.html(`
+			<div style="margin-top: 10px;">
+				<table class="table table-bordered">
+					<thead>
+						<tr>
+							<th style="width: 60px;">No.</th>
+							<th>Item Type</th>
+							<th>Item</th>
+							<th>Status</th>
+							<th>Date</th>
+						</tr>
+					</thead>
+					<tbody>
+						${rows}
+					</tbody>
+				</table>
+			</div>
+		`);
+	});
+}
+
 
 function wait_for_job(instance, job_name, technician) {
 	let attempts = 0;
@@ -535,4 +606,169 @@ function wait_for_job(instance, job_name, technician) {
 			);
 		}
 	}, 100);
+}
+
+function render_job_images(frm) {
+	const wrapper = frm.fields_dict.job_image?.$wrapper;
+
+	if (!wrapper) {
+		return;
+	}
+
+	wrapper.empty();
+
+	const images = (frm.doc.job_images || [])
+		.filter(row => row.image)
+		.slice(0, 6);
+
+	if (!images.length) {
+		wrapper.html(`
+			<div style="
+				padding: 16px;
+				text-align: center;
+				color: #8d99a6;
+				border: 1px dashed #d1d8dd;
+				border-radius: 8px;
+			">
+				No job images available
+			</div>
+		`);
+		return;
+	}
+
+	const cards = images.map((row) => {
+		const image = frappe.utils.escape_html(row.image || "");
+		const comment = frappe.utils.escape_html(row.comment || "");
+
+		return `
+			<div class="job-image-card">
+
+				<a
+					href="${image}"
+					target="_blank"
+					rel="noopener noreferrer"
+					class="job-image-link"
+				>
+					<div class="job-image-thumbnail">
+						<img
+							src="${image}"
+							alt="Job Image"
+							loading="lazy"
+						>
+					</div>
+				</a>
+
+				<div class="job-image-comment">
+					${comment
+				? comment
+				: '<span class="no-comment">No comment</span>'
+			}
+				</div>
+
+			</div>
+		`;
+	}).join("");
+
+	wrapper.html(`
+		<style>
+
+			/* Maximum 3 images per row */
+			.job-image-grid {
+				display: grid;
+				grid-template-columns: repeat(3, minmax(0, 1fr));
+				gap: 14px;
+				width: 100%;
+				align-items: start;
+			}
+
+			/* Card */
+			.job-image-card {
+				background: #ffffff;
+				border: 1px solid #dfe3e8;
+				border-radius: 10px;
+				overflow: hidden;
+				box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+				min-width: 0;
+			}
+
+			.job-image-link {
+				display: block;
+				text-decoration: none;
+			}
+
+			/*
+				Large image section.
+				Only image area gets increased height.
+			*/
+			.job-image-thumbnail {
+				width: 100%;
+				height: 300px;
+				background: #f5f7f9;
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				overflow: hidden;
+			}
+
+			/*
+				Contain = show complete image without cropping.
+			*/
+			.job-image-thumbnail img {
+				width: 100%;
+				height: 100%;
+				object-fit: contain;
+				display: block;
+				transition: transform 0.2s ease;
+			}
+
+			.job-image-card:hover .job-image-thumbnail img {
+				transform: scale(1.02);
+			}
+
+			/*
+				Comment stays compact.
+				No fixed/min height.
+			*/
+			.job-image-comment {
+				padding: 8px 12px;
+				font-size: 13px;
+				line-height: 1.4;
+				color: #36414c;
+				word-break: break-word;
+				background: #ffffff;
+			}
+
+			.no-comment {
+				color: #9aa3ad;
+				font-style: italic;
+			}
+
+			/* Tablet - 2 images per row */
+			@media (max-width: 991px) {
+				.job-image-grid {
+					grid-template-columns: repeat(2, minmax(0, 1fr));
+				}
+
+				.job-image-thumbnail {
+					height: 300px;
+				}
+			}
+
+			/* Mobile - 1 image per row */
+			@media (max-width: 575px) {
+				.job-image-grid {
+					grid-template-columns: 1fr;
+				}
+
+				.job-image-thumbnail {
+					height: 320px;
+				}
+			}
+
+		</style>
+
+		<div class="job-image-grid">
+			${cards}
+		</div>
+	`);
 }
