@@ -140,7 +140,7 @@ class Job(Document):
 
 		# Only re-derive if technician changed (or it's a new doc)
 		before = self.get_doc_before_save()
-		if before and before.get("assigned_technician") == self.assigned_technician:
+		if before and before.get("assigned_technician") == self.assigned_technician and self.technician_warehouse:
 			return  # technician unchanged, don't touch warehouse
 
 		wh = frappe.db.get_value(
@@ -154,7 +154,7 @@ class Job(Document):
 
 		# Only re-derive if customer changed (or it's a new doc)
 		before = self.get_doc_before_save()
-		if before and before.get("customer") == self.customer:
+		if before and before.get("customer") == self.customer and self.customer_warehouse:
 			return  # customer unchanged, don't touch warehouse
 
 		wh = frappe.db.get_value(
