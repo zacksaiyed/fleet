@@ -7,6 +7,7 @@ def validate_vehicle(doc, method=None):
     if doc.license_plate:
         normalized = doc.license_plate.replace(" ", "").upper()
         doc.license_plate = normalized
+        doc.custom_cleaned_licence_plate_number = normalized
         if doc.is_new():
             doc.name = normalized
             # set_parent_in_children() runs before validate, so child rows already

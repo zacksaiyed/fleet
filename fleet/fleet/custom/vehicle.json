@@ -686,7 +686,7 @@
    "property": "field_order",
    "property_type": "Data",
    "row_name": null,
-   "value": "[\"license_plate\", \"make\", \"model\", \"uom\", \"column_break_3\", \"custom_customer\", \"custom_vehicle_type\", \"fuel_type\", \"color\", \"custom_branch\", \"custom_section_break_ij0q6\", \"custom_vehicle_item\", \"vehicle_details\", \"last_odometer\", \"acquisition_date\", \"location\", \"column_break_8\", \"chassis_no\", \"vehicle_value\", \"employee\", \"insurance_details\", \"insurance_company\", \"policy_no\", \"column_break_15\", \"start_date\", \"end_date\", \"additional_details\", \"carbon_check_date\", \"column_break_21\", \"wheels\", \"doors\", \"amended_from\"]"
+   "value": "[\"license_plate\", \"custom_cleaned_licence_plate_number\", \"make\", \"model\", \"uom\", \"column_break_3\", \"custom_customer\", \"custom_vehicle_type\", \"fuel_type\", \"color\", \"custom_branch\", \"custom_section_break_ij0q6\", \"custom_vehicle_item\", \"vehicle_details\", \"last_odometer\", \"acquisition_date\", \"location\", \"column_break_8\", \"chassis_no\", \"vehicle_value\", \"employee\", \"insurance_details\", \"insurance_company\", \"policy_no\", \"column_break_15\", \"start_date\", \"end_date\", \"additional_details\", \"carbon_check_date\", \"column_break_21\", \"wheels\", \"doors\", \"amended_from\"]"
   },
   {
    "_assign": null,
