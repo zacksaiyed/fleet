@@ -560,6 +560,20 @@ def generate_customer_invoice(
                                         rate = float(p_cust_p_rows[0].customer_price)
                                         break
                         
+                        # 5. Fallback: Check Item Model price or Item default price
+                        if rate == 0.0:
+                            for m_name in search_models:
+                                im_price = frappe.db.get_value("Item Model", m_name, "price")
+                                if im_price:
+                                    rate = float(im_price)
+                                    break
+                            if rate == 0.0 and item:
+                                rate = float(
+                                    frappe.db.get_value("Item", item, "custom_default_billing_price")
+                                    or frappe.db.get_value("Item", item, "standard_rate")
+                                    or 0.0
+                                )
+
                         if inv_currency == "LOCAL":
                             rate = rate * usd_to_local
                             

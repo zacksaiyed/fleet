@@ -6,7 +6,7 @@ def generate_item_details(doc, method=None):
         _inject_from_data_import(doc)
         _validate_import_columns(doc)
         doc.custom_current_warehouse = _get_store_warehouse()
-    elif not doc.custom_current_warehouse and doc.item_defaults:
+    elif not getattr(doc, "custom_current_warehouse", None) and doc.get("item_defaults"):
         default_wh = doc.item_defaults[0].get("default_warehouse")
         if default_wh:
             doc.custom_current_warehouse = default_wh
