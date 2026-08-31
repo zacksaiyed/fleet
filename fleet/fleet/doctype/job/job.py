@@ -86,6 +86,7 @@ class Job(Document):
 		self._recompute_task_status()
 		if self.status == "Completed":
 			self._handle_warehouse_movement()
+			self.flag.technician_warehouse = 0
 			self._update_customer_component_price()
 
 	def on_trash(self):
@@ -724,7 +725,7 @@ def add_in_customer_row(job: str, comment: str | None = None):
     doc = frappe.get_doc("Job", job)
     if not doc.customer:
         frappe.throw("Customer is required in Job")
-    
+
     doc._update_customer_component_price()
     return {
         "status": True,

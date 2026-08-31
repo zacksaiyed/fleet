@@ -17,6 +17,9 @@ frappe.ui.form.on("Customer", {
             frm.add_custom_button(__("Create Vehicle Invoice"), function() {
                 show_vehicle_invoice_dialog(frm);
             }, __("Actions"));
+            frm.add_custom_button(__("Create Advance Invoice"), function() {
+                show_advance_invoice_dialog(frm);
+            }, __("Actions"));
         }
     },
     custom_parent_customer(frm) {
@@ -269,6 +272,94 @@ function show_vehicle_invoice_dialog(frm) {
             });
         });
     });
+}
+
+function show_advance_invoice_dialog(frm) {
+    let dialog = new frappe.ui.Dialog({
+                title: __("Create Advance Invoice"),
+                size: "extra-large",
+                fields: [
+                    {
+                        fieldname: "from_date",
+                        fieldtype: "Date",
+                        label: __("From Date"),
+                        reqd: 1
+                    },
+                    {
+                        fieldname: "to_date",
+                        fieldtype: "Date",
+                        label: __("To Date"),
+                        reqd: 1
+                    },
+                    {
+                        fieldname: "waive_subscription",
+                        fieldtype: "Check",
+                        label: __("Waive Subscription"),
+                        default: 0
+                    },
+                    {
+                        fieldname: "advance_vehicles",
+                        fieldtype: "Table",
+                        label: __("Advance Vehicle Details"),
+                        options: "Vehicle Invoice Detail",
+                        reqd: 1,
+                        cannot_add_rows: false,
+                        in_place_edit: true,
+                        fields: [
+                            {
+                                fieldname: "vehicle",
+                                fieldtype: "Link",
+                                options: "Vehicle",
+                                label: __("Vehicle"),
+                                in_list_view: 1,
+                                reqd: 1,
+                                get_query() {
+                                    return {
+                                        query: "fleet.api.advance_invoice.get_eligible_advance_vehicles",
+                                        filters: {
+                                            customer: frm.doc.name,
+                                            from_date: dialog.get_value("from_date"),
+                                            to_date: dialog.get_value("to_date")
+                                        }
+                                    };
+                                }
+                            }
+                        ]
+                    }
+                ],
+                primary_action_label: __("Create Advance Invoice"),
+                primary_action(values) {
+                    let rows = (values.advance_vehicles || []).map(row => ({
+                        vehicle: row.vehicle
+                    }));
+
+                    frappe.call({
+                        method: "fleet.api.advance_invoice.create_advance_invoice",
+                        type: "POST",
+                        args: {
+                            customer: frm.doc.name,
+                            from_date: values.from_date,
+                            to_date: values.to_date,
+                            waive_subscription: values.waive_subscription,
+                            vehicle_rows: rows
+                        },
+                        freeze: true,
+                        freeze_message: __("Creating Advance Invoice..."),
+                        callback(r) {
+                            if (!r.message) return;
+
+                            dialog.hide();
+                            if (r.message.name) {
+                                frappe.set_route("Form", "Sales Invoice", r.message.name);
+                            } else {
+                                frappe.msgprint(r.message.message);
+                            }
+                        }
+                    });
+                }
+            });
+
+    dialog.show();
 }
 
 frappe.ui.form.on("Vehicle Invoice Detail", {

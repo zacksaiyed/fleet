@@ -19,6 +19,7 @@ def validate_vehicle(doc, method=None):
     for row in doc.get("custom_vehicle_item") or []:
         if row.item:
             row.item = row.item.strip()
+        _sync_vehicle_item_dates(row)
 
     _remove_duplicate_vehicle_items(doc)
     _check_installed_items_exist(doc)
@@ -27,6 +28,14 @@ def validate_vehicle(doc, method=None):
     # Re-index all child table rows to ensure consecutive numbering (idx)
     for i, row in enumerate(doc.get("custom_vehicle_item") or []):
         row.idx = i + 1
+
+
+def _sync_vehicle_item_dates(row):
+    if row.status == "Installed":
+        row.custom_installation_date = row.custom_installation_date or row.date
+        row.date = row.custom_installation_date
+    elif row.status == "Removed":
+        row.custom_removal_date = row.custom_removal_date or frappe.utils.nowdate()
 
 
 def _check_installed_items_exist(doc):
