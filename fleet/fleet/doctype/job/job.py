@@ -296,9 +296,6 @@ class Job(Document):
 		if not self.technician_warehouse:
 			frappe.throw("Technician warehouse not set.")
 
-		# ---------------------------------------------------------
-		# REMOVAL FIRST
-		# ---------------------------------------------------------
 
 		removal_rows = [
 			row
@@ -387,8 +384,9 @@ class Job(Document):
 
 			vehicle_item = old_vehicle_items[row.item]
 			vehicle_item.status = "Removed"
-			vehicle_item.date = self.date
+			vehicle_item.date_of_removal = self.date
 
+		# pyrefly: ignore [unbound-name]
 		old_vehicle.flags.updated_from_job_document = 1
 		old_vehicle.save(
 			ignore_permissions=True
@@ -403,19 +401,13 @@ class Job(Document):
 				update_modified=False,
 			)
 
-		# ---------------------------------------------------------
-		# GET ALL ITEMS TO INSTALL
-		# ---------------------------------------------------------
-
+		
 		items_to_install = [
 			row
 			for row in (self.get("items") or [])
 			if row.items
 		]
 
-		# ---------------------------------------------------------
-		# ALL INSTALLATIONS COME FROM TECHNICIAN WAREHOUSE
-		# ---------------------------------------------------------
 
 		if items_to_install:
 			for row in items_to_install:
@@ -469,10 +461,6 @@ class Job(Document):
 					self.customer_warehouse,
 				)
 
-		# ---------------------------------------------------------
-		# CREATE NEW VEHICLE ONLY AFTER ALL STOCK MOVEMENT
-		# ---------------------------------------------------------
-
 		new_vehicle = frappe.get_doc({
 			"doctype": "Vehicle",
 			"license_plate": new_vehicle_number,
@@ -490,7 +478,7 @@ class Job(Document):
 					"item": row.items,
 					"item_type": row.item_type,
 					"status": "Installed",
-					"date": self.date,
+					"date_of_installation": self.date,
 				},
 			)
 
@@ -753,7 +741,7 @@ class Job(Document):
 				"item":      row.item,
 				"item_type": row.item_type,
 				"status":    "Installed",
-				"date":      self.date,
+				"date_of_installation":      self.date,
 			})
 
 		vehicle.flags.updated_from_job_document = 1
@@ -811,7 +799,7 @@ class Job(Document):
 		for row in self.item_installed_removed:
 			vi        = vehicle_items[row.item]
 			vi.status = "Removed"
-			vi.date   = self.date
+			vi.date_of_removal   = self.date
 
 		vehicle.flags.updated_from_job_document = 1
 		vehicle.save(ignore_permissions=True)
@@ -867,21 +855,21 @@ class Job(Document):
 			if row.installed_or_removed == "Removed":
 				vi        = vehicle_items[row.item]
 				vi.status = "Removed"
-				vi.date   = self.date
+				vi.date_of_removal   = self.date
 
 			elif row.installed_or_removed == "Installed":
 				if row.item in vehicle_items:
 					# Update status to Installed + date regardless of previous status
 					vi        = vehicle_items[row.item]
 					vi.status = "Installed"
-					vi.date   = self.date
+					vi.date_of_installation   = self.date
 				else:
 					# Not on vehicle yet — add fresh
 					vehicle.append("custom_vehicle_item", {
 						"item":      row.item,
 						"item_type": row.item_type,
 						"status":    "Installed",
-						"date":      self.date,
+						"date_of_installation":      self.date,
 					})
 
 		vehicle.flags.updated_from_job_document = 1
@@ -934,13 +922,13 @@ class Job(Document):
 			if row.item in vehicle_items:
 				vi        = vehicle_items[row.item]
 				vi.status = "Installed"
-				vi.date   = self.date
+				vi.date_of_installation   = self.date
 			else:
 				vehicle.append("custom_vehicle_item", {
 					"item":      row.item,
 					"item_type": row.item_type,
 					"status":    "Installed",
-					"date":      self.date,
+					"date_of_installation":      self.date,
 				})
 
 		vehicle.flags.updated_from_job_document = 1
@@ -1122,6 +1110,7 @@ def check_item_available(item, current_job=None):
 		filters={"item": item, "installed_or_removed": "Installed"},
 		pluck="parent",
 	)
+
 	for job_name in installed_in:
 		if job_name == current_job:
 			continue
