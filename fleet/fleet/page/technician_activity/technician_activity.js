@@ -34,7 +34,8 @@ frappe.pages['Technician Activity'].on_page_load = function(wrapper) {
             args: {
                 doctype: 'Employee',
                 filters: {
-                    status: 'Active' 
+                    status: 'Active',
+					designation: 'Technician'
                 },
                 fields: ['name', 'employee_name'],
                 limit_page_length: 0
