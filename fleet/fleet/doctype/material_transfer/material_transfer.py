@@ -404,11 +404,18 @@ def _create_stock_entry(doc_name):
 	# verify stock availability
 	errors = []
 	for mt_item in doc.items:
-		actual_qty = frappe.db.get_value(
+		result = frappe.get_all(
 			"Bin",
-			{"item_code": mt_item.item, "warehouse": doc.source},
-			"actual_qty",
-		) or 0
+			filters={
+				"item_code": mt_item.item,
+				"warehouse": doc.source,
+			},
+			fields=["actual_qty"],
+			limit=1,
+			ignore_permissions=True,
+		)
+
+		actual_qty = result[0].actual_qty if result else 0
 
 		if frappe.utils.flt(actual_qty) < 1:
 			errors.append(
