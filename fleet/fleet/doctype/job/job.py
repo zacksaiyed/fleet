@@ -290,6 +290,7 @@ class Job(Document):
 		vehicle = frappe.get_doc({
 			"doctype": "Vehicle",
 			"license_plate": self.vehicle_number,
+			"custom_cleaned_licence_plate_number": self.vehicle_number,
 			"make" : self.make,
 			"model" : self.model,
 			"color" : self.color,

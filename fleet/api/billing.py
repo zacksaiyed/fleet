@@ -1,3 +1,4 @@
+import re
 import frappe
 from frappe.utils import add_days, add_months, get_last_day, getdate, nowdate
 import calendar
@@ -236,9 +237,9 @@ def generate_customer_invoice(
     if vehicles:
         if isinstance(vehicles, str):
             vehicles = json.loads(vehicles)
-        linked_vehicles = frappe.get_all("Vehicle", filters={"name": ["in", vehicles]}, fields=["name", "custom_customer", "custom_branch", "model"])
+        linked_vehicles = frappe.get_all("Vehicle", filters={"name": ["in", vehicles]}, fields=["name", "license_plate", "custom_cleaned_licence_plate_number", "custom_customer", "custom_branch", "model"])
     else:
-        linked_vehicles = frappe.get_all("Vehicle", filters={"custom_customer": ["in", all_customer_ids]}, fields=["name", "custom_customer", "custom_branch", "model"])
+        linked_vehicles = frappe.get_all("Vehicle", filters={"custom_customer": ["in", all_customer_ids]}, fields=["name", "license_plate", "custom_cleaned_licence_plate_number", "custom_customer", "custom_branch", "model"])
         
     if not linked_vehicles:
         return {"status": "error", "message": f"No vehicles linked to customer {customer_id} or its children."}
@@ -589,7 +590,7 @@ def generate_customer_invoice(
                                 "custom_billing_month": target_date,
                                 "item_code": item, "qty": 1, "custom_is_installation": 1, "custom_is_removed": item_is_removed_flag,
                                 "custom_vehicle": vehicle.name,
-                                "custom_registration_number": vehicle.license_plate or vehicle.name,
+                                "custom_registration_number": vehicle_doc.get("custom_cleaned_licence_plate_number") or vehicle_doc.license_plate or vehicle.name,
                                 "custom_billing_month_label": b_month["label"], 
                                 "custom_original_rate": rate,
                                 "custom_final_rate": rate,
@@ -704,7 +705,8 @@ def generate_customer_invoice(
                                 "qty": 1, 
                                 "custom_is_subscription": 1, "custom_is_removed": item_is_removed_flag,  
                                 "custom_vehicle": vehicle.name,
-                                "custom_registration_number": vehicle.license_plate or vehicle.name,
+                                "custom_registration_number": vehicle_doc.get("custom_cleaned_licence_plate_number") or vehicle_doc.license_plate or vehicle.name,
+                                "custom_cleaned_licence_plate_number": vehicle_doc.get("custom_cleaned_licence_plate_number") or vehicle_doc.license_plate or vehicle.name,
                                 "custom_billing_month_label": b_month["label"], 
                                 "custom_original_rate": orig_rate,
                                 "custom_final_rate": final_rate,
@@ -1037,6 +1039,118 @@ def on_sales_invoice_submit(doc, method=None):
         c_date = frappe.db.get_value("Customer", doc.customer, "custom_last_billed_upto_date")
         if not c_date or getdate(doc.custom_billing_end_date) > getdate(c_date):
             frappe.db.set_value("Customer", doc.customer, "custom_last_billed_upto_date", doc.custom_billing_end_date)
+
+
+@frappe.whitelist()
+def process_sales_invoice_vehicle_logic(doc, method=None):
+    """
+    Validates registration numbers in Sales Invoice Items:
+    1. Normalizes custom_registration_number into custom_cleaned_licence_plate_number (uppercase, spaces removed).
+    2. Checks if Vehicle record exists or creates a new Vehicle record if none exists.
+    3. Prevents redundant updates for the same vehicle across multiple items.
+    4. Links custom_vehicle to the Vehicle record name.
+    5. Uses frappe.db.set_value with update_modified=False for item and vehicle updates.
+    """
+    if isinstance(doc, str):
+        if doc.startswith("{"):
+            doc = frappe.get_doc(json.loads(doc))
+        else:
+            doc = frappe.get_doc("Sales Invoice", doc)
+
+    if not doc.get("items"):
+        return
+
+    processed_vehicles = {}
+    is_existing_doc = not doc.is_new()
+
+    for item in doc.items:
+        reg_no = (item.get("custom_registration_number") or "").strip()
+        if not reg_no:
+            if item.get("custom_vehicle"):
+                reg_no = item.custom_vehicle
+            else:
+                continue
+
+        cleaned_plate = reg_no.strip()
+        item.custom_cleaned_licence_plate_number = cleaned_plate
+
+        vehicle_name = item.get("custom_vehicle")
+
+        if vehicle_name and frappe.db.exists("Vehicle", vehicle_name):
+            if is_existing_doc:
+                curr_v_cleaned = frappe.db.get_value("Vehicle", vehicle_name, "custom_cleaned_licence_plate_number")
+                if curr_v_cleaned != cleaned_plate:
+                    frappe.db.set_value(
+                        "Vehicle",
+                        vehicle_name,
+                        "custom_cleaned_licence_plate_number",
+                        cleaned_plate,
+                        update_modified=False
+                    )
+        else:
+            if cleaned_plate in processed_vehicles:
+                vehicle_name = processed_vehicles[cleaned_plate]
+            else:
+                if frappe.db.exists("Vehicle", reg_no):
+                    vehicle_name = reg_no
+                elif frappe.db.exists("Vehicle", cleaned_plate):
+                    vehicle_name = cleaned_plate
+                else:
+                    vehicle_name = frappe.db.get_value(
+                        "Vehicle",
+                        {"custom_cleaned_licence_plate_number": cleaned_plate},
+                        "name"
+                    )
+                    if not vehicle_name:
+                        vehicle_name = frappe.db.get_value(
+                            "Vehicle",
+                            {"license_plate": reg_no},
+                            "name"
+                        )
+
+                if vehicle_name:
+                    if is_existing_doc:
+                        curr_v_cleaned = frappe.db.get_value("Vehicle", vehicle_name, "custom_cleaned_licence_plate_number")
+                        if curr_v_cleaned != cleaned_plate:
+                            frappe.db.set_value(
+                                "Vehicle",
+                                vehicle_name,
+                                "custom_cleaned_licence_plate_number",
+                                cleaned_plate,
+                                update_modified=False
+                            )
+                else:
+                    v = frappe.new_doc("Vehicle")
+                    v.license_plate = reg_no
+                    v.custom_cleaned_licence_plate_number = cleaned_plate
+                    if doc.get("customer"):
+                        v.custom_customer = doc.customer
+                    if doc.get("custom_branch"):
+                        v.custom_branch = doc.custom_branch
+                    v.insert(ignore_permissions=True)
+                    vehicle_name = v.name
+
+                processed_vehicles[cleaned_plate] = vehicle_name
+
+            item.custom_vehicle = vehicle_name
+
+        if doc.get("name") and item.get("name") and not doc.is_new():
+            db_vals = frappe.db.get_value(
+                "Sales Invoice Item",
+                item.name,
+                ["custom_cleaned_licence_plate_number", "custom_vehicle"],
+                as_dict=True
+            )
+            if not db_vals or db_vals.get("custom_cleaned_licence_plate_number") != cleaned_plate or db_vals.get("custom_vehicle") != item.custom_vehicle:
+                frappe.db.set_value(
+                    "Sales Invoice Item",
+                    item.name,
+                    {
+                        "custom_cleaned_licence_plate_number": cleaned_plate,
+                        "custom_vehicle": item.custom_vehicle
+                    },
+                    update_modified=False
+                )
 
 
 def set_pending_customer_approval_date(doc, method=None):
