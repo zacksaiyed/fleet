@@ -25,6 +25,7 @@ class MaterialTransfer(Document):
 		self.validate_purpose_warehouses()
 		self.validate_item_not_reserved()
 		self.sync_item_lock_state()
+		self.set_approval_timeline()
 
 	# def validate_items(self):
 	# 	if not self.items:
@@ -53,6 +54,15 @@ class MaterialTransfer(Document):
 	def validate_source_target(self):
 		if self.source and self.target and self.source == self.target:
 			frappe.throw(_("Source and Target Warehouse cannot be the same."))
+
+	def set_approval_timeline(self):
+		if self.workflow_state == "Initatied":
+			self.initiated_by = frappe.session.user
+			self.initiated_on = frappe.utils.now_datetime()
+		if self.workflow_state == "Approved":
+			self.approved_by = frappe.session.user
+			self.approved_on = frappe.utils.now_datetime()
+
 
 	def validate_purpose_warehouses(self):
 		"""

@@ -20,7 +20,13 @@
   "section_break_bhre",
   "items",
   "reject_reason",
-  "amended_from"
+  "amended_from",
+  "section_break_wnej",
+  "initiated_by",
+  "initiated_on",
+  "column_break_sujq",
+  "approved_by",
+  "approved_on"
  ],
  "fields": [
   {
@@ -123,6 +129,40 @@
    "fieldtype": "Select",
    "label": "Purpose",
    "options": "\nMaterial Issue\nMaterial Request\nMaterial Return\nMaterial Handover\nCustomer to Store\nMaterial Restore\nStore to Customer\nStore to Damage\nStore to Lost"
+  },
+  {
+   "fieldname": "section_break_wnej",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "initiated_by",
+   "fieldtype": "Link",
+   "label": "Initiated By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "initiated_on",
+   "fieldtype": "Datetime",
+   "label": "Initiated on",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_sujq",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "approved_by",
+   "fieldtype": "Link",
+   "label": "Approved By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "approved_on",
+   "fieldtype": "Datetime",
+   "label": "Approved On",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
@@ -130,7 +170,7 @@
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-08-26 10:24:11.021027",
+ "modified": "2026-09-01 18:47:14.876226",
  "modified_by": "Administrator",
  "module": "Fleet",
  "name": "Material Transfer",

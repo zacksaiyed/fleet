@@ -18,12 +18,22 @@ def validate_vehicle(doc, method=None):
     _remove_duplicate_vehicle_items(doc)
     _check_installed_items_exist(doc)
     _check_item_not_installed_elsewhere(doc)
+    update_vechile_status(doc)
 
     # Re-index all child table rows to ensure consecutive numbering (idx)
     for i, row in enumerate(doc.get("custom_vehicle_item") or []):
         row.idx = i + 1
 
-
+def update_vechile_status(doc):
+    if not doc.custom_vehicle_item:
+        return
+    for row in doc.custom_vehicle_item:
+        if row.has_value_changed("status"):
+            if row.status == "Installed":
+                row.date_of_installation = frappe.utils.nowdate()
+            elif row.status == "Removed":
+                row.date_of_removal = frappe.utils.nowdate()
+       
 def _check_installed_items_exist(doc):
     """Block save if an Installed item doesn't exist in the Item master."""
     for row in doc.get("custom_vehicle_item") or []:

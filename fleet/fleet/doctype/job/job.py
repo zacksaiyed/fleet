@@ -44,8 +44,9 @@ class Job(Document):
 
 		if self.vehicle_number:
 			self.vehicle_number = self.vehicle_number.replace(" ", "").upper()
-		if self.new_vehicle_number:
-			self.new_vehicle_number = self.new_vehicle_number.replace(" ", "").upper()
+		if self.task_type == "Swap":
+			if self.new_vehicle_number:
+				self.new_vehicle_number = self.new_vehicle_number.replace(" ", "").upper()
 
 			# if not _VEH_RE.match(self.vehicle_number):
 			# 	frappe.throw(
@@ -61,7 +62,10 @@ class Job(Document):
 			frappe.throw("Completion comment is mandatory before marking a Job as Completed.")
 
 	def validate_swap_vehicle(self):
-		if not self.new_vehicle_number or not self.task_type == "Swap":
+		if not self.task_type == "Swap" :
+			return
+		
+		if not self.new_vehicle_number:
 			return
 
 		vehicle_exists = frappe.db.exists("Vehicle", self.new_vehicle_number)
