@@ -468,11 +468,6 @@ frappe.ui.form.on('Sales Invoice', {
                 keep_fleet_section_open(frm);
             });
 
-            $(document).off('click.hide_inst_popup').on('click.hide_inst_popup', function (e) {
-                if (!$(e.target).closest('.decision-popup').length && !$(e.target).hasClass('inst-checkbox')) {
-                    $('.inst-popup').fadeOut(200);
-                }
-            });
 
             $('#inst-prev-page').off('click').on('click', function () {
                 save_installation_data();
@@ -842,11 +837,6 @@ frappe.ui.form.on('Sales Invoice', {
             keep_fleet_section_open(frm);
         });
 
-        $(document).off('click.hide_fleet_popup').on('click.hide_fleet_popup', function (e) {
-            if (!$(e.target).closest('.decision-popup').length && !$(e.target).hasClass('month-checkbox')) {
-                $('.decision-popup').fadeOut(200);
-            }
-        });
 
         $('#fleet-prev-page').off('click').on('click', function () {
             save_table_data();
@@ -1241,11 +1231,6 @@ frappe.ui.form.on('Sales Invoice', {
             keep_fleet_section_open(frm);
         });
 
-        $(document).off('click.hide_cb_fleet_popup').on('click.hide_cb_fleet_popup', function (e) {
-            if (!$(e.target).closest('.decision-popup').length && !$(e.target).hasClass('month-checkbox')) {
-                $('.decision-popup').fadeOut(200);
-            }
-        });
 
         $('#cb-fleet-prev-page').off('click').on('click', function () {
             save_table_data();
