@@ -100,7 +100,7 @@ frappe.ui.form.on('Sales Invoice', {
                     let new_row = {
                         device_number: item_code,
                         registration_number: reg_no,
-                        vehicle_no: (old_row && old_row.vehicle_no) ? old_row.vehicle_no : reg_no
+                        vehicle_no: row.custom_vehicle || ((old_row && old_row.vehicle_no) ? old_row.vehicle_no : reg_no)
                     };
                     if (act_date) {
                         new_row.last_activity_date = act_date;
@@ -121,7 +121,7 @@ frappe.ui.form.on('Sales Invoice', {
                     let new_row = {
                         device_number: item_code,
                         registration_number: reg_no,
-                        vehicle_no: (old_row && old_row.vehicle_no) ? old_row.vehicle_no : reg_no
+                        vehicle_no: row.custom_vehicle || ((old_row && old_row.vehicle_no) ? old_row.vehicle_no : reg_no)
                     };
                     if (act_date) {
                         new_row.last_activity_date = act_date;

@@ -973,13 +973,14 @@ def generate_customer_invoice(
                         month_keys[f"{m_key}_last_activity_date"] = last_act_str
                         month_keys[f"{m_key}_previous_activity_date"] = last_act_str
 
+                v_name = getattr(item_row, "custom_vehicle", "") or reg_no
                 if v_type == "LOCAL" and reg_no:
                     if reg_no not in fleet_json_data:
                         fleet_json_data[reg_no] = {
                             "device_number": item_code,
                             "fleet_number": "",
                             "registration_number": reg_no,
-                            "vehicle_no": reg_no,
+                            "vehicle_no": v_name,
                             "date_of_installation": v_inst_date,
                             "comments": getattr(item_row, "custom_comment", "") or "",
                             "last_activity_date": last_act_str,
@@ -998,7 +999,7 @@ def generate_customer_invoice(
                             "device_number": item_code,
                             "fleet_number": "",
                             "registration_number": reg_no,
-                            "vehicle_no": reg_no,
+                            "vehicle_no": v_name,
                             "date_of_installation": v_inst_date,
                             "comments": getattr(item_row, "custom_comment", "") or "",
                             "last_activity_date": last_act_str,
