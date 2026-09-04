@@ -276,12 +276,12 @@ scheduler_events = {
 		"fleet.fleet.doctype.job.job.set_progress_jobs_to_pending",
 	],
 
+        "0 1 1 * *": [
+            "fleet.api.classification_scheduler.generate_vehicle_classification_logs"
+        ]
     },
     "daily": [
         "fleet.scheduled.sales_invoice_approval.process_pending_customer_approvals"
-    ],
-    "monthly": [
-        "fleet.api.classification_scheduler.generate_vehicle_classification_logs"
     ]
 }
 

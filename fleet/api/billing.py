@@ -966,6 +966,10 @@ def generate_customer_invoice(
                         month_abbrev = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"][b_month_date.month - 1]
                         year_short = str(b_month_date.year)[-2:]
                         m_key = f"{month_abbrev}_{year_short}"
+                        b_decision = getattr(item_row, "custom_billing_decision", "") or "Chargeable"
+                        month_keys[m_key] = 1 if b_decision == "Chargeable" else 0
+                        month_keys[f"{m_key}_decision"] = b_decision
+                        month_keys[f"{m_key}_rate"] = float(item_row.rate or item_row.custom_original_rate or 0)
                         month_keys[f"{m_key}_last_activity_date"] = last_act_str
                         month_keys[f"{m_key}_previous_activity_date"] = last_act_str
 
