@@ -5,16 +5,8 @@ from fleet.custom_py.item_warehouse import update_item_warehouse
 
 def validate_vehicle(doc, method=None):
     if doc.license_plate:
-        normalized = doc.license_plate.replace(" ", "").upper()
-        doc.license_plate = normalized
-        doc.custom_cleaned_licence_plate_number = normalized
-        if doc.is_new():
-            doc.name = normalized
-            # set_parent_in_children() runs before validate, so child rows already
-            # have the pre-normalization name as their parent. Re-sync them here.
-            for df in doc.meta.get_table_fields():
-                for row in doc.get(df.fieldname) or []:
-                    row.parent = normalized
+        doc.license_plate = doc.license_plate.strip()
+        doc.custom_cleaned_licence_plate_number = doc.license_plate.upper()
 
     # Clean and strip any accidental whitespace from item codes
     for row in doc.get("custom_vehicle_item") or []:

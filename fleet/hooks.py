@@ -236,6 +236,7 @@ doc_events = {
         "on_update": "fleet.override.item.on_item_model_update"
     },
     "Sales Invoice": {
+        "validate": "fleet.api.billing.process_sales_invoice_vehicle_logic",
         "before_save": "fleet.api.billing.set_pending_customer_approval_date",
         "before_submit": "fleet.api.billing.before_sales_invoice_submit",
         "on_submit": "fleet.api.billing.on_sales_invoice_submit"
@@ -275,12 +276,12 @@ scheduler_events = {
 		"fleet.fleet.doctype.job.job.set_progress_jobs_to_pending",
 	],
 
+        "0 1 1 * *": [
+            "fleet.api.classification_scheduler.generate_vehicle_classification_logs"
+        ]
     },
     "daily": [
         "fleet.scheduled.sales_invoice_approval.process_pending_customer_approvals"
-    ],
-    "monthly": [
-        "fleet.api.classification_scheduler.generate_vehicle_classification_logs"
     ]
 }
 

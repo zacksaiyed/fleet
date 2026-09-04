@@ -36,28 +36,16 @@ frappe.ui.form.on('Sales Invoice', {
             });
         }
         keep_fleet_section_open(frm);
-    },
 
-    // ==============================================================
-    // CUSTOMER UPDATE ON SAVE (Draft me hi update ho jayega)
-    // ==============================================================
-    after_save: function(frm) {
-        if (frm.doc.customer && frm.doc.custom_billing_end_date) {
-            frappe.db.set_value('Customer', frm.doc.customer, 'custom_last_billed_upto_date', frm.doc.custom_billing_end_date)
-                .then(() => {
-                    frappe.show_alert({
-                        message: __('Customer Last Billed Upto Date updated successfully.'),
-                        indicator: 'green'
-                    });
-                });
-        }
+        frm.set_df_property('custom_section_break_vudhs', 'hidden', 1);
+        frm.set_df_property('custom_section_break_ubm3j', 'hidden', 1);
     },
 
     customer: function (frm) {
+        fetch_and_set_customer_emails(frm);
         if (frm.doc.customer) {
             frm.trigger('split_vehicles_directly_from_items');
         }
-        fetch_and_set_customer_emails(frm);
     },
 
     custom_billing_start_date: function (frm) {
@@ -79,69 +67,6 @@ frappe.ui.form.on('Sales Invoice', {
         frm.trigger('render_custom_fleet_table');
         frm.trigger('render_cb_fleet_table');
     },
-
-    // ==========================================
-    // Lumpsum Amount Logic (Set Rate to 0 on remove)
-    // ==========================================
-    custom_lumpsum_amount: function(frm) {
-        let lumpsum_val = flt(frm.doc.custom_lumpsum_amount);
-
-        frappe.db.get_list('Item', {
-            filters: {'custom_is_lumpsum_amount_item': 1},
-            fields: ['name']
-        }).then(items => {
-            if (!items || items.length === 0) {
-                frappe.msgprint("Lumpsum Item nahi mila. Pehle Item master mein jakar ek item banayein aur 'Is Lumpsum Amount Item' check karein.");
-                return;
-            }
-
-            if (items.length > 1) {
-                frappe.msgprint({
-                    title: __('Validation Error'),
-                    indicator: 'red',
-                    message: __('Multiple items are marked as "Is Lumpsum Amount Item". Please ensure only one item has this checkbox enabled.')
-                });
-                return;
-            }
-
-            let lumpsum_item_code = items[0].name;
-            let existing_row = frm.doc.items.find(row => row.item_code === lumpsum_item_code);
-
-            if (lumpsum_val > 0) {
-                if (existing_row) {
-                    frappe.model.set_value(existing_row.doctype, existing_row.name, 'custom_original_rate', lumpsum_val);
-                    frappe.model.set_value(existing_row.doctype, existing_row.name, 'price_list_rate', lumpsum_val);
-                    frappe.model.set_value(existing_row.doctype, existing_row.name, 'rate', lumpsum_val).then(() => {
-                        frm.refresh_field('items');
-                        frm.trigger('calculate_taxes_and_totals');
-                    });
-                } else {
-                    let row = frm.add_child('items');
-                    frappe.model.set_value(row.doctype, row.name, 'item_code', lumpsum_item_code).then(() => {
-                        frappe.model.set_value(row.doctype, row.name, 'qty', 1);
-                        frappe.model.set_value(row.doctype, row.name, 'custom_original_rate', lumpsum_val);
-                        frappe.model.set_value(row.doctype, row.name, 'price_list_rate', lumpsum_val);
-                        frappe.model.set_value(row.doctype, row.name, 'rate', lumpsum_val).then(() => {
-                            frm.refresh_field('items');
-                            frm.trigger('calculate_taxes_and_totals');
-                        });
-                    });
-                }
-            } else {
-                // Agar field blank ya 0 kar di jaye, toh row table me rahegi par rate aur original rate 0 ho jayegi
-                if (existing_row) {
-                    frappe.model.set_value(existing_row.doctype, existing_row.name, 'custom_original_rate', 0);
-                    frappe.model.set_value(existing_row.doctype, existing_row.name, 'price_list_rate', 0);
-                    frappe.model.set_value(existing_row.doctype, existing_row.name, 'rate', 0).then(() => {
-                        frm.refresh_field('items');
-                        frm.trigger('calculate_taxes_and_totals');
-                    });
-                }
-            }
-        });
-    },
-    // naya code end //
-
     // ==============================================================
     // 2. DIRECT SPLITTING FROM ITEMS TABLE
     // ==============================================================
@@ -175,7 +100,7 @@ frappe.ui.form.on('Sales Invoice', {
                     let new_row = {
                         device_number: item_code,
                         registration_number: reg_no,
-                        vehicle_no: (old_row && old_row.vehicle_no) ? old_row.vehicle_no : reg_no
+                        vehicle_no: row.custom_vehicle || ((old_row && old_row.vehicle_no) ? old_row.vehicle_no : reg_no)
                     };
                     if (act_date) {
                         new_row.last_activity_date = act_date;
@@ -196,7 +121,7 @@ frappe.ui.form.on('Sales Invoice', {
                     let new_row = {
                         device_number: item_code,
                         registration_number: reg_no,
-                        vehicle_no: (old_row && old_row.vehicle_no) ? old_row.vehicle_no : reg_no
+                        vehicle_no: row.custom_vehicle || ((old_row && old_row.vehicle_no) ? old_row.vehicle_no : reg_no)
                     };
                     if (act_date) {
                         new_row.last_activity_date = act_date;
@@ -228,8 +153,10 @@ frappe.ui.form.on('Sales Invoice', {
             frm.doc.custom_cb_fleet_data_json = new_cb_json;
         }
 
-        frm.trigger('render_custom_fleet_table');
-        frm.trigger('render_cb_fleet_table');
+        if ($('.decision-popup:visible').length === 0) {
+            frm.trigger('render_custom_fleet_table');
+            frm.trigger('render_cb_fleet_table');
+        }
     },
 
     // ==============================================================
@@ -237,14 +164,7 @@ frappe.ui.form.on('Sales Invoice', {
     // ==============================================================
     render_installation_table: function (frm) {
         if (!frm.fields_dict['custom_installation_table_html']) return;
-        try {
-            let raw_data = JSON.parse(frm.doc.custom_installation_data_json || '[]');
-            // 'SIM' item type wale records ko filter karke nikal do
-            let filtered_data = raw_data.filter(d => (d.item_type || '').toUpperCase() !== 'SIM');
-            if (raw_data.length !== filtered_data.length) {
-                frm.doc.custom_installation_data_json = JSON.stringify(filtered_data);
-            }
-        } catch (e) { console.error("Error filtering SIM data", e); }
+
         let check_data = [];
         try { check_data = JSON.parse(frm.doc.custom_installation_data_json || '[]'); } catch (e) { }
 
@@ -279,7 +199,7 @@ frappe.ui.form.on('Sales Invoice', {
                     .inst-pagination { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; padding: 5px 10px; background: #f8f9fa; border: 1px solid #d1d8dd; border-radius: 4px; }
                     .inst-pagination button { padding: 4px 12px; font-size: 12px; }
                     .inst-pagination span { font-weight: 500; font-size: 12px; color: #333; }
-                    .decision-popup { position: absolute; top: 35px; left: 50%; transform: translateX(-50%); background: #ffffff; padding: 6px; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.15); border: 1px solid #5e9ed6; z-index: 100; width: 170px; text-align: left; display: none; }
+                    .decision-popup { position: absolute; top: 35px; left: 50%; transform: translateX(-50%); background: #ffffff; padding: 6px; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.15); border: 1px solid #5e9ed6; z-index: 9999; width: 170px; text-align: left; display: none; }
                     .decision-label { display: flex; align-items: center; font-size: 12px; margin-bottom: 2px; cursor: pointer; padding: 6px 8px; border-radius: 5px; }
                     .decision-label:hover { background-color: #f0f4f8; }
                     .color-indicator { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; border: 1px solid #d1d8dd; }
@@ -466,6 +386,7 @@ frappe.ui.form.on('Sales Invoice', {
             };
 
             tbody.off('change', '.inst-checkbox').on('change', '.inst-checkbox', function (e) {
+                e.stopPropagation();
                 let td = $(this).closest('td');
                 let tr = td.closest('tr');
                 let popup = td.find('.inst-popup');
@@ -476,16 +397,22 @@ frappe.ui.form.on('Sales Invoice', {
                 let item_code = tr.find('[data-col="code"]').val();
                 let license_plate = tr.find('[data-col="license_plate"]').val();
 
+                $('#fleet-billing-body td, #cb-fleet-billing-body td, #inst-table-body td').css('z-index', '');
+                $('#fleet-billing-body tr, #cb-fleet-billing-body tr, #inst-table-body tr').css('z-index', '');
+                $('.decision-popup').not(popup).hide();
+
                 if (!is_checked) {
                     if (rate_input.val() > 0) { rate_input.attr('data-original-val', rate_input.val()); }
                     hidden_decision.val('');
                     popup.find('.inst-decision-radio').prop('checked', false);
-                    td.css('background-color', '#ffffff');
+                    td.css({'background-color': '#ffffff', 'z-index': 1000});
+                    tr.css('z-index', 1000);
                     popup.fadeIn(200);
                 } else {
                     hidden_decision.val('Chargeable');
                     popup.find('input[value="Chargeable"]').prop('checked', true);
-                    td.css('background-color', '#ffffff');
+                    td.css({'background-color': '#ffffff', 'z-index': ''});
+                    tr.css('z-index', '');
 
                     let orig = rate_input.attr('data-original-val') || 0;
                     rate_input.val(orig);
@@ -541,11 +468,6 @@ frappe.ui.form.on('Sales Invoice', {
                 keep_fleet_section_open(frm);
             });
 
-            $(document).off('click.hide_inst_popup').on('click.hide_inst_popup', function (e) {
-                if (!$(e.target).closest('.decision-popup').length && !$(e.target).hasClass('inst-checkbox')) {
-                    $('.inst-popup').fadeOut(200);
-                }
-            });
 
             $('#inst-prev-page').off('click').on('click', function () {
                 save_installation_data();
@@ -597,12 +519,9 @@ frappe.ui.form.on('Sales Invoice', {
 
         if (saved_data.length === 0) {
             $(frm.fields_dict['custom_item_table'].wrapper).empty();
-            frm.set_df_property('custom_section_break_vudhs', 'hidden', 1);
             return;
         }
 
-        frm.set_df_property('custom_section_break_vudhs', 'hidden', 0);
-        
         if (window.fleet_current_page === undefined) {
             window.fleet_current_page = 1;
         }
@@ -649,7 +568,7 @@ frappe.ui.form.on('Sales Invoice', {
               .erp-grid-table input:not([type="checkbox"]) { width: 100%; border: 1px solid transparent; background: transparent; text-align: center; font-size: 12px; padding: 4px 0; outline: none; }
               .erp-grid-table input:not([type="checkbox"])[readonly]:focus { border: 1px solid transparent; background: transparent; }
               .erp-grid-table input[type="checkbox"] { cursor: pointer; width: 14px; height: 14px; margin: 0; }
-              .decision-popup { position: absolute; top: 35px; left: 50%; transform: translateX(-50%); background: #ffffff; padding: 6px; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.15); border: 1px solid #5e9ed6; z-index: 100; width: 170px; text-align: left; display: none; }
+              .decision-popup { position: absolute; top: 35px; left: 50%; transform: translateX(-50%); background: #ffffff; padding: 6px; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.15); border: 1px solid #5e9ed6; z-index: 9999; width: 170px; text-align: left; display: none; }
               .decision-label { display: flex; align-items: center; font-size: 12px; margin-bottom: 2px; cursor: pointer; padding: 6px 8px; border-radius: 5px; }
               .decision-label:hover { background-color: #f0f4f8; }
               .color-indicator { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; border: 1px solid #d1d8dd; }
@@ -859,10 +778,8 @@ frappe.ui.form.on('Sales Invoice', {
             save_table_data();
         });
 
-        // ==========================================
-        // naya code (LOCAL Table) - PERFECT VALIDATION
-        // ==========================================
         tbody.off('change', '.month-checkbox').on('change', '.month-checkbox', function (e) {
+            e.stopPropagation();
             let td = $(this).closest('td');
             let tr = td.closest('tr');
             let popup = td.find('.month-popup');
@@ -874,43 +791,23 @@ frappe.ui.form.on('Sales Invoice', {
             let month_key = $(this).data('fieldname');
             let month_label = td.closest('table').find(`th[data-month="${month_key}"]`).contents().filter(function () { return this.nodeType == 3; }).text().trim();
 
-            if (is_checked) {
-                let is_duplicate = false;
-                $('#cb-fleet-billing-body tr').each(function() {
-                    let dev_no = $(this).find('[data-fieldname="device_number"]').val();
-                    let reg_no = $(this).find('[data-fieldname="registration_number"]').val();
-                    let is_month_checked = $(this).find('.month-checkbox[data-fieldname="' + month_key + '"]').is(':checked');
-                    
-                    if (dev_no === device_number && reg_no === reg_number && is_month_checked) {
-                        is_duplicate = true;
-                    }
-                });
-
-                if (is_duplicate) {
-                    $(this).prop('checked', false); // Turant uncheck karega
-                    frappe.msgprint({
-                        title: __('Validation Error'),
-                        indicator: 'red',
-                        message: __('This vehicle <b>{0}</b> is already active in the <b>CB</b> table for <b>{1}</b>.', [reg_number, month_label])
-                    });
-                    return false; // Code yahi rok dega
-                }
-            }
-            // naya code end //
-
+            $('#fleet-billing-body td, #cb-fleet-billing-body td, #inst-table-body td').css('z-index', '');
+            $('#fleet-billing-body tr, #cb-fleet-billing-body tr, #inst-table-body tr').css('z-index', '');
             $('.decision-popup').not(popup).hide();
 
             if (!is_checked) {
                 popup.stop(true, true);
                 hidden_decision.val('');
                 popup.find('.month-decision-radio').prop('checked', false);
-                td.css('background-color', '#ffffff');
-                popup.fadeIn(200);
+                td.css({'background-color': '#ffffff', 'z-index': 1000});
+                tr.css('z-index', 1000);
+                popup.stop(true, true).css('display', 'block').fadeIn(200);
             } else {
                 popup.stop(true, true).hide();
                 hidden_decision.val('Chargeable');
                 popup.find('input[value="Chargeable"]').prop('checked', true);
-                td.css('background-color', '#ffffff');
+                td.css({'background-color': '#ffffff', 'z-index': ''});
+                tr.css('z-index', '');
                 manage_subscription_item(frm, true, device_number, reg_number, month_label, 'Chargeable', 'LOCAL');
             }
             save_table_data();
@@ -940,11 +837,6 @@ frappe.ui.form.on('Sales Invoice', {
             keep_fleet_section_open(frm);
         });
 
-        $(document).off('click.hide_fleet_popup').on('click.hide_fleet_popup', function (e) {
-            if (!$(e.target).closest('.decision-popup').length && !$(e.target).hasClass('month-checkbox')) {
-                $('.decision-popup').fadeOut(200);
-            }
-        });
 
         $('#fleet-prev-page').off('click').on('click', function () {
             save_table_data();
@@ -1044,7 +936,7 @@ frappe.ui.form.on('Sales Invoice', {
               .erp-grid-table input:not([type="checkbox"]) { width: 100%; border: 1px solid transparent; background: transparent; text-align: center; font-size: 12px; padding: 4px 0; outline: none; }
               .erp-grid-table input:not([type="checkbox"])[readonly]:focus { border: 1px solid transparent; background: transparent; }
               .erp-grid-table input[type="checkbox"] { cursor: pointer; width: 14px; height: 14px; margin: 0; }
-              .decision-popup { position: absolute; top: 35px; left: 50%; transform: translateX(-50%); background: #ffffff; padding: 6px; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.15); border: 1px solid #5e9ed6; z-index: 100; width: 170px; text-align: left; display: none; }
+              .decision-popup { position: absolute; top: 35px; left: 50%; transform: translateX(-50%); background: #ffffff; padding: 6px; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.15); border: 1px solid #5e9ed6; z-index: 9999; width: 170px; text-align: left; display: none; }
               .decision-label { display: flex; align-items: center; font-size: 12px; margin-bottom: 2px; cursor: pointer; padding: 6px 8px; border-radius: 5px; }
               .decision-label:hover { background-color: #f0f4f8; }
               .color-indicator { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; border: 1px solid #d1d8dd; }
@@ -1255,9 +1147,10 @@ frappe.ui.form.on('Sales Invoice', {
         });
 
         // ==========================================
-        // naya code (CB Table) - PERFECT VALIDATION
+        // CB Table - Cross Table Validation & Decision
         // ==========================================
         tbody.off('change', '.month-checkbox').on('change', '.month-checkbox', function (e) {
+            e.stopPropagation();
             let td = $(this).closest('td');
             let tr = td.closest('tr');
             let popup = td.find('.month-popup');
@@ -1282,7 +1175,7 @@ frappe.ui.form.on('Sales Invoice', {
                 });
 
                 if (is_duplicate) {
-                    $(this).prop('checked', false); // Turant uncheck karega
+                    $(this).prop('checked', false);
                     frappe.msgprint({
                         title: __('Validation Error'),
                         indicator: 'red',
@@ -1292,20 +1185,23 @@ frappe.ui.form.on('Sales Invoice', {
                 }
             }
 
+            $('#fleet-billing-body td, #cb-fleet-billing-body td, #inst-table-body td').css('z-index', '');
+            $('#fleet-billing-body tr, #cb-fleet-billing-body tr, #inst-table-body tr').css('z-index', '');
             $('.decision-popup').not(popup).hide();
 
             if (!is_checked) {
                 popup.stop(true, true);
                 hidden_decision.val('');
                 popup.find('.month-decision-radio').prop('checked', false);
-                td.css('background-color', '#ffffff');
-                popup.fadeIn(200);
+                td.css({'background-color': '#ffffff', 'z-index': 1000});
+                tr.css('z-index', 1000);
+                popup.stop(true, true).css('display', 'block').fadeIn(200);
             } else {
                 popup.stop(true, true).hide();
                 hidden_decision.val('Chargeable');
                 popup.find('input[value="Chargeable"]').prop('checked', true);
-                td.css('background-color', '#ffffff');
-                
+                td.css({'background-color': '#ffffff', 'z-index': ''});
+                tr.css('z-index', '');
                 manage_subscription_item(frm, true, device_number, reg_number, month_label, 'Chargeable', 'CB');
             }
             save_table_data();
@@ -1335,11 +1231,6 @@ frappe.ui.form.on('Sales Invoice', {
             keep_fleet_section_open(frm);
         });
 
-        $(document).off('click.hide_cb_fleet_popup').on('click.hide_cb_fleet_popup', function (e) {
-            if (!$(e.target).closest('.decision-popup').length && !$(e.target).hasClass('month-checkbox')) {
-                $('.decision-popup').fadeOut(200);
-            }
-        });
 
         $('#cb-fleet-prev-page').off('click').on('click', function () {
             save_table_data();
@@ -1619,11 +1510,9 @@ function update_item_decision(frm, device_no, reg_no, month_label, decision, veh
         existing_row.custom_billing_month_label = get_full_month_name(month_label);
         existing_row.qty = 1;
         existing_row.custom_is_subscription = 1;
-        
         if (vehicle_type) {
             existing_row.custom_vehicle_type = vehicle_type;
         }
-
         frappe.model.set_value(existing_row.doctype, existing_row.name, 'item_code', device_no).then(() => {
             frappe.model.set_value(existing_row.doctype, existing_row.name, 'custom_is_subscription', 1);
             frappe.model.set_value(existing_row.doctype, existing_row.name, 'custom_billing_decision', decision);
@@ -1636,8 +1525,7 @@ function update_item_decision(frm, device_no, reg_no, month_label, decision, veh
                 }
                 p.then(() => {
                     frm.trigger('split_vehicles_directly_from_items');
-                    frm.trigger('render_custom_fleet_table');
-                    frm.trigger('render_cb_fleet_table');
+                    frm.refresh_field('items');
                     keep_fleet_section_open(frm);
                 });
             });
@@ -1646,6 +1534,9 @@ function update_item_decision(frm, device_no, reg_no, month_label, decision, veh
     }
 
     if (existing_row) {
+        if (vehicle_type) {
+            existing_row.custom_vehicle_type = vehicle_type;
+        }
         frappe.model.set_value(existing_row.doctype, existing_row.name, 'custom_is_subscription', 1);
         frappe.model.set_value(existing_row.doctype, existing_row.name, 'custom_billing_decision', decision);
         set_row_activity_dates(frm, existing_row, device_no, reg_no).then(() => {
@@ -1660,8 +1551,7 @@ function update_item_decision(frm, device_no, reg_no, month_label, decision, veh
             }
             rate_p.then(() => {
                 frm.trigger('split_vehicles_directly_from_items');
-                frm.trigger('render_custom_fleet_table');
-                frm.trigger('render_cb_fleet_table');
+                frm.refresh_field('items');
                 keep_fleet_section_open(frm);
             });
         });
@@ -1687,7 +1577,6 @@ function manage_subscription_item(frm, is_checked, device_no, reg_no, month_labe
         new_row.custom_registration_number = reg_no;
         new_row.custom_billing_month_label = get_full_month_name(month_label);
         new_row.qty = 1;
-        
         if (vehicle_type) {
             new_row.custom_vehicle_type = vehicle_type;
         }
@@ -1705,8 +1594,7 @@ function manage_subscription_item(frm, is_checked, device_no, reg_no, month_labe
                     frappe.model.set_value(new_row.doctype, new_row.name, 'rate', sub_rate);
                 }
                 frm.trigger('split_vehicles_directly_from_items');
-                frm.trigger('render_custom_fleet_table');
-                frm.trigger('render_cb_fleet_table');
+                frm.refresh_field('items');
                 keep_fleet_section_open(frm);
             });
         });
@@ -1716,8 +1604,7 @@ function manage_subscription_item(frm, is_checked, device_no, reg_no, month_labe
         frappe.model.set_value(existing_row.doctype, existing_row.name, 'custom_billing_decision', final_dec);
         frappe.model.set_value(existing_row.doctype, existing_row.name, 'rate', 0).then(() => {
             frm.trigger('split_vehicles_directly_from_items');
-            frm.trigger('render_custom_fleet_table');
-            frm.trigger('render_cb_fleet_table');
+            frm.refresh_field('items');
             keep_fleet_section_open(frm);
         });
     }
@@ -1734,8 +1621,7 @@ function manage_subscription_item(frm, is_checked, device_no, reg_no, month_labe
             }
             rate_p.then(() => {
                 frm.trigger('split_vehicles_directly_from_items');
-                frm.trigger('render_custom_fleet_table');
-                frm.trigger('render_cb_fleet_table');
+                frm.refresh_field('items');
                 keep_fleet_section_open(frm);
             });
         });
@@ -1840,25 +1726,23 @@ function get_billing_date_range(frm) {
 
 function fetch_and_set_customer_emails(frm) {
     if (frm.doc.customer) {
-        frappe.db.get_doc('Customer', frm.doc.customer)
-            .then(doc => {
-                let email_1 = doc.email || doc.custom_email_1 || ""; 
-                let email_2 = doc.custom_email_2 || "";
-                let email_3 = doc.custom_email_3 || "";
-                
-                let enable_notify = doc.custom_enable_notification || 0; 
+        frappe.db.get_value('Customer', frm.doc.customer, ['email', 'custom_email_1', 'custom_email_2', 'custom_email_3', 'custom_enable_notification'])
+            .then(r => {
+                let values = (r && r.message) ? r.message : {};
+                let email_1 = values.email || values.custom_email_1 || ""; 
+                let email_2 = values.custom_email_2 || "";
+                let email_3 = values.custom_email_3 || "";
+                let enable_notify = values.custom_enable_notification || 0; 
 
                 frm.set_value("custom_custom_email_1", email_1);
                 frm.set_value("custom_custom_email_2", email_2);
                 frm.set_value("custom_custom_email_3", email_3);
-                
                 frm.set_value("custom_enable_notification", enable_notify); 
             });
     } else {
         frm.set_value("custom_custom_email_1", "");
         frm.set_value("custom_custom_email_2", "");
         frm.set_value("custom_custom_email_3", "");
-        
         frm.set_value("custom_enable_notification", 0); 
     }
 }

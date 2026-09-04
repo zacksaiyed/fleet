@@ -3,9 +3,12 @@ import os
 import json
 
 def get_base_html():
-    return '''{% set vat = namespace(rate=16.0) %}
-{% set settings_vat = (frappe.db.get_single_value('Fleet Billing Settings', 'default_vat_rate') or 16.0) | float %}
-{% set vat.rate = settings_vat %}
+    return '''{% set vat = namespace(rate=0.0) %}
+{% for tax in (doc.taxes or []) %}
+    {% if tax.rate and (tax.rate | float) > 0 %}
+        {% set vat.rate = (tax.rate | float) %}
+    {% endif %}
+{% endfor %}
 
 <!DOCTYPE html>
 <html>
@@ -317,8 +320,8 @@ table.gps-installation-table th:nth-child(9), table.gps-installation-table td:nt
 table.gps-installation-table th:nth-child(10), table.gps-installation-table td:nth-child(10) { width: 15%; }
 
 table.gps-summary-table { margin-top: 12px; }
-table.gps-summary-table th:nth-child(1) { width: 70%; text-align: left !important; }
-table.gps-summary-table th:nth-child(2) { width: 30%; text-align: right !important; }
+table.gps-summary-table th:nth-child(1) { width: 70%; text-align: center !important; }
+table.gps-summary-table th:nth-child(2) { width: 30%; text-align: center !important; }
 table.gps-summary-table td:nth-child(2) { text-align: right !important; white-space: nowrap; }
 table.gps-summary-table td.left { text-align: left !important; }
 table.gps-summary-table td.right { text-align: right !important; }
@@ -811,6 +814,15 @@ tr.gps-lumpsum-row td { background-color: #ffff00 !important; font-weight: bold;
             <div class="gps-section-title-left">Installation Charges</div>
         </div>
 
+        {% set veh_totals = {} %}
+        {% for r in inst_rows %}
+            {% set plate = (r.license_plate or r.registration_number or r.vehicle_no or "") | string %}
+            {% set rate_val = (r.rate or r.installation_cost or 0) | float %}
+            {% if plate %}
+                {% set _ = veh_totals.update({plate: (veh_totals.get(plate) or 0) + rate_val}) %}
+            {% endif %}
+        {% endfor %}
+
         <table class="gps-stmt-table gps-installation-table">
             <thead>
                 <tr>
@@ -827,7 +839,7 @@ tr.gps-lumpsum-row td { background-color: #ffff00 !important; font-weight: bold;
                 </tr>
             </thead>
             <tbody>
-                {% set sr = namespace(val=0, total_rate=0, total_cost=0) %}
+                {% set sr = namespace(val=0, total_rate=0, total_cost=0, seen_plates=[]) %}
                 {% for r in inst_rows %}
                     {% set sr.val = sr.val + 1 %}
                     {% set rate_val = (r.rate or r.installation_cost or 0) | float %}
@@ -838,17 +850,29 @@ tr.gps-lumpsum-row td { background-color: #ffff00 !important; font-weight: bold;
                     {% set brand_val = r.brand or (code_val and frappe.db.get_value("Item", code_val, "brand")) or "-" %}
                     {% set type_val = r.item_type or (code_val and frappe.db.get_value("Item", code_val, "item_group")) or "GPS Tracker" %}
 
+                    {% set plate = (r.license_plate or r.registration_number or r.vehicle_no or "") | string %}
+                    {% set is_first_for_plate = (plate and plate not in sr.seen_plates) %}
+                    {% if is_first_for_plate %}
+                        {% set _ = sr.seen_plates.append(plate) %}
+                    {% endif %}
+
                     <tr>
                         <td>{{ sr.val }}</td>
-                        <td class="left">{{ r.license_plate or r.registration_number or r.vehicle_no or "-" }}</td>
+                        <td class="left">{{ plate if is_first_for_plate else "" }}</td>
                         <td class="left">{{ type_val }}</td>
                         <td class="left">{{ code_val or "-" }}</td>
                         <td class="left">{{ brand_val }}</td>
                         <td class="left">{{ model_val }}</td>
                         <td>{{ frappe.utils.fmt_money(rate_val, currency=doc.currency) }}</td>
-                        <td>{{ r.installation_date or r.date_of_installation or "-" }}</td>
+                        {% set raw_inst_date = r.installation_date or r.date_of_installation or "" %}
+                        <td>{{ frappe.utils.formatdate(raw_inst_date) if raw_inst_date else "-" }}</td>
                         <td>x</td>
-                        <td>{{ frappe.utils.fmt_money(rate_val, currency=doc.currency) }}</td>
+                        <td>
+                            {% if is_first_for_plate %}
+                                {% set veh_tot = veh_totals.get(plate, rate_val) %}
+                                {{ frappe.utils.fmt_money(veh_tot, currency=doc.currency) }}
+                            {% endif %}
+                        </td>
                     </tr>
                 {% endfor %}
 
@@ -883,7 +907,6 @@ tr.gps-lumpsum-row td { background-color: #ffff00 !important; font-weight: bold;
                         <th>Unit Number</th>
                         <th>Vehicle Registration Number</th>
                         <th>Installation Date</th>
-                        <th>Model</th>
                         {% for mo in months %}
                             <th>{{ mo.label }}</th>
                         {% endfor %}
@@ -900,7 +923,6 @@ tr.gps-lumpsum-row td { background-color: #ffff00 !important; font-weight: bold;
                     {% for row in rows %}
                         {% set reg_no = (row.registration_number or row.vehicle_no or "") | string %}
                         {% set dev_code = (row.device_number or row.item_code or "") | string %}
-                        {% set model_val = row.model or (dev_code and frappe.db.get_value("Item", dev_code, "custom_model")) or (dev_code and frappe.db.get_value("Item", dev_code, "item_name")) or "-" %}
 
                         {# FIND VEHICLE SUBSCRIPTION RATE FROM INVOICE ITEMS #}
                         {% set veh_sub_rate = namespace(amt=0) %}
@@ -923,17 +945,27 @@ tr.gps-lumpsum-row td { background-color: #ffff00 !important; font-weight: bold;
                             <td>{{ loop.index }}</td>
                             <td class="left">{{ dev_code or "-" }}</td>
                             <td class="left">{{ reg_no or "-" }}</td>
-                            <td>{{ row.date_of_installation or "-" }}</td>
-                            <td class="left">{{ model_val }}</td>
+                            {% set raw_sub_date = row.date_of_installation or "" %}
+                            <td>{{ frappe.utils.formatdate(raw_sub_date) if raw_sub_date else "-" }}</td>
 
                             {% for mo in months %}
-                                {% set is_active = row.get(mo.key) or row.get(mo.key ~ "_last_activity_date") or row.get("last_activity_date") %}
+                                {% set is_active = false %}
+                                {% set dec = row.get(mo.key ~ "_decision") %}
+                                {% set val = row.get(mo.key) %}
+                                {% if dec is not none and dec != "" %}
+                                    {% set is_active = (dec == "Chargeable") %}
+                                {% elif val is not none %}
+                                    {% set is_active = (val == 1 or val == "1" or val == true) %}
+                                {% endif %}
+
+                                {% set mo_rate = (row.get(mo.key ~ "_rate") or veh_sub_rate.amt or 0) | float %}
+
                                 <td>{{ "x" if is_active else "" }}</td>
 
                                 {% if is_active %}
                                     {% set new_tot = ns.totals[mo.key] + 1 %}
                                     {% set _ = ns.totals.update({mo.key: new_tot}) %}
-                                    {% set new_amt = ns.amounts[mo.key] + veh_sub_rate.amt %}
+                                    {% set new_amt = ns.amounts[mo.key] + mo_rate %}
                                     {% set _ = ns.amounts.update({mo.key: new_amt}) %}
                                 {% endif %}
                             {% endfor %}
@@ -944,7 +976,7 @@ tr.gps-lumpsum-row td { background-color: #ffff00 !important; font-weight: bold;
 
                     {# TOTAL COUNT ROW #}
                     <tr class="gps-total-row">
-                        <td colspan="5" style="text-align: right; font-weight: bold;">Total Count</td>
+                        <td colspan="4" style="text-align: right; font-weight: bold;">Total Count</td>
                         {% for mo in months %}
                             <td style="font-weight: bold;">{{ ns.totals[mo.key] }}</td>
                         {% endfor %}
@@ -953,7 +985,7 @@ tr.gps-lumpsum-row td { background-color: #ffff00 !important; font-weight: bold;
 
                     {# RATE ROW #}
                     <tr class="gps-total-row">
-                        <td colspan="5" style="text-align: right; font-weight: bold;">Rate</td>
+                        <td colspan="4" style="text-align: right; font-weight: bold;">Rate</td>
                         {% for mo in months %}
                             {% set avg_rate = (ns.amounts[mo.key] / ns.totals[mo.key]) if ns.totals[mo.key] > 0 else 0 %}
                             <td style="font-weight: bold;">
@@ -966,7 +998,7 @@ tr.gps-lumpsum-row td { background-color: #ffff00 !important; font-weight: bold;
                     {# AMOUNT ROW #}
                     {% set grand_sub_amt = namespace(val=0) %}
                     <tr class="gps-total-row">
-                        <td colspan="5" style="text-align: right; font-weight: bold;">Amount</td>
+                        <td colspan="4" style="text-align: right; font-weight: bold;">Amount</td>
                         {% for mo in months %}
                             {% set mo_amt = ns.amounts[mo.key] %}
                             {% set grand_sub_amt.val = grand_sub_amt.val + mo_amt %}
@@ -980,7 +1012,7 @@ tr.gps-lumpsum-row td { background-color: #ffff00 !important; font-weight: bold;
                     {# VAT ROW #}
                     {% set sub_vat_amt = grand_sub_amt.val * (vat.rate / 100) %}
                     <tr class="gps-vat-row">
-                        <td colspan="{{ 5 + months|length }}" style="text-align: right; font-weight: bold;">
+                        <td colspan="{{ 4 + months|length }}" style="text-align: right; font-weight: bold;">
                             VAT {{ vat.rate|int if vat.rate == (vat.rate|int) else vat.rate }}%
                         </td>
                         <td style="font-weight: bold;">
@@ -991,7 +1023,7 @@ tr.gps-lumpsum-row td { background-color: #ffff00 !important; font-weight: bold;
                     {# TOTAL INCLUSIVE VAT ROW #}
                     {% set sub_inc_tot = grand_sub_amt.val + sub_vat_amt %}
                     <tr class="gps-grandtotal-row">
-                        <td colspan="{{ 5 + months|length }}" style="text-align: right; font-weight: bold;">
+                        <td colspan="{{ 4 + months|length }}" style="text-align: right; font-weight: bold;">
                             Total Inclusive VAT {{ vat.rate|int if vat.rate == (vat.rate|int) else vat.rate }}%
                         </td>
                         <td style="font-weight: bold;">
@@ -1012,14 +1044,15 @@ tr.gps-lumpsum-row td { background-color: #ffff00 !important; font-weight: bold;
     {% endif %}
 </div>
 
-{% set discount_amount = (doc.custom_discount_amount or doc.discount_amount or 0) | float %}
-{% set discount_pct = (doc.additional_discount_percentage or doc.custom_discount_percentage or 0) | float %}
+{% set disc = namespace(amt=(doc.custom_discount_amount or doc.discount_amount or 0)|float, pct=(doc.additional_discount_percentage or doc.custom_discount_percentage or 0)|float) %}
 {% set lumpsum_amount = (doc.custom_lumpsum_amount or 0) | float %}
 {% set summary_subtotal = summary.installation_total + summary.subscription_total %}
-{% if discount_pct == 0 and discount_amount > 0 and summary_subtotal > 0 %}
-    {% set discount_pct = (discount_amount / summary_subtotal * 100) %}
+{% if disc.pct == 0 and disc.amt > 0 and summary_subtotal > 0 %}
+    {% set disc.pct = (disc.amt / summary_subtotal * 100) %}
+{% elif disc.pct > 0 and disc.amt == 0 and summary_subtotal > 0 %}
+    {% set disc.amt = summary_subtotal * (disc.pct / 100) %}
 {% endif %}
-{% set summary_net = summary_subtotal - discount_amount + lumpsum_amount %}
+{% set summary_net = summary_subtotal - disc.amt + lumpsum_amount %}
 {% set summary_vat_amount = summary_net * vat.rate / 100 %}
 {% set summary_grand_total = summary_net + summary_vat_amount %}
 
@@ -1030,8 +1063,8 @@ tr.gps-lumpsum-row td { background-color: #ffff00 !important; font-weight: bold;
 <table class="gps-stmt-table gps-summary-table">
     <thead>
         <tr>
-            <th class="left">Description</th>
-            <th class="right">Amount</th>
+            <th class="center">Description</th>
+            <th class="center">Amount</th>
         </tr>
     </thead>
     <tbody>
@@ -1048,8 +1081,8 @@ tr.gps-lumpsum-row td { background-color: #ffff00 !important; font-weight: bold;
             <td class="right">{{ frappe.utils.fmt_money(summary_subtotal, currency=doc.currency) }}</td>
         </tr>
         <tr class="gps-discount-row">
-            <td class="right">Discount {% if discount_pct > 0 %}{{ discount_pct|int if discount_pct == (discount_pct|int) else ("%.2f"|format(discount_pct)) }}%{% endif %}</td>
-            <td class="right">{{ frappe.utils.fmt_money(-discount_amount, currency=doc.currency) if discount_amount else "-" }}</td>
+            <td class="right">Discount {{ disc.pct|int if disc.pct == (disc.pct|int) else ("%.2f"|format(disc.pct)) }}%</td>
+            <td class="right">{{ frappe.utils.fmt_money(-disc.amt, currency=doc.currency) if disc.amt else "-" }}</td>
         </tr>
         <tr class="gps-lumpsum-row">
             <td class="right">Lumpsum Amount</td>
@@ -1057,7 +1090,7 @@ tr.gps-lumpsum-row td { background-color: #ffff00 !important; font-weight: bold;
         </tr>
         <tr class="gps-vat-row">
             <td class="right">VAT {{ vat.rate|int if vat.rate == (vat.rate|int) else vat.rate }}%</td>
-            <td class="right">{{ frappe.utils.fmt_money(summary_vat_amount, currency=doc.currency) }}</td>
+            <td class="right">{{ frappe.utils.fmt_money(summary_vat_amount, currency=doc.currency) if summary_vat_amount > 0 else "-" }}</td>
         </tr>
         <tr class="gps-grandtotal-row">
             <td class="right">Total</td>
