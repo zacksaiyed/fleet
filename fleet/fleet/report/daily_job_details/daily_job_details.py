@@ -16,7 +16,6 @@ def get_data(filters=None):
 		filters = {}
 
 	conditions = ""
-
 	if filters.get("from_date") and not filters.get("to_date"):
 		conditions += """
 			and (

@@ -307,7 +307,7 @@ def get_all_technicians_summary():
 		if employee:
 			row = frappe.db.sql(
 				"""
-					SELECT
+				SELECT
 					COUNT(*) AS total_jobs,
 					COALESCE(SUM(unread_count_support), 0) AS total_unread,
 					SUM(

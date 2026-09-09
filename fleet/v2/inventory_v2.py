@@ -497,76 +497,188 @@ def get_transfer(name):
 # 5. Create a material transfer
 
 @frappe.whitelist()
-def create_transfer(target, items):
+def create_transfer(purpose, items, target=None):
     """
     POST /api/method/fleet.mobile_api.inventory.create_transfer
-    Body:
-        target — target warehouse name (required)
-        items  — JSON array of item codes: ["ITEM-001", "ITEM-002"] (required)
 
-    Validates stock availability in source warehouse.
-    Saves as draft with workflow_state = "Approval Pending".
-    Sends in-app notification to target warehouse users.
+    Body:
+        purpose — Material Request / Material Issue / Material Handover (required)
+        items   — JSON array of item codes: ["ITEM-001", "ITEM-002"] (required)
+        target  — target warehouse name
+                  Required only for Material Handover.
+
+    Warehouse logic:
+        Material Request:
+            Source = Store warehouse
+            Target = Logged-in technician warehouse
+
+        Material Issue:
+            Source = Store warehouse
+            Target = Logged-in technician warehouse
+
+        Material Handover:
+            Source = Logged-in technician warehouse
+            Target = Selected technician warehouse
+
+    Validates stock availability in the resolved source warehouse.
+    Saves as draft with workflow_state = "Initiated".
 
     Response:
     {
         "status": "success",
         "name": "MT-2026-03-00001",
-        "msg": "Material Transfer created and sent for approval."
+        "purpose": "Material Handover",
+        "source": "Tech Warehouse - XB",
+        "target": "Tech Warehouse - XY",
+        "msg": "Material Transfer created. Call submit_transfer to send for approval."
     }
     """
-    if not target:
-        return _error(400, "MISSING_PARAMS", "target is required.")
+
+    if not purpose:
+        return _error(
+            400,
+            "MISSING_PARAMS",
+            "purpose is required."
+        )
 
     if isinstance(items, str):
         items = json.loads(items)
 
     if not items:
-        return _error(400, "MISSING_PARAMS", "items list is empty.")
+        return _error(
+            400,
+            "MISSING_PARAMS",
+            "items list is empty."
+        )
+
+    allowed_purposes = [
+        "Material Request",
+        "Material Issue",
+        "Material Handover",
+    ]
+
+    if purpose not in allowed_purposes:
+        return _error(
+            400,
+            "INVALID_PURPOSE",
+            f"Invalid purpose '{purpose}'."
+        )
 
     employee, err = _get_auth()
     if err:
         return err
-    my_warehouse = _get_tech_warehouse(employee)
 
-    if not my_warehouse:
-        return _error(404, "NO_WAREHOUSE", "No warehouse found for your account. Contact support.")
+    technician_warehouse = _get_tech_warehouse(employee)
 
-    if my_warehouse == target:
-        return _error(400, "SAME_WAREHOUSE", "Source and Target warehouse cannot be the same.")
+    if not technician_warehouse:
+        return _error(
+            404,
+            "NO_WAREHOUSE",
+            "No warehouse found for your account. Contact support."
+        )
 
-    if not frappe.db.exists("Warehouse", {"name": target, "disabled": 0}):
-        return _error(404, "NOT_FOUND", f"Target warehouse '{target}' not found or disabled.")
+    store = _get_store_warehouse()
 
-    # validate stock availability and fetch item details
-    errors       = []
+    if not store:
+        return _error(
+            404,
+            "NO_STORE_WAREHOUSE",
+            "Store warehouse not found."
+        )
+
+    store_warehouse = store.name
+
+    # Resolve source and target warehouse based on Material Transfer purpose.
+    #
+    # Material Request / Material Issue:
+    #     Store -> Logged-in Technician
+    #
+    # Material Handover:
+    #     Logged-in Technician -> Selected Technician
+    if purpose in ("Material Request", "Material Issue"):
+        source = store_warehouse
+        target = technician_warehouse
+
+    elif purpose == "Material Handover":
+        source = technician_warehouse
+
+        if not target:
+            return _error(
+                400,
+                "MISSING_PARAMS",
+                "target is required for Material Handover."
+            )
+
+    # pyrefly: ignore [unbound-name]
+    if source == target:
+        return _error(
+            400,
+            "SAME_WAREHOUSE",
+            "Source and Target warehouse cannot be the same."
+        )
+
+    if not frappe.db.exists(
+        "Warehouse",
+        {
+            "name": target,
+            "disabled": 0
+        }
+    ):
+        return _error(
+            404,
+            "NOT_FOUND",
+            f"Target warehouse '{target}' not found or disabled."
+        )
+
+    # validate stock availability in the resolved source warehouse
+    # and fetch item details
+    errors = []
     item_details = []
+
     for item_code in items:
         qty = frappe.db.get_value(
             "Bin",
-            {"item_code": item_code, "warehouse": my_warehouse},
+            {
+                "item_code": item_code,
+                "warehouse": source
+            },
             "actual_qty",
         ) or 0
 
         if frappe.utils.flt(qty) < 1:
             errors.append(item_code)
+
         else:
             info = frappe.db.get_value(
-                "Item", item_code,
-                ["item_name", "custom_item_type", "brand"],
+                "Item",
+                item_code,
+                [
+                    "item_name",
+                    "custom_item_type",
+                    "brand"
+                ],
                 as_dict=True,
             )
+
             item_details.append({
-                "item":      item_code,
+                "item": item_code,
                 "item_name": info.item_name if info else item_code,
                 "item_type": info.custom_item_type if info else None,
-                "brand":     info.brand if info else None,
+                "brand": info.brand if info else None,
             })
 
     if errors:
-        return _error(422, "STOCK_UNAVAILABLE", f"Items not available in your warehouse: {', '.join(errors)}")
+        return _error(
+            422,
+            "STOCK_UNAVAILABLE",
+            (
+                f"Items not available in source warehouse "
+                f"'{source}': {', '.join(errors)}"
+            )
+        )
 
-    # block if any item already has a pending transfer from the same source
+    # block if any item already has a pending transfer
+    # from the same resolved source warehouse
     pending_items = frappe.db.sql(
         """
         SELECT mti.item
@@ -577,33 +689,57 @@ def create_transfer(target, items):
           AND mt.docstatus < 2
           AND mti.item IN %(items)s
         """,
-        {"source": my_warehouse, "items": [d["item"] for d in item_details]},
+        {
+            "source": source,
+            "items": [d["item"] for d in item_details],
+        },
         as_dict=True,
     )
+
     if pending_items:
         blocked = ", ".join({r.item for r in pending_items})
-        return _error(422, "PENDING_TRANSFER", f"A pending transfer already exists for item(s): {blocked}. Approve or reject it first.")
 
-    doc                = frappe.new_doc("Material Transfer")
-    doc.source         = my_warehouse
-    doc.target         = target
+        return _error(
+            422,
+            "PENDING_TRANSFER",
+            (
+                f"A pending transfer already exists for item(s): {blocked}. "
+                f"Approve or reject it first."
+            )
+        )
+
+    if "Material Transfer User" not in frappe.get_roles():
+        return _error(
+            403,
+            "FORBIDDEN",
+            (
+                "You do not have permission to create a Material Transfer. "
+                "Ask your administrator for the 'Material Transfer User' role."
+            )
+        )
+
+    # create Material Transfer with source and target
+    # automatically resolved from purpose
+    doc = frappe.new_doc("Material Transfer")
+    doc.purpose = purpose
+    doc.source = source
+    doc.target = target
     doc.workflow_state = "Initiated"
 
     for item in item_details:
         doc.append("items", item)
-
-    if "Material Transfer User" not in frappe.get_roles():
-        return _error(403, "FORBIDDEN", "You do not have permission to create a Material Transfer. Ask your administrator for the 'Material Transfer User' role.")
 
     doc.insert(ignore_permissions=True)
     frappe.db.commit()
 
     return {
         "status": "success",
-        "name":   doc.name,
-        "msg":    "Material Transfer created. Call submit_transfer to send for approval.",
+        "name": doc.name,
+        "purpose": doc.purpose,
+        "source": doc.source,
+        "target": doc.target,
+        "msg": "Material Transfer created. Call submit_transfer to send for approval.",
     }
-
 
 # 6. Submit a material transfer for approval (Initiated → Approval Pending)
 
@@ -958,3 +1094,330 @@ def get_items(item_code):
 		return []
 
 	return [item]
+
+
+#10. Material Return
+
+# 5A. Create a material return
+
+@frappe.whitelist()
+def create_material_return(items):
+    """
+    POST /api/method/fleet.mobile_api.inventory.create_material_return
+
+    Body:
+        items — JSON array of items with return_type (required)
+
+        Example:
+        [
+            {
+                "item": "ITEM-001",
+                "return_type": "Store"
+            },
+            {
+                "item": "ITEM-002",
+                "return_type": "Damage"
+            },
+            {
+                "item": "ITEM-003",
+                "return_type": "Lost"
+            }
+        ]
+
+    Warehouse logic:
+        Source = Logged-in technician warehouse
+
+        Item return_type = Store:
+            Target warehouse = Store warehouse
+
+        Item return_type = Damage:
+            Target warehouse = Company's custom_default_damage_warehouse
+
+        Item return_type = Lost:
+            Target warehouse = Company's custom_default_lost_warehouse
+
+    Validates stock availability in the technician warehouse.
+    Saves as draft with purpose = "Material Return"
+    and workflow_state = "Initiated".
+
+    Response:
+    {
+        "status": "success",
+        "name": "MT-2026-09-00001",
+        "purpose": "Material Return",
+        "source": "Technician Warehouse - FM",
+        "msg": "Material Return created. Call submit_transfer to send for approval."
+    }
+    """
+
+    if isinstance(items, str):
+        items = json.loads(items)
+
+    if not items:
+        return _error(
+            400,
+            "MISSING_PARAMS",
+            "items list is empty."
+        )
+
+    employee, err = _get_auth()
+    if err:
+        return err
+
+    technician_warehouse = _get_tech_warehouse(employee)
+
+    if not technician_warehouse:
+        return _error(
+            404,
+            "NO_WAREHOUSE",
+            (
+                "No technician warehouse is configured for your account. "
+                "Please contact your administrator or company support."
+            )
+        )
+
+    source = technician_warehouse
+
+    company = frappe.defaults.get_user_default("Company")
+
+    if not company:
+        return _error(
+            404,
+            "NO_COMPANY",
+            (
+                "No default company is configured for your account. "
+                "Please contact your administrator or company support."
+            )
+        )
+
+    store = _get_store_warehouse()
+
+    damage_warehouse = frappe.db.get_value(
+        "Company",
+        company,
+        "custom_default_damage_warehouse"
+    )
+
+    lost_warehouse = frappe.db.get_value(
+        "Company",
+        company,
+        "custom_default_lost_warehouse"
+    )
+
+    allowed_return_types = [
+        "Store",
+        "Damage",
+        "Lost",
+    ]
+
+    errors = []
+    item_details = []
+
+    for row in items:
+        item_code = row.get("item")
+        return_type = row.get("return_type")
+
+        if not item_code:
+            return _error(
+                400,
+                "MISSING_ITEM",
+                "Item is required in every row."
+            )
+
+        if not return_type:
+            return _error(
+                400,
+                "MISSING_RETURN_TYPE",
+                f"Return Type is required for item '{item_code}'."
+            )
+
+        if return_type not in allowed_return_types:
+            return _error(
+                400,
+                "INVALID_RETURN_TYPE",
+                (
+                    f"Invalid Return Type '{return_type}' for item "
+                    f"'{item_code}'. Return Type must be Store, Damage or Lost."
+                )
+            )
+
+        # Resolve destination warehouse based on each item's Return Type.
+        #
+        # Store:
+        #     Technician -> Store
+        #
+        # Damage:
+        #     Technician -> Company's Damage Warehouse
+        #
+        # Lost:
+        #     Technician -> Company's Lost Warehouse
+        if return_type == "Store":
+            if not store:
+                return _error(
+                    404,
+                    "NO_STORE_WAREHOUSE",
+                    (
+                        "Store warehouse is not configured. "
+                        "Please contact your administrator or company support."
+                    )
+                )
+
+            target_warehouse = store.name
+
+        elif return_type == "Damage":
+            if not damage_warehouse:
+                return _error(
+                    404,
+                    "NO_DAMAGE_WAREHOUSE",
+                    (
+                        "Damage warehouse is not configured for your company. "
+                        "Please contact your administrator or company support."
+                    )
+                )
+
+            target_warehouse = damage_warehouse
+
+        elif return_type == "Lost":
+            if not lost_warehouse:
+                return _error(
+                    404,
+                    "NO_LOST_WAREHOUSE",
+                    (
+                        "Lost warehouse is not configured for your company. "
+                        "Please contact your administrator or company support."
+                    )
+                )
+
+            target_warehouse = lost_warehouse
+
+        if not frappe.db.exists(
+            "Warehouse",
+            {
+                # pyrefly: ignore [unbound-name]
+                "name": target_warehouse,
+                "disabled": 0
+            }
+        ):
+            return _error(
+                404,
+                "TARGET_WAREHOUSE_NOT_FOUND",
+                (
+                    f"The warehouse configured for Return Type "
+                    f"'{return_type}' was not found or is disabled. "
+                    f"Please contact your administrator or company support."
+                )
+            )
+
+        # validate stock availability in the technician warehouse
+        qty = frappe.db.get_value(
+            "Bin",
+            {
+                "item_code": item_code,
+                "warehouse": source
+            },
+            "actual_qty",
+        ) or 0
+
+        if frappe.utils.flt(qty) < 1:
+            errors.append(item_code)
+            continue
+
+        info = frappe.db.get_value(
+            "Item",
+            item_code,
+            [
+                "item_name",
+                "custom_item_type",
+                "brand"
+            ],
+            as_dict=True,
+        )
+
+        item_details.append({
+            "item": item_code,
+            "item_name": info.item_name if info else item_code,
+            "item_type": info.custom_item_type if info else None,
+            "brand": info.brand if info else None,
+            "return_type": return_type,
+            "warehouse": target_warehouse,
+        })
+
+    if errors:
+        return _error(
+            422,
+            "STOCK_UNAVAILABLE",
+            (
+                f"Items not available in your warehouse "
+                f"'{source}': {', '.join(errors)}"
+            )
+        )
+
+    # block if any item already has a pending transfer
+    # from the same technician warehouse
+    pending_items = frappe.db.sql(
+        """
+        SELECT mti.item
+        FROM `tabMaterial Transfer Item` mti
+        JOIN `tabMaterial Transfer` mt ON mt.name = mti.parent
+        WHERE mt.source = %(source)s
+          AND mt.workflow_state NOT IN ('Approved', 'Rejected', 'Cancelled')
+          AND mt.docstatus < 2
+          AND mti.item IN %(items)s
+        """,
+        {
+            "source": source,
+            "items": [d["item"] for d in item_details],
+        },
+        as_dict=True,
+    )
+
+    if pending_items:
+        blocked = ", ".join({r.item for r in pending_items})
+
+        return _error(
+            422,
+            "PENDING_TRANSFER",
+            (
+                f"A pending transfer already exists for item(s): {blocked}. "
+                f"Approve or reject it first."
+            )
+        )
+
+    if "Material Transfer User" not in frappe.get_roles():
+        return _error(
+            403,
+            "FORBIDDEN",
+            (
+                "You do not have permission to create a Material Return. "
+                "Please contact your administrator."
+            )
+        )
+
+    # create Material Transfer.
+    # Source is always logged-in technician warehouse.
+    # Destination warehouse is stored item-wise based on Return Type.
+    doc = frappe.new_doc("Material Transfer")
+    doc.purpose = "Material Return"
+    doc.source = source
+    doc.workflow_state = "Initiated"
+
+    for item in item_details:
+        doc.append("items", {
+            "item": item["item"],
+            "item_name": item["item_name"],
+            "item_type": item["item_type"],
+            "brand": item["brand"],
+            "return_type": item["return_type"],
+            "warehouse": item["warehouse"],
+        })
+
+    doc.insert(ignore_permissions=True)
+    frappe.db.commit()
+
+    return {
+        "status": "success",
+        "name": doc.name,
+        "purpose": doc.purpose,
+        "source": doc.source,
+        "msg": "Material Return created. Call submit_transfer to send for approval.",
+    }

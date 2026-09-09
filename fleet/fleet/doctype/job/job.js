@@ -3,6 +3,14 @@ frappe.ui.form.on("Job Item", {
 		const row = locals[cdt][cdn];
 		if (!row.item) return;
 
+		if (
+			["In Progress", "In Review"].includes(frm.doc.status)
+			&& row.item
+			&& row.installed_or_removed === "Installed"
+		) {
+			set_item_lock(row.item, true);
+		}
+
 		const duplicate = (frm.doc.item_installed_removed || []).find(
 			r => r.item === row.item && r.name !== cdn
 		);
@@ -29,6 +37,22 @@ frappe.ui.form.on("Job Item", {
 					}
 				},
 			});
+		}
+	},
+	item_installed_removed_remove(frm, cdt, cdn) {
+		const row = locals[cdt][cdn];
+
+		if (
+			["In Progress", "In Review"].includes(frm.doc.status)
+			&& row.item
+			&& row.installed_or_removed === "Installed"
+		) {
+			frappe.db.set_value(
+				"Item",
+				row.item,
+				"custom_is_locked",
+				0
+			);
 		}
 	},
 
@@ -118,9 +142,11 @@ frappe.ui.form.on("Job", {
 
 	refresh(frm) {
 		_attachVehicleNumberMask(frm);
+		render_vehicle_items(frm);
 		if (frm.is_new()) {
 			return;
 		}
+		render_job_images(frm)
 
 		frm.add_custom_button(__("Go to Chat"), () => {
 			go_to_chat(frm);
@@ -144,9 +170,31 @@ frappe.ui.form.on("Job", {
 				if (!doc.technician_warehouse) return {};
 				return {
 					query: "fleet.fleet.doctype.job.job.get_items_in_warehouse",
-					filters: { warehouse: doc.technician_warehouse },
+					filters: { warehouse: doc.technician_warehouse ,custom_is_locked: 0},
 				};
 			} else if (row.installed_or_removed === "Removed") {
+				if (!doc.customer_warehouse) return {};
+				return {
+					query: "fleet.fleet.doctype.job.job.get_removable_items",
+					filters: {
+						warehouse: doc.customer_warehouse,
+						vehicle_number: doc.vehicle_number || "",
+						customer: doc.customer || "",
+					},
+				};
+			}
+			return {};
+		});
+
+		frm.set_query("items", "items", function(doc, cdt, cdn) {
+			const row = locals[cdt][cdn];
+			if (row.source === "Technician") {
+				if (!doc.technician_warehouse) return {};
+				return {
+					query: "fleet.fleet.doctype.job.job.get_items_in_warehouse",
+					filters: { warehouse: doc.technician_warehouse ,custom_is_locked: 0},
+				};
+			} else if (row.source === "Old Vehicle") {
 				if (!doc.customer_warehouse) return {};
 				return {
 					query: "fleet.fleet.doctype.job.job.get_removable_items",
@@ -255,9 +303,17 @@ frappe.ui.form.on("Job", {
 			);
 		}
 	},
+	job_images_add(frm) {
+		render_job_images(frm);
+	},
+
+	job_images_remove(frm) {
+		render_job_images(frm);
+	},
 
 	vehicle_number(frm) {
 		fetch_vehicle_details(frm);
+		render_vehicle_items(frm);
 	},
 
 	task_type(frm) {
@@ -576,4 +632,241 @@ function wait_for_job(instance, job_name, technician) {
 			);
 		}
 	}, 100);
+}
+function render_vehicle_items(frm) {
+	if(frm.doc.task_type === "Installation") {
+		return;
+	}
+	const wrapper = frm.fields_dict.item_details.$wrapper;
+
+	if (!frm.doc.vehicle_number) {
+		wrapper.empty();
+		return;
+	}
+
+	frappe.db.get_doc("Vehicle", frm.doc.vehicle_number).then((vehicle) => {
+		const items = (vehicle.custom_vehicle_item || []).filter(
+			(row) => row.status === "Installed"
+		);
+
+		if (!items.length) {
+			wrapper.html(`
+				<div class="text-muted">
+					No installed vehicle items found.
+				</div>
+			`);
+			return;
+		}
+
+		let rows = "";
+
+		items.forEach((row, index) => {
+			rows += `
+				<tr>
+					<td>${index + 1}</td>
+					<td>${frappe.utils.escape_html(row.item_type || "")}</td>
+					<td>${frappe.utils.escape_html(row.item || "")}</td>
+					<td>${frappe.utils.escape_html(row.status || "")}</td>
+					<td>${row.date ? frappe.datetime.str_to_user(row.date) : ""}</td>
+				</tr>
+			`;
+		});
+
+		wrapper.html(`
+			<div style="margin-top: 10px;">
+				<table class="table table-bordered">
+					<thead>
+						<tr>
+							<th style="width: 60px;">No.</th>
+							<th>Item Type</th>
+							<th>Item</th>
+							<th>Status</th>
+							<th>Date</th>
+						</tr>
+					</thead>
+					<tbody>
+						${rows}
+					</tbody>
+				</table>
+			</div>
+		`);
+	});
+}
+
+
+function set_item_lock(item, locked) {
+	if (!item) return;
+
+	frappe.db.set_value(
+		"Item",
+		item,
+		"custom_is_locked",
+		locked ? 1 : 0
+	);
+}
+
+function render_job_images(frm) {
+	const wrapper = frm.fields_dict.job_image?.$wrapper;
+
+	if (!wrapper) {
+		return;
+	}
+
+	wrapper.empty();
+
+	const images = (frm.doc.job_images || [])
+		.filter(row => row.image)
+		.slice(0, 6);
+
+	if (!images.length) {
+		wrapper.html(`
+			<div style="
+				padding: 16px;
+				text-align: center;
+				color: #8d99a6;
+				border: 1px dashed #d1d8dd;
+				border-radius: 8px;
+			">
+				No job images available
+			</div>
+		`);
+		return;
+	}
+
+	const cards = images.map((row) => {
+		const image = frappe.utils.escape_html(row.image || "");
+		const comment = frappe.utils.escape_html(row.comment || "");
+
+		return `
+			<div class="job-image-card">
+
+				<a
+					href="${image}"
+					target="_blank"
+					rel="noopener noreferrer"
+					class="job-image-link"
+				>
+					<div class="job-image-thumbnail">
+						<img
+							src="${image}"
+							alt="Job Image"
+							loading="lazy"
+						>
+					</div>
+				</a>
+
+				<div class="job-image-comment">
+					${
+						comment
+							? comment
+							: '<span class="no-comment">No comment</span>'
+					}
+				</div>
+
+			</div>
+		`;
+	}).join("");
+
+	wrapper.html(`
+		<style>
+
+			/* Maximum 3 images per row */
+			.job-image-grid {
+				display: grid;
+				grid-template-columns: repeat(3, minmax(0, 1fr));
+				gap: 14px;
+				width: 100%;
+				align-items: start;
+			}
+
+			/* Card */
+			.job-image-card {
+				background: #ffffff;
+				border: 1px solid #dfe3e8;
+				border-radius: 10px;
+				overflow: hidden;
+				box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+				min-width: 0;
+			}
+
+			.job-image-link {
+				display: block;
+				text-decoration: none;
+			}
+
+			/*
+				Large image section.
+				Only image area gets increased height.
+			*/
+			.job-image-thumbnail {
+				width: 100%;
+				height: 300px;
+				background: #f5f7f9;
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				overflow: hidden;
+			}
+
+			/*
+				Contain = show complete image without cropping.
+			*/
+			.job-image-thumbnail img {
+				width: 100%;
+				height: 100%;
+				object-fit: contain;
+				display: block;
+				transition: transform 0.2s ease;
+			}
+
+			.job-image-card:hover .job-image-thumbnail img {
+				transform: scale(1.02);
+			}
+
+			/*
+				Comment stays compact.
+				No fixed/min height.
+			*/
+			.job-image-comment {
+				padding: 8px 12px;
+				font-size: 13px;
+				line-height: 1.4;
+				color: #36414c;
+				word-break: break-word;
+				background: #ffffff;
+			}
+
+			.no-comment {
+				color: #9aa3ad;
+				font-style: italic;
+			}
+
+			/* Tablet - 2 images per row */
+			@media (max-width: 991px) {
+				.job-image-grid {
+					grid-template-columns: repeat(2, minmax(0, 1fr));
+				}
+
+				.job-image-thumbnail {
+					height: 300px;
+				}
+			}
+
+			/* Mobile - 1 image per row */
+			@media (max-width: 575px) {
+				.job-image-grid {
+					grid-template-columns: 1fr;
+				}
+
+				.job-image-thumbnail {
+					height: 320px;
+				}
+			}
+
+		</style>
+
+		<div class="job-image-grid">
+			${cards}
+		</div>
+	`);
 }
