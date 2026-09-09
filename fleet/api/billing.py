@@ -518,49 +518,70 @@ def generate_customer_invoice(
                         search_models = [m for m in [vehicle.model, item_model] if m]
                         rate = 0.0
 
-                        # 1. Check Customer Component Price History
+                        # 1. Check Customer Component Price table directly on Customer doc
                         for m_name in search_models:
-                            latest_price_log = frappe.db.get_all("Customer Component Price History",
-                                filters={"customer": v_customer_id, "model": m_name, "changed_on": ["<=", install_date]},
-                                fields=["rate"], order_by="changed_on desc", limit=1)
-                            if latest_price_log and latest_price_log[0].get("rate"):
-                                rate = float(latest_price_log[0].rate)
+                            cust_p_rows = frappe.db.get_all("Customer Component Price",
+                                filters={"parent": v_customer_id, "model": m_name},
+                                fields=["customer_price", "effective_from", "effective_to"], order_by="effective_from desc, idx asc")
+                            for c_row in cust_p_rows:
+                                if c_row.get("customer_price"):
+                                    eff_f = c_row.get("effective_from")
+                                    eff_t = c_row.get("effective_to")
+                                    if (not eff_f or getdate(eff_f) <= install_date) and (not eff_t or getdate(eff_t) >= install_date):
+                                        rate = float(c_row.customer_price)
+                                        break
+                            if rate > 0.0:
                                 break
 
-                        # 2. Fallback: Check Customer Component Price UI table directly on Customer doc
+                        # 2. Check Customer Component Price History
                         if rate == 0.0:
                             for m_name in search_models:
-                                cust_p_rows = frappe.db.get_all("Customer Component Price",
-                                    filters={"parent": v_customer_id, "model": m_name},
-                                    fields=["customer_price", "effective_from"], order_by="idx asc", limit=1)
-                                if cust_p_rows and cust_p_rows[0].get("customer_price"):
-                                    eff_f = cust_p_rows[0].get("effective_from")
-                                    if not eff_f or getdate(eff_f) <= install_date:
-                                        rate = float(cust_p_rows[0].customer_price)
-                                        break
-
-                        # 3. Fallback: Check Parent Customer Price History
-                        if rate == 0.0 and v_customer.custom_parent_customer:
-                            for m_name in search_models:
-                                parent_price_log = frappe.db.get_all("Customer Component Price History",
-                                    filters={"customer": v_customer.custom_parent_customer, "model": m_name, "changed_on": ["<=", install_date]},
-                                    fields=["rate"], order_by="changed_on desc", limit=1)
-                                if parent_price_log and parent_price_log[0].get("rate"):
-                                    rate = float(parent_price_log[0].rate)
+                                price_logs = frappe.db.get_all("Customer Component Price History",
+                                    filters={"customer": v_customer_id, "model": m_name},
+                                    fields=["rate", "effective_from", "effective_to"], order_by="effective_from desc, changed_on desc")
+                                for p_log in price_logs:
+                                    if p_log.get("rate"):
+                                        eff_f = p_log.get("effective_from")
+                                        eff_t = p_log.get("effective_to")
+                                        if (not eff_f or getdate(eff_f) <= install_date) and (not eff_t or getdate(eff_t) >= install_date):
+                                            rate = float(p_log.rate)
+                                            break
+                                if rate > 0.0:
                                     break
 
-                        # 4. Fallback: Check Parent Customer Component Price UI table directly
+                        # 3. Fallback: Check Parent Customer Component Price table directly
                         if rate == 0.0 and v_customer.custom_parent_customer:
                             for m_name in search_models:
                                 p_cust_p_rows = frappe.db.get_all("Customer Component Price",
                                     filters={"parent": v_customer.custom_parent_customer, "model": m_name},
-                                    fields=["customer_price", "effective_from"], order_by="idx asc", limit=1)
-                                if p_cust_p_rows and p_cust_p_rows[0].get("customer_price"):
-                                    eff_f = p_cust_p_rows[0].get("effective_from")
-                                    if not eff_f or getdate(eff_f) <= install_date:
-                                        rate = float(p_cust_p_rows[0].customer_price)
-                                        break
+                                    fields=["customer_price", "effective_from", "effective_to"], order_by="effective_from desc, idx asc")
+                                for p_row in p_cust_p_rows:
+                                    if p_row.get("customer_price"):
+                                        eff_f = p_row.get("effective_from")
+                                        eff_t = p_row.get("effective_to")
+                                        if (not eff_f or getdate(eff_f) <= install_date) and (not eff_t or getdate(eff_t) >= install_date):
+                                            rate = float(p_row.customer_price)
+                                            break
+                                if rate > 0.0:
+                                    break
+
+                        # 4. Fallback: Check Parent Customer Price History
+                        if rate == 0.0 and v_customer.custom_parent_customer:
+                            for m_name in search_models:
+                                parent_price_logs = frappe.db.get_all("Customer Component Price History",
+                                    filters={"customer": v_customer.custom_parent_customer, "model": m_name},
+                                    fields=["rate", "effective_from", "effective_to"], order_by="effective_from desc, changed_on desc")
+                                for p_log in parent_price_logs:
+                                    if p_log.get("rate"):
+                                        eff_f = p_log.get("effective_from")
+                                        eff_t = p_log.get("effective_to")
+                                        if (not eff_f or getdate(eff_f) <= install_date) and (not eff_t or getdate(eff_t) >= install_date):
+                                            rate = float(p_log.rate)
+                                            break
+                                if rate > 0.0:
+                                    break
                         
+                        rate_already_converted = False
                         # 5. Fallback: Check Item Model price or Item default price
                         if rate == 0.0:
                             for m_name in search_models:
@@ -574,8 +595,26 @@ def generate_customer_invoice(
                                     or frappe.db.get_value("Item", item, "standard_rate")
                                     or 0.0
                                 )
+                            if rate == 0.0 and item:
+                                cust_pl = frappe.db.get_value("Customer", v_customer_id, "default_price_list") if v_customer_id else None
+                                ip_filters = {"item_code": item}
+                                if cust_pl:
+                                    ip_filters["price_list"] = cust_pl
+                                else:
+                                    ip_filters["selling"] = 1
+                                ip_doc = frappe.db.get_value("Item Price", ip_filters, ["price_list_rate", "currency"], as_dict=True)
+                                if not ip_doc:
+                                    ip_doc = frappe.db.get_value("Item Price", {"item_code": item}, ["price_list_rate", "currency"], as_dict=True)
+                                if ip_doc and ip_doc.price_list_rate:
+                                    ip_rate = float(ip_doc.price_list_rate)
+                                    if ip_doc.currency == "USD" and inv_currency == "LOCAL":
+                                        ip_rate = ip_rate * usd_to_local
+                                    elif ip_doc.currency != "USD" and inv_currency == "USD" and usd_to_local:
+                                        ip_rate = ip_rate / usd_to_local
+                                    rate = ip_rate
+                                    rate_already_converted = True
 
-                        if inv_currency == "LOCAL":
+                        if not rate_already_converted and inv_currency == "LOCAL":
                             rate = rate * usd_to_local
                             
                         billing_items.append({
@@ -590,7 +629,7 @@ def generate_customer_invoice(
                                 "custom_billing_month": target_date,
                                 "item_code": item, "qty": 1, "custom_is_installation": 1, "custom_is_removed": item_is_removed_flag,
                                 "custom_vehicle": vehicle.name,
-                                "custom_registration_number": vehicle_doc.get("custom_cleaned_licence_plate_number") or vehicle_doc.license_plate or vehicle.name,
+                                "custom_registration_number": vehicle_doc.get("custom_cleaned_licence_plate_number") or vehicle.name,
                                 "custom_billing_month_label": b_month["label"], 
                                 "custom_original_rate": rate,
                                 "custom_final_rate": rate,
@@ -705,8 +744,8 @@ def generate_customer_invoice(
                                 "qty": 1, 
                                 "custom_is_subscription": 1, "custom_is_removed": item_is_removed_flag,  
                                 "custom_vehicle": vehicle.name,
-                                "custom_registration_number": vehicle_doc.get("custom_cleaned_licence_plate_number") or vehicle_doc.license_plate or vehicle.name,
-                                "custom_cleaned_licence_plate_number": vehicle_doc.get("custom_cleaned_licence_plate_number") or vehicle_doc.license_plate or vehicle.name,
+                                "custom_registration_number": vehicle_doc.get("custom_cleaned_licence_plate_number") or vehicle.name,
+                                "custom_cleaned_licence_plate_number": vehicle_doc.get("custom_cleaned_licence_plate_number") or vehicle.name,
                                 "custom_billing_month_label": b_month["label"], 
                                 "custom_original_rate": orig_rate,
                                 "custom_final_rate": final_rate,
@@ -847,16 +886,33 @@ def generate_customer_invoice(
                 
         v_cust_doc = customer_map.get(group["customer"])
         vat_account = frappe.db.get_value("Company", company_name, "custom_vat_account")
+        if not vat_account:
+            vat_account = (
+                frappe.db.get_value("Account", {"company": company_name, "account_type": "Tax", "name": ["like", "%VAT%"]}, "name")
+                or frappe.db.get_value("Account", {"company": company_name, "account_type": "Tax"}, "name")
+            )
         
-        if v_cust_doc and v_cust_doc.custom_vat_applicable:
-            default_tax_rate = frappe.db.get_single_value("Fleet Billing Settings", "default_vat_rate") or 0.0
-            final_account_head = vat_account if vat_account else "TDS - S"
-            
+        if v_cust_doc and v_cust_doc.custom_vat_applicable and vat_account:
+            default_tax_rate = float(frappe.db.get_single_value("Fleet Billing Settings", "default_vat_rate") or 0.0)
+            if not default_tax_rate:
+                try:
+                    default_tax_rate = float(frappe.get_single("Fleet Billing Settings").default_vat_rate or 0.0)
+                except Exception:
+                    pass
+            if not default_tax_rate:
+                tax_tmpl = frappe.db.get_value("Sales Taxes and Charges Template", {"company": company_name}, "name")
+                if tax_tmpl:
+                    tmpl_rate = frappe.db.get_value("Sales Taxes and Charges", {"parent": tax_tmpl, "account_head": vat_account}, "rate")
+                    if tmpl_rate:
+                        default_tax_rate = float(tmpl_rate)
+            if not default_tax_rate:
+                default_tax_rate = 16.0
+
             inv.append("taxes", {
                 "charge_type": "On Net Total",
-                "account_head": final_account_head,
+                "account_head": vat_account,
                 "rate": default_tax_rate,
-                "description": "Tax Deduction"
+                "description": "VAT"
             })
             
         inv.calculate_taxes_and_totals()
@@ -1029,21 +1085,156 @@ def generate_customer_invoice(
     }
 
 
+def get_sales_invoice_vehicles(doc):
+    """
+    Extracts all unique vehicle IDs linked to a Sales Invoice from its items and JSON structures.
+    """
+    vehicles = set()
+    for item in (doc.get("items") or []):
+        v = item.get("custom_vehicle")
+        if v and frappe.db.exists("Vehicle", v):
+            vehicles.add(v)
+        elif item.get("custom_registration_number"):
+            reg = item.custom_registration_number
+            v_name = (
+                frappe.db.get_value("Vehicle", reg, "name")
+                or frappe.db.get_value("Vehicle", {"license_plate": reg}, "name")
+                or frappe.db.get_value("Vehicle", {"custom_cleaned_licence_plate_number": reg}, "name")
+            )
+            if v_name:
+                vehicles.add(v_name)
+
+    for jf in ["custom_fleet_data_json", "custom_cb_fleet_data_json", "custom_installation_data_json"]:
+        raw = doc.get(jf)
+        if raw:
+            try:
+                rows = json.loads(raw) if isinstance(raw, str) else raw
+                for r in rows:
+                    v = r.get("vehicle_no") or r.get("custom_vehicle") or r.get("vehicle")
+                    if v and frappe.db.exists("Vehicle", v):
+                        vehicles.add(v)
+                    else:
+                        reg = r.get("registration_number") or r.get("license_plate")
+                        if reg:
+                            v_name = (
+                                frappe.db.get_value("Vehicle", reg, "name")
+                                or frappe.db.get_value("Vehicle", {"license_plate": reg}, "name")
+                                or frappe.db.get_value("Vehicle", {"custom_cleaned_licence_plate_number": reg}, "name")
+                            )
+                            if v_name:
+                                vehicles.add(v_name)
+            except Exception:
+                pass
+    return list(vehicles)
+
+
+def get_vehicle_last_billed_date_excluding(vehicle_name, exclude_invoice_name=None):
+    """
+    Finds the maximum billed date among remaining submitted Sales Invoices (docstatus = 1) for a vehicle.
+    """
+    item_res = frappe.db.sql("""
+        SELECT MAX(COALESCE(si.custom_billing_end_date, si.custom_billing_to, si.posting_date)) as max_date
+        FROM `tabSales Invoice Item` sii
+        JOIN `tabSales Invoice` si ON si.name = sii.parent
+        WHERE si.docstatus = 1
+          AND si.name != %s
+          AND (sii.custom_vehicle = %s OR sii.custom_registration_number = %s)
+    """, (exclude_invoice_name or "", vehicle_name, vehicle_name), as_dict=True)
+
+    max_date = item_res[0].max_date if item_res and item_res[0].max_date else None
+
+    cust = frappe.db.get_value("Vehicle", vehicle_name, "custom_customer")
+    if cust:
+        candidates = frappe.db.get_all(
+            "Sales Invoice",
+            filters={
+                "customer": cust,
+                "docstatus": 1,
+                "name": ["!=", exclude_invoice_name or ""]
+            },
+            fields=["name", "custom_billing_end_date", "custom_billing_to", "posting_date", "custom_fleet_data_json", "custom_cb_fleet_data_json", "custom_installation_data_json"]
+        )
+        for inv in candidates:
+            d = inv.custom_billing_end_date or inv.custom_billing_to or inv.posting_date
+            if not d:
+                continue
+            if max_date and getdate(d) <= getdate(max_date):
+                continue
+            for jf in ["custom_fleet_data_json", "custom_cb_fleet_data_json", "custom_installation_data_json"]:
+                raw = inv.get(jf)
+                if raw and vehicle_name in str(raw):
+                    max_date = d
+                    break
+
+    return max_date
+
+
+def get_customer_last_billed_date_excluding(customer_name, exclude_invoice_name=None):
+    """
+    Finds the maximum billed date among remaining submitted non-partial Sales Invoices (docstatus = 1) for a customer.
+    """
+    res = frappe.db.sql("""
+        SELECT MAX(COALESCE(custom_billing_end_date, custom_billing_to, posting_date)) as max_date
+        FROM `tabSales Invoice`
+        WHERE docstatus = 1
+          AND customer = %s
+          AND name != %s
+          AND (custom_partial_invoice IS NULL OR custom_partial_invoice = 0)
+    """, (customer_name, exclude_invoice_name or ""), as_dict=True)
+
+    if res and res[0].max_date:
+        return res[0].max_date
+    return None
+
+
 @frappe.whitelist()
 def on_sales_invoice_submit(doc, method=None):
-    if not doc.custom_billing_end_date:
+    if isinstance(doc, str):
+        doc = frappe.get_doc("Sales Invoice", doc)
+
+    billing_date = doc.get("custom_billing_end_date") or doc.get("custom_billing_to") or doc.get("posting_date")
+    if not billing_date:
         return
 
-    for item in doc.items:
-        if item.custom_vehicle:
-            v_date = frappe.db.get_value("Vehicle", item.custom_vehicle, "custom_last_billed_upto_date")
-            if not v_date or getdate(doc.custom_billing_end_date) > getdate(v_date):
-                frappe.db.set_value("Vehicle", item.custom_vehicle, "custom_last_billed_upto_date", doc.custom_billing_end_date)
-                
-    if not doc.custom_partial_invoice:
-        c_date = frappe.db.get_value("Customer", doc.customer, "custom_last_billed_upto_date")
-        if not c_date or getdate(doc.custom_billing_end_date) > getdate(c_date):
-            frappe.db.set_value("Customer", doc.customer, "custom_last_billed_upto_date", doc.custom_billing_end_date)
+    # Check if this invoice is a partial invoice
+    if doc.get("custom_partial_invoice") is not None:
+        is_partial = bool(doc.get("custom_partial_invoice"))
+    else:
+        is_partial = bool(frappe.db.get_value("Customer", doc.customer, "custom_partial_billing"))
+
+    vehicles = get_sales_invoice_vehicles(doc)
+
+    # 1. Update Vehicle custom_last_billed_upto_date for all vehicles in this invoice
+    for v_name in vehicles:
+        frappe.db.set_value("Vehicle", v_name, "custom_last_billed_upto_date", billing_date, update_modified=False)
+
+    # 2. If NOT partial, also update Customer custom_last_billed_upto_date
+    if not is_partial and doc.get("customer"):
+        frappe.db.set_value("Customer", doc.customer, "custom_last_billed_upto_date", billing_date, update_modified=False)
+
+
+@frappe.whitelist()
+def on_sales_invoice_cancel(doc, method=None):
+    if isinstance(doc, str):
+        doc = frappe.get_doc("Sales Invoice", doc)
+
+    # Check if this invoice was a partial invoice
+    if doc.get("custom_partial_invoice") is not None:
+        is_partial = bool(doc.get("custom_partial_invoice"))
+    else:
+        is_partial = bool(frappe.db.get_value("Customer", doc.customer, "custom_partial_billing"))
+
+    vehicles = get_sales_invoice_vehicles(doc)
+
+    # 1. Revert Vehicle custom_last_billed_upto_date for all vehicles in this invoice
+    for v_name in vehicles:
+        prev_v_date = get_vehicle_last_billed_date_excluding(v_name, exclude_invoice_name=doc.name)
+        frappe.db.set_value("Vehicle", v_name, "custom_last_billed_upto_date", prev_v_date, update_modified=False)
+
+    # 2. If NOT partial, also revert Customer custom_last_billed_upto_date
+    if not is_partial and doc.get("customer"):
+        prev_c_date = get_customer_last_billed_date_excluding(doc.customer, exclude_invoice_name=doc.name)
+        frappe.db.set_value("Customer", doc.customer, "custom_last_billed_upto_date", prev_c_date, update_modified=False)
 
 
 @frappe.whitelist()
