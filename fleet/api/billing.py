@@ -401,7 +401,7 @@ def generate_customer_invoice(
             
             for row in vehicle_doc.get("custom_vehicle_item", []):
                 if row.status == "Installed" and row.item:
-                    row_install_date = row.get("custom_installation_date") or row.date
+                    row_install_date = row.get("date_of_installation") or row.date
                     if not row_install_date and is_advance:
                         row_install_date = frappe.db.get_value(
                             "GPS Installation Status Log",

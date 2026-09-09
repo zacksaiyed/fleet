@@ -68,14 +68,14 @@ def get_eligible_advance_vehicles(doctype, txt, searchfield, start, page_len, fi
             FROM `tabVehicle Item` installed
             WHERE installed.parent = vehicle.name
               AND installed.status = 'Installed'
-              AND COALESCE(installed.custom_installation_date, installed.date) <= %s
+              AND COALESCE(installed.date_of_installation, installed.date) <= %s
               AND NOT EXISTS (
                 SELECT 1
                 FROM `tabVehicle Item` removed
                 WHERE removed.parent = installed.parent
                   AND removed.item = installed.item
                   AND removed.status = 'Removed'
-                  AND COALESCE(removed.custom_removal_date, removed.date) < %s
+                  AND COALESCE(removed.date_of_removal, removed.date) < %s
               )
           )
         ORDER BY vehicle.name
@@ -136,14 +136,14 @@ def _is_vehicle_eligible(vehicle, start_date, end_date):
             FROM `tabVehicle Item` installed
             WHERE installed.parent = %s
               AND installed.status = 'Installed'
-              AND COALESCE(installed.custom_installation_date, installed.date) <= %s
+              AND COALESCE(installed.date_of_installation, installed.date) <= %s
               AND NOT EXISTS (
                 SELECT 1
                 FROM `tabVehicle Item` removed
                 WHERE removed.parent = installed.parent
                   AND removed.item = installed.item
                   AND removed.status = 'Removed'
-                  AND COALESCE(removed.custom_removal_date, removed.date) < %s
+                  AND COALESCE(removed.date_of_removal, removed.date) < %s
               )
             LIMIT 1
             """,

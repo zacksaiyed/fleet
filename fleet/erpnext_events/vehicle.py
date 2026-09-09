@@ -25,10 +25,10 @@ def validate_vehicle(doc, method=None):
 
 def _sync_vehicle_item_dates(row):
     if row.status == "Installed":
-        row.custom_installation_date = row.custom_installation_date or row.date
-        row.date = row.custom_installation_date
+        row.date_of_installation = row.date_of_installation or row.date
+        row.date = row.date_of_installation
     elif row.status == "Removed":
-        row.custom_removal_date = row.custom_removal_date or frappe.utils.nowdate()
+        row.date_of_removal = row.date_of_removal or frappe.utils.nowdate()
 
 
 def update_vechile_status(doc):

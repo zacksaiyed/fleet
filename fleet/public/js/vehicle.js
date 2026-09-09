@@ -40,11 +40,10 @@ frappe.ui.form.on('Vehicle', {
 frappe.ui.form.on('Vehicle Item', {
 	status(frm, cdt, cdn) {
 		const row = locals[cdt][cdn];
-		if (row.status !== 'Removed') {
-			return;
+		if (row.status === 'Removed') {
+			frappe.model.set_value(cdt, cdn, 'date_of_removal', frappe.datetime.get_today());
+		} else if (row.status === 'Installed' && !row.date_of_installation) {
+			frappe.model.set_value(cdt, cdn, 'date_of_installation', frappe.datetime.get_today());
 		}
-
-		const removal_date = frappe.datetime.get_today();
-		frappe.model.set_value(cdt, cdn, 'custom_removal_date', removal_date);
 	}
 });
