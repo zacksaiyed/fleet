@@ -982,9 +982,10 @@ def generate_customer_invoice(
     for key, group in grouped_invoices.items():
         has_chargeable = False
         for item_data in group["items"]:
-            if item_data.get("custom_billing_decision") == "Chargeable" and item_data.get("custom_final_rate", 0.0) > 0.0:
-                has_chargeable = True
-                break
+            if item_data.get("custom_billing_decision") == "Chargeable":
+                if item_data.get("custom_is_installation") == 1 or item_data.get("custom_final_rate", 0.0) > 0.0:
+                    has_chargeable = True
+                    break
         if not has_chargeable:
             continue
             
@@ -1248,7 +1249,13 @@ def generate_customer_invoice(
         created_invoices.append(inv.name)
 
     if not created_invoices:
-        return {"status": "success", "message": "No invoices generated as all items in this period were waived."}
+        all_waived = all(
+            all(i.get("custom_billing_decision") == "Waived" or i.get("custom_waived") == 1 for i in g["items"])
+            for g in grouped_invoices.values()
+        ) if grouped_invoices else False
+        if all_waived:
+            return {"status": "success", "message": "No invoices generated as all items in this period were waived."}
+        return {"status": "info", "message": "No chargeable invoices generated for this period."}
     
     return {
         "status": "success",
