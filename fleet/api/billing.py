@@ -2246,3 +2246,100 @@ def get_default_billing_start_date(customer_id):
                 earliest_creation = v_c_date
                 
     return earliest_creation
+
+
+@frappe.whitelist()
+def process_automatic_billing(billing_date=None):
+    """
+    Automatically processes billing for eligible customers based on frequency and billing cycle.
+    """
+    if billing_date:
+        current_date = getdate(billing_date)
+    else:
+        current_date = getdate(today())
+
+    eligible_customers = frappe.get_all(
+        "Customer",
+        filters={
+            "disabled": 0,
+        },
+        fields=[
+            "name",
+            "custom_last_billed_upto_date",
+            "custom_invoice_frequency_months",
+            "custom_ignore_billing_cycle",
+        ],
+    )
+
+    for cust in eligible_customers:
+        freq_months = int(cust.custom_invoice_frequency_months or 1)
+        last_billed = cust.custom_last_billed_upto_date
+        ignore_cycle = cust.custom_ignore_billing_cycle
+
+        if ignore_cycle:
+            # ==========================================================
+            # SCENARIO 2: Dynamic Anniversary Billing
+            # ==========================================================
+            if last_billed:
+                cycle_start_date = add_days(getdate(last_billed), 1)
+            else:
+                default_start = get_default_billing_start_date(cust.name)
+                if not default_start:
+                    continue
+                cycle_start_date = getdate(default_start)
+
+            next_billing_date = add_months(cycle_start_date, freq_months)
+            cycle_end_date = add_days(next_billing_date, -1)
+
+            if current_date >= next_billing_date:
+                try:
+                    generate_customer_invoice(
+                        customer_id=cust.name,
+                        from_date=cycle_start_date,
+                        to_date=cycle_end_date,
+                    )
+                    frappe.db.commit()
+                except Exception as e:
+                    frappe.db.rollback()
+                    frappe.log_error(f"Dynamic Auto Billing failed for {cust.name}: {str(e)}", "Automatic Fleet Billing Error")
+
+        else:
+            # ==========================================================
+            # SCENARIO 1: Fixed Calendar Month Billing
+            # ==========================================================
+            triggers = {
+                1: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+                2: [1, 3, 5, 7, 9, 11],
+                3: [1, 4, 7, 10],
+                4: [1, 5, 9],
+                6: [1, 7],
+                12: [1],
+            }
+
+            trigger_months = triggers.get(freq_months, [1])
+
+            if current_date.month in trigger_months:
+                first_day_current_month = getdate(f"{current_date.year}-{current_date.month:02d}-01")
+                cycle_end_date = add_days(first_day_current_month, -1)
+
+                if last_billed:
+                    cycle_start_date = add_days(getdate(last_billed), 1)
+                else:
+                    cycle_start_date = add_months(first_day_current_month, -freq_months)
+
+                if cycle_start_date <= cycle_end_date:
+                    try:
+                        response = generate_customer_invoice(
+                            customer_id=cust.name,
+                            from_date=cycle_start_date,
+                            to_date=cycle_end_date,
+                        )
+                        frappe.db.commit()
+
+                        if response and isinstance(response, dict) and response.get("status") == "success":
+                            frappe.publish_realtime("doc_update", {"doctype": "Customer", "name": cust.name})
+
+                    except Exception as e:
+                        frappe.db.rollback()
+                        frappe.log_error(f"Fixed Auto Billing failed for {cust.name}: {str(e)}", "Automatic Fleet Billing Error")
+
