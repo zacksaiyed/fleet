@@ -69,6 +69,7 @@ def get_eligible_advance_vehicles(doctype, txt, searchfield, start, page_len, fi
             WHERE installed.parent = vehicle.name
               AND installed.status = 'Installed'
               AND installed.is_chargeable = 1
+              AND COALESCE(installed.billed, 0) = 0
               AND COALESCE(installed.date_of_installation, installed.date) <= %s
               AND NOT EXISTS (
                 SELECT 1
@@ -138,6 +139,7 @@ def _is_vehicle_eligible(vehicle, start_date, end_date):
             WHERE installed.parent = %s
               AND installed.status = 'Installed'
               AND installed.is_chargeable = 1
+              AND COALESCE(installed.billed, 0) = 0
               AND COALESCE(installed.date_of_installation, installed.date) <= %s
               AND NOT EXISTS (
                 SELECT 1
