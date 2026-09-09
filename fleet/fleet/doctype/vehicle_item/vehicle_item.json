@@ -63,12 +63,14 @@
    "default": "0",
    "fieldname": "is_chargeable",
    "fieldtype": "Check",
+   "in_list_view": 1,
    "label": "Is Chargeable"
   },
   {
    "default": "0",
    "fieldname": "billed",
    "fieldtype": "Check",
+   "in_list_view": 1,
    "label": "Billed"
   }
  ],

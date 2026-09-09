@@ -1263,6 +1263,237 @@ def get_customer_last_billed_date_excluding(customer_name, exclude_invoice_name=
     return None
 
 
+def is_item_billed_in_other_submitted_invoice(vehicle_name: str, item_code: str, exclude_invoice_name: str = None) -> bool:
+    """
+    Check if a vehicle item is included in any other submitted (docstatus = 1) Sales Invoice.
+    """
+    if not vehicle_name or not item_code:
+        return False
+
+    res = frappe.db.sql(
+        """
+        SELECT 1
+        FROM `tabSales Invoice Item` sii
+        JOIN `tabSales Invoice` si ON si.name = sii.parent
+        WHERE si.docstatus = 1
+          AND si.name != %s
+          AND (sii.custom_vehicle = %s OR sii.custom_registration_number = %s)
+          AND TRIM(sii.item_code) = %s
+        LIMIT 1
+        """,
+        (exclude_invoice_name or "", vehicle_name, vehicle_name, item_code.strip()),
+    )
+    if res:
+        return True
+
+    cust = frappe.db.get_value("Vehicle", vehicle_name, "custom_customer")
+    if cust:
+        candidates = frappe.db.get_all(
+            "Sales Invoice",
+            filters={
+                "customer": cust,
+                "docstatus": 1,
+                "name": ["!=", exclude_invoice_name or ""]
+            },
+            fields=["custom_fleet_data_json", "custom_cb_fleet_data_json", "custom_installation_data_json"]
+        )
+        for inv in candidates:
+            for jf in ["custom_fleet_data_json", "custom_cb_fleet_data_json", "custom_installation_data_json"]:
+                raw = inv.get(jf)
+                if raw and vehicle_name in str(raw) and item_code in str(raw):
+                    return True
+
+    return False
+
+
+def update_vehicle_billed_status_on_submit(doc, vehicles=None, default_billing_date=None):
+    """
+    On Sales Invoice submission:
+    1. Updates each vehicle's `custom_last_billed_upto_date` based on invoice billing dates.
+    2. Marks `billed = 1` on `tabVehicle Item` for every item included in the invoice for that vehicle.
+    """
+    if isinstance(doc, str):
+        doc = frappe.get_doc("Sales Invoice", doc)
+
+    if not default_billing_date:
+        default_billing_date = (
+            doc.get("custom_billing_end_date")
+            or doc.get("custom_billing_to")
+            or doc.get("posting_date")
+        )
+
+    if vehicles is None:
+        vehicles = get_sales_invoice_vehicles(doc)
+
+    vehicle_items_map = {}
+    vehicle_dates_map = {}
+
+    for item in (doc.get("items") or []):
+        v = item.get("custom_vehicle")
+        if not v and item.get("custom_registration_number"):
+            reg = str(item.get("custom_registration_number")).strip()
+            v = (
+                frappe.db.get_value("Vehicle", reg, "name")
+                or frappe.db.get_value("Vehicle", {"license_plate": reg}, "name")
+                or frappe.db.get_value("Vehicle", {"custom_cleaned_licence_plate_number": reg}, "name")
+            )
+        if not v and len(vehicles) == 1:
+            v = vehicles[0]
+
+        if not v:
+            continue
+
+        item_code = (item.get("item_code") or "").strip()
+        if item_code:
+            vehicle_items_map.setdefault(v, set()).add(item_code)
+
+        item_month = item.get("custom_billing_month")
+        if item_month:
+            item_end = get_last_day(getdate(item_month))
+        else:
+            item_end = getdate(default_billing_date) if default_billing_date else None
+
+        if item_end:
+            if v not in vehicle_dates_map or item_end > vehicle_dates_map[v]:
+                vehicle_dates_map[v] = item_end
+
+    for jf in ["custom_fleet_data_json", "custom_cb_fleet_data_json", "custom_installation_data_json"]:
+        raw = doc.get(jf)
+        if raw:
+            try:
+                rows = json.loads(raw) if isinstance(raw, str) else raw
+                for r in rows:
+                    v = r.get("vehicle_no") or r.get("custom_vehicle") or r.get("vehicle")
+                    if not v or not frappe.db.exists("Vehicle", v):
+                        reg = r.get("registration_number") or r.get("license_plate")
+                        if reg:
+                            v = (
+                                frappe.db.get_value("Vehicle", reg, "name")
+                                or frappe.db.get_value("Vehicle", {"license_plate": reg}, "name")
+                                or frappe.db.get_value("Vehicle", {"custom_cleaned_licence_plate_number": reg}, "name")
+                            )
+                    if not v and len(vehicles) == 1:
+                        v = vehicles[0]
+
+                    if not v:
+                        continue
+
+                    code = (r.get("item_code") or r.get("item") or "").strip()
+                    if code:
+                        vehicle_items_map.setdefault(v, set()).add(code)
+            except Exception:
+                pass
+
+    all_vehicles = set(vehicles) | set(vehicle_dates_map.keys()) | set(vehicle_items_map.keys())
+
+    # 1. Update Vehicle custom_last_billed_upto_date
+    for v_name in all_vehicles:
+        if not frappe.db.exists("Vehicle", v_name):
+            continue
+        v_date = vehicle_dates_map.get(v_name) or default_billing_date
+        if v_date:
+            frappe.db.set_value("Vehicle", v_name, "custom_last_billed_upto_date", v_date, update_modified=False)
+            frappe.clear_document_cache("Vehicle", v_name)
+
+    # 2. Update Vehicle Item billed = 1 for all items on each vehicle
+    for v_name, item_codes in vehicle_items_map.items():
+        if not frappe.db.exists("Vehicle", v_name) or not item_codes:
+            continue
+        for code in item_codes:
+            frappe.db.sql(
+                """
+                UPDATE `tabVehicle Item`
+                SET billed = 1
+                WHERE parent = %s AND TRIM(item) = %s
+                """,
+                (v_name, code),
+            )
+        frappe.clear_document_cache("Vehicle", v_name)
+
+
+def revert_vehicle_billed_status_on_cancel(doc, vehicles=None):
+    """
+    On Sales Invoice cancellation:
+    1. Reverts each vehicle's `custom_last_billed_upto_date` to the max date from remaining submitted invoices.
+    2. For items included in this invoice, resets `billed = 0` if not present in any other submitted invoice.
+    """
+    if isinstance(doc, str):
+        doc = frappe.get_doc("Sales Invoice", doc)
+
+    if vehicles is None:
+        vehicles = get_sales_invoice_vehicles(doc)
+
+    vehicle_items_map = {}
+    for item in (doc.get("items") or []):
+        v = item.get("custom_vehicle")
+        if not v and item.get("custom_registration_number"):
+            reg = str(item.get("custom_registration_number")).strip()
+            v = (
+                frappe.db.get_value("Vehicle", reg, "name")
+                or frappe.db.get_value("Vehicle", {"license_plate": reg}, "name")
+                or frappe.db.get_value("Vehicle", {"custom_cleaned_licence_plate_number": reg}, "name")
+            )
+        if not v and len(vehicles) == 1:
+            v = vehicles[0]
+
+        item_code = (item.get("item_code") or "").strip()
+        if v and item_code:
+            vehicle_items_map.setdefault(v, set()).add(item_code)
+
+    for jf in ["custom_fleet_data_json", "custom_cb_fleet_data_json", "custom_installation_data_json"]:
+        raw = doc.get(jf)
+        if raw:
+            try:
+                rows = json.loads(raw) if isinstance(raw, str) else raw
+                for r in rows:
+                    v = r.get("vehicle_no") or r.get("custom_vehicle") or r.get("vehicle")
+                    if not v or not frappe.db.exists("Vehicle", v):
+                        reg = r.get("registration_number") or r.get("license_plate")
+                        if reg:
+                            v = (
+                                frappe.db.get_value("Vehicle", reg, "name")
+                                or frappe.db.get_value("Vehicle", {"license_plate": reg}, "name")
+                                or frappe.db.get_value("Vehicle", {"custom_cleaned_licence_plate_number": reg}, "name")
+                            )
+                    if not v and len(vehicles) == 1:
+                        v = vehicles[0]
+
+                    if not v:
+                        continue
+
+                    code = (r.get("item_code") or r.get("item") or "").strip()
+                    if code:
+                        vehicle_items_map.setdefault(v, set()).add(code)
+            except Exception:
+                pass
+
+    all_vehicles = set(vehicles) | set(vehicle_items_map.keys())
+
+    # 1. Revert Vehicle custom_last_billed_upto_date
+    for v_name in all_vehicles:
+        if not frappe.db.exists("Vehicle", v_name):
+            continue
+        prev_v_date = get_vehicle_last_billed_date_excluding(v_name, exclude_invoice_name=doc.name)
+        frappe.db.set_value("Vehicle", v_name, "custom_last_billed_upto_date", prev_v_date, update_modified=False)
+        frappe.clear_document_cache("Vehicle", v_name)
+
+    # 2. Reset billed = 0 for items not billed in another submitted invoice
+    for v_name, item_codes in vehicle_items_map.items():
+        if not frappe.db.exists("Vehicle", v_name) or not item_codes:
+            continue
+        for code in item_codes:
+            if not is_item_billed_in_other_submitted_invoice(v_name, code, exclude_invoice_name=doc.name):
+                frappe.db.sql(
+                    """
+                    UPDATE `tabVehicle Item`
+                    SET billed = 0
+                    WHERE parent = %s AND TRIM(item) = %s
+                    """,
+                    (v_name, code),
+                )
+        frappe.clear_document_cache("Vehicle", v_name)
+
+
 @frappe.whitelist()
 def on_sales_invoice_submit(doc, method=None):
     if isinstance(doc, str):
@@ -1280,9 +1511,8 @@ def on_sales_invoice_submit(doc, method=None):
 
     vehicles = get_sales_invoice_vehicles(doc)
 
-    # 1. Update Vehicle custom_last_billed_upto_date for all vehicles in this invoice
-    for v_name in vehicles:
-        frappe.db.set_value("Vehicle", v_name, "custom_last_billed_upto_date", billing_date, update_modified=False)
+    # 1. Update Vehicle custom_last_billed_upto_date and mark Vehicle Item billed = 1
+    update_vehicle_billed_status_on_submit(doc, vehicles, billing_date)
 
     # 2. If NOT partial, also update Customer custom_last_billed_upto_date
     if not is_partial and doc.get("customer"):
@@ -1302,10 +1532,8 @@ def on_sales_invoice_cancel(doc, method=None):
 
     vehicles = get_sales_invoice_vehicles(doc)
 
-    # 1. Revert Vehicle custom_last_billed_upto_date for all vehicles in this invoice
-    for v_name in vehicles:
-        prev_v_date = get_vehicle_last_billed_date_excluding(v_name, exclude_invoice_name=doc.name)
-        frappe.db.set_value("Vehicle", v_name, "custom_last_billed_upto_date", prev_v_date, update_modified=False)
+    # 1. Revert Vehicle custom_last_billed_upto_date and revert Vehicle Item billed = 0
+    revert_vehicle_billed_status_on_cancel(doc, vehicles)
 
     # 2. If NOT partial, also revert Customer custom_last_billed_upto_date
     if not is_partial and doc.get("customer"):
