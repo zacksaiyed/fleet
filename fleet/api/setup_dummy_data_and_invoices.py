@@ -385,7 +385,9 @@ def setup_all_dummy_data_and_invoices():
                 v.append("custom_vehicle_item", {
                     "item": item_spec["code"],
                     "status": "Installed",
-                    "date": item_spec["inst_date"]
+                    "date": item_spec["inst_date"],
+                    "date_of_installation": item_spec["inst_date"],
+                    "is_chargeable": 1,
                 })
             v.save(ignore_permissions=True)
 

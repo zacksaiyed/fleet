@@ -1,8 +1,81 @@
 import re
 import frappe
-from frappe.utils import add_days, add_months, get_last_day, getdate, nowdate
+from frappe.utils import add_days, add_months, cint, flt, get_last_day, getdate, nowdate
 import calendar
 import json
+
+@frappe.whitelist()
+def is_vehicle_item_chargeable(vehicle, item_code: str) -> bool:
+    """
+    Check whether a specific item on a vehicle is marked as chargeable (`is_chargeable` == 1).
+    Only chargeable items are included during invoice creation.
+
+    Args:
+        vehicle (str | Document | dict): Vehicle name, dict, or Frappe Document.
+        item_code (str): Item code to check.
+
+    Returns:
+        bool: True if the item on the vehicle has is_chargeable enabled (1/True), False otherwise.
+    """
+    if not vehicle or not item_code:
+        return False
+
+    item_code = str(item_code).strip()
+
+    if isinstance(vehicle, str):
+        val = frappe.db.get_value(
+            "Vehicle Item",
+            filters={
+                "parent": vehicle.strip(),
+                "item": item_code,
+                "is_chargeable": 1,
+            },
+            fieldname="is_chargeable",
+        )
+        return bool(cint(val))
+
+    vehicle_items = vehicle.get("custom_vehicle_item") or []
+    for row in vehicle_items:
+        r_item = getattr(row, "item", None) if not isinstance(row, dict) else row.get("item")
+        if r_item and str(r_item).strip() == item_code:
+            is_chg = getattr(row, "is_chargeable", None) if not isinstance(row, dict) else row.get("is_chargeable")
+            if cint(is_chg) == 1:
+                return True
+
+    return False
+
+
+@frappe.whitelist()
+def get_chargeable_vehicle_items(vehicle) -> set:
+    """
+    Retrieve all chargeable item codes for a given vehicle.
+
+    Args:
+        vehicle (str | Document | dict): Vehicle name, dict, or Frappe Document.
+
+    Returns:
+        set: Set of item codes where `is_chargeable` is enabled.
+    """
+    if not vehicle:
+        return set()
+
+    if isinstance(vehicle, str):
+        rows = frappe.get_all(
+            "Vehicle Item",
+            filters={"parent": vehicle.strip(), "is_chargeable": 1},
+            pluck="item",
+        )
+        return {str(r).strip() for r in rows if r}
+
+    chargeable = set()
+    for row in (vehicle.get("custom_vehicle_item") or []):
+        r_item = getattr(row, "item", None) if not isinstance(row, dict) else row.get("item")
+        is_chg = getattr(row, "is_chargeable", None) if not isinstance(row, dict) else row.get("is_chargeable")
+        if r_item and cint(is_chg) == 1:
+            chargeable.add(str(r_item).strip())
+
+    return chargeable
+
 
 @frappe.whitelist()
 def get_billing_data(docname=None):
@@ -251,7 +324,7 @@ def generate_customer_invoice(
         vehicle_docs[vehicle.name] = doc
         if not from_date or not to_date:
             for row in doc.get("custom_vehicle_item", []):
-                if row.status == "Installed" and row.item and row.date:
+                if row.status == "Installed" and row.item and row.date and is_vehicle_item_chargeable(doc, row.item):
                     r_date = getdate(row.date)
                     if not earliest_install_date or r_date < earliest_install_date:
                         earliest_install_date = r_date
@@ -396,11 +469,12 @@ def generate_customer_invoice(
             
             items_in_month = {}
             for act in month_activities:
-                if act.item not in items_in_month:
-                    items_in_month[act.item] = act.last_activity_date
+                if is_vehicle_item_chargeable(vehicle_doc, act.item):
+                    if act.item not in items_in_month:
+                        items_in_month[act.item] = act.last_activity_date
             
             for row in vehicle_doc.get("custom_vehicle_item", []):
-                if row.status == "Installed" and row.item:
+                if row.status == "Installed" and row.item and is_vehicle_item_chargeable(vehicle_doc, row.item):
                     row_install_date = row.get("date_of_installation") or row.date
                     if not row_install_date and is_advance:
                         row_install_date = frappe.db.get_value(
@@ -424,6 +498,8 @@ def generate_customer_invoice(
                             items_in_month[row.item] = None
                         
             for item, last_act_date in items_in_month.items():
+                if not is_vehicle_item_chargeable(vehicle_doc, item):
+                    continue
                 first_install = frappe.db.get_all(
                     "GPS Installation Status Log",
                     filters={
@@ -1474,7 +1550,7 @@ def get_default_billing_start_date(customer_id):
     for v in vehicles:
         v_doc = frappe.get_doc("Vehicle", v.name)
         for row in v_doc.get("custom_vehicle_item", []):
-            if row.status == "Installed" and row.date:
+            if row.status == "Installed" and row.date and is_vehicle_item_chargeable(v_doc, row.item):
                 r_date = getdate(row.date)
                 if not earliest_date or r_date < earliest_date:
                     earliest_date = r_date
