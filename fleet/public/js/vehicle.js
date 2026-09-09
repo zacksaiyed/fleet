@@ -41,9 +41,35 @@ frappe.ui.form.on('Vehicle Item', {
 	status(frm, cdt, cdn) {
 		const row = locals[cdt][cdn];
 		if (row.status === 'Removed') {
-			frappe.model.set_value(cdt, cdn, 'date_of_removal', frappe.datetime.get_today());
-		} else if (row.status === 'Installed' && !row.date_of_installation) {
-			frappe.model.set_value(cdt, cdn, 'date_of_installation', frappe.datetime.get_today());
+			if (!row.date_of_removal) {
+				frappe.model.set_value(cdt, cdn, 'date_of_removal', row.date || frappe.datetime.get_today());
+			}
+		} else if (row.status === 'Installed') {
+			if (!row.date_of_installation && !row.date) {
+				const today = frappe.datetime.get_today();
+				frappe.model.set_value(cdt, cdn, 'date', today);
+				frappe.model.set_value(cdt, cdn, 'date_of_installation', today);
+			} else if (row.date && !row.date_of_installation) {
+				frappe.model.set_value(cdt, cdn, 'date_of_installation', row.date);
+			} else if (row.date_of_installation && !row.date) {
+				frappe.model.set_value(cdt, cdn, 'date', row.date_of_installation);
+			}
+		}
+	},
+	date(frm, cdt, cdn) {
+		const row = locals[cdt][cdn];
+		if (row.date) {
+			if (row.status === 'Installed') {
+				frappe.model.set_value(cdt, cdn, 'date_of_installation', row.date);
+			} else if (row.status === 'Removed') {
+				frappe.model.set_value(cdt, cdn, 'date_of_removal', row.date);
+			}
+		}
+	},
+	date_of_installation(frm, cdt, cdn) {
+		const row = locals[cdt][cdn];
+		if (row.date_of_installation && row.status === 'Installed') {
+			frappe.model.set_value(cdt, cdn, 'date', row.date_of_installation);
 		}
 	}
 });

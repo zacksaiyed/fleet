@@ -25,10 +25,20 @@ def validate_vehicle(doc, method=None):
 
 def _sync_vehicle_item_dates(row):
     if row.status == "Installed":
-        row.date_of_installation = row.date_of_installation or row.date
-        row.date = row.date_of_installation
+        if row.has_value_changed("date"):
+            row.date_of_installation = row.date
+        elif row.has_value_changed("date_of_installation"):
+            row.date = row.date_of_installation
+        elif row.date and row.date != row.date_of_installation:
+            row.date_of_installation = row.date
+        elif row.date_of_installation and not row.date:
+            row.date = row.date_of_installation
+        elif not row.date and not row.date_of_installation:
+            today = frappe.utils.nowdate()
+            row.date = today
+            row.date_of_installation = today
     elif row.status == "Removed":
-        row.date_of_removal = row.date_of_removal or frappe.utils.nowdate()
+        row.date_of_removal = row.date_of_removal or row.date or frappe.utils.nowdate()
 
 
 def update_vechile_status(doc):
@@ -37,9 +47,12 @@ def update_vechile_status(doc):
     for row in doc.custom_vehicle_item:
         if row.has_value_changed("status"):
             if row.status == "Installed":
-                row.date_of_installation = frappe.utils.nowdate()
+                if not row.date_of_installation and not row.date:
+                    row.date_of_installation = frappe.utils.nowdate()
+                    row.date = frappe.utils.nowdate()
             elif row.status == "Removed":
-                row.date_of_removal = frappe.utils.nowdate()
+                if not row.date_of_removal:
+                    row.date_of_removal = frappe.utils.nowdate()
 
 def _check_installed_items_exist(doc):
     """Block save if an Installed item doesn't exist in the Item master."""
