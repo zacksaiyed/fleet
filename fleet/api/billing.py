@@ -2258,23 +2258,27 @@ def process_automatic_billing(billing_date=None):
     else:
         current_date = getdate(today())
 
+    has_ignore_cycle = frappe.db.has_column("Customer", "custom_ignore_billing_cycle")
+    customer_fields = [
+        "name",
+        "custom_last_billed_upto_date",
+        "custom_invoice_frequency_months",
+    ]
+    if has_ignore_cycle:
+        customer_fields.append("custom_ignore_billing_cycle")
+
     eligible_customers = frappe.get_all(
         "Customer",
         filters={
             "disabled": 0,
         },
-        fields=[
-            "name",
-            "custom_last_billed_upto_date",
-            "custom_invoice_frequency_months",
-            "custom_ignore_billing_cycle",
-        ],
+        fields=customer_fields,
     )
 
     for cust in eligible_customers:
         freq_months = int(cust.custom_invoice_frequency_months or 1)
         last_billed = cust.custom_last_billed_upto_date
-        ignore_cycle = cust.custom_ignore_billing_cycle
+        ignore_cycle = cust.get("custom_ignore_billing_cycle", 0) if has_ignore_cycle else 0
 
         if ignore_cycle:
             # ==========================================================
