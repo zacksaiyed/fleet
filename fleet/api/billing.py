@@ -576,7 +576,10 @@ def generate_customer_invoice(
                     inst_date = getdate(row_install_date)
                     if is_advance and inst_date <= invoice_start_date:
                         items_in_month.setdefault(row.item, None)
-                    elif not is_advance and inst_date >= month_start and inst_date <= month_end:
+                    elif not is_advance and (
+                        (inst_date >= month_start and inst_date <= month_end)
+                        or (inst_date <= month_end and not cint(row.billed))
+                    ):
                         if row.item not in items_in_month:
                             items_in_month[row.item] = None
                         
@@ -599,7 +602,11 @@ def generate_customer_invoice(
                 if first_install:
                     install_date = getdate(first_install[0].event_date)
                 else:
-                    row_dates = [getdate(r.date) for r in vehicle_doc.get("custom_vehicle_item", []) if r.item == item and r.date]
+                    row_dates = [
+                        getdate(r.get("date_of_installation") or r.date)
+                        for r in vehicle_doc.get("custom_vehicle_item", [])
+                        if r.item == item and (r.get("date_of_installation") or r.date)
+                    ]
                     if row_dates:
                         install_date = row_dates[0]
                 
@@ -672,7 +679,13 @@ def generate_customer_invoice(
                         and b_y == invoice_start_date.year
                         and b_m == invoice_start_date.month
                     )
-                    if not is_vehicle_item_billed(vehicle_doc, item) and ((b_y == inst_y and b_m == inst_m) or is_first_advance_month):
+                    already_charged_installation = any(
+                        b.get("invoice_item", {}).get("custom_vehicle") == vehicle.name
+                        and b.get("invoice_item", {}).get("item_code") == item
+                        and b.get("invoice_item", {}).get("custom_is_installation") == 1
+                        for b in billing_items
+                    )
+                    if not is_vehicle_item_billed(vehicle_doc, item) and not already_charged_installation:
                         item_model = frappe.db.get_value("Item", item, "custom_model") if item else None
                         search_models = [m for m in [vehicle.model, item_model] if m]
                         rate = 0.0
