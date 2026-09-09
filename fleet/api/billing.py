@@ -799,6 +799,7 @@ def generate_customer_invoice(
                             "vehicle_classification": v_class,
                             "invoice_item": {
                                 "custom_billing_month": target_date,
+                                "custom_custom_biling_month": b_m,
                                 "item_code": item, "qty": 1, "custom_is_installation": 1, "custom_is_removed": item_is_removed_flag,
                                 "custom_vehicle": vehicle.name,
                                 "custom_registration_number": vehicle_doc.get("custom_cleaned_licence_plate_number") or vehicle.name,
@@ -912,6 +913,7 @@ def generate_customer_invoice(
                             "vehicle_classification": v_class,
                             "invoice_item": {
                                 "custom_billing_month": target_date,
+                                "custom_custom_biling_month": b_m,
                                 "item_code": item, 
                                 "qty": 1, 
                                 "custom_is_subscription": 1, "custom_is_removed": item_is_removed_flag,  
