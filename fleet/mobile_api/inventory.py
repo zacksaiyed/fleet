@@ -54,17 +54,6 @@ def _get_store_warehouse():
         ["name", "warehouse_name"],
         as_dict=True,
     )
-    if not wh:
-        wh = frappe.db.get_value(
-            "Warehouse",
-            {
-                "warehouse_name": ["like", "%Store%"],
-                "disabled": 0,
-                "custom_employee": ["is", "not set"],
-            },
-            ["name", "warehouse_name"],
-            as_dict=True,
-        )
     return wh
 
 
