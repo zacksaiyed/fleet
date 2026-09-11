@@ -22,28 +22,45 @@ frappe.pages['Technician Activity'].on_page_load = function(wrapper) {
         }
     });
 
-    // --- NEW CODE ADDED HERE: Technician MultiSelect Filter ---
     wrapper.tech_field = page.add_field({
         fieldname: 'technicians',
         label: 'Select Technicians',
         fieldtype: 'MultiSelectList',
-        options: 'Employee',
-        // get_data ensures only Active Technicians show up in the dropdown
+        placeholder: 'All Active Technicians',
         get_data: function(txt) {
-            return frappe.db.get_link_options('Employee', txt, {
-                status: 'Active',
-                designation: 'Technician'
+            return frappe.db.get_list('Employee', {
+                filters: {
+                    status: 'Active',
+                    designation: 'Technician'
+                },
+                fields: ['name', 'employee_name'],
+                order_by: 'employee_name asc',
+                // frappe.db.get_list defaults to 20 unless limit is explicit.
+                limit: 0
+            }).then(r => {
+                let options = r.map(emp => ({
+                    value: emp.name,
+                    label: `${emp.employee_name} (${emp.name})`,
+                    description: ''
+                }));
+                
+                // Search filtering logic if user types in the dropdown
+                if (txt) {
+                    return options.filter(opt => 
+                        opt.label.toLowerCase().includes(txt.toLowerCase()) || 
+                        opt.value.toLowerCase().includes(txt.toLowerCase())
+                    );
+                }
+                return options;
             });
         },
         change: function() {
-            // Trigger data reload when technicians are selected or removed
             let new_date = wrapper.date_field.get_value();
             if(new_date) {
                 wrapper.load_data(new_date, false); 
             }
         }
     });
-    // --- END NEW CODE ---
 
     wrapper.$container = $(`<div class="grid-container" style="padding: 15px; overflow-x: auto;"></div>`).appendTo(page.main);
 
