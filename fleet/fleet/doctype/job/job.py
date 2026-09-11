@@ -636,9 +636,21 @@ class Job(Document):
 		if not self.item_installed_removed:
 			return
 
-		# Only update vehicle records when stock was actually moved.
-		# If the guard fires (stock entry already exists) we must not touch the
-		# vehicle items either — otherwise the two get out of sync.
+		# Guard against duplicate stock entries on re-saving Completed jobs
+		if frappe.db.exists("Stock Entry", {"custom_job": self.name, "docstatus": 1}):
+			return
+
+		# For Removal jobs where all items remained with Customer (so no Stock Entry was created),
+		# check if vehicle items are already marked Removed to avoid repeated execution
+		if self.task_type == "Removal" and self.vehicle_number and frappe.db.exists("Vehicle", self.vehicle_number):
+			vehicle = frappe.get_doc("Vehicle", self.vehicle_number)
+			v_items = {r.item: r for r in vehicle.get("custom_vehicle_item", [])}
+			if self.item_installed_removed and all(
+				v_items.get(r.item) and v_items[r.item].status == "Removed"
+				for r in self.item_installed_removed
+			):
+				return
+
 		if self._create_stock_entries():
 			self._update_vehicle_items()
 
@@ -654,10 +666,30 @@ class Job(Document):
 		installed = [r for r in self.item_installed_removed if r.installed_or_removed == "Installed"]
 		removed   = [r for r in self.item_installed_removed if r.installed_or_removed == "Removed"]
 
-		# For Removed items — verify each exists in customer warehouse before moving
-		if removed:
-			missing_items = []
+		removed_to_tech = []
+		removed_to_cust = []
+
+		if self.task_type == "Removal" and hasattr(self, "removal_items") and self.removal_items:
+			dest_by_item = {r.item: (r.destination or "").strip() for r in self.removal_items if r.item}
 			for r in removed:
+				dest = dest_by_item.get(r.item, "")
+				if dest in ("Customer", "customer"):
+					removed_to_cust.append(r)
+				else:
+					removed_to_tech.append(r)
+		else:
+			removed_to_tech = removed
+
+		# For items staying with customer, ensure item current warehouse is customer warehouse
+		if removed_to_cust:
+			from fleet.custom_py.item_warehouse import update_item_warehouse
+			for r in removed_to_cust:
+				update_item_warehouse(r.item, self.customer_warehouse)
+
+		# For Removed items moving to technician — verify each exists in customer warehouse before moving
+		if removed_to_tech:
+			missing_items = []
+			for r in removed_to_tech:
 				qty = frappe.db.get_value(
 					"Bin",
 					{"item_code": r.item, "warehouse": self.customer_warehouse},
@@ -673,10 +705,10 @@ class Job(Document):
 				)
 
 		# Installed: technician warehouse → customer warehouse
-		# Removed:   customer warehouse  → technician warehouse
+		# Removed:   customer warehouse  → technician warehouse (only items destined for technician)
 		for items, src, tgt in [
 			(installed, self.technician_warehouse, self.customer_warehouse),
-			(removed,   self.customer_warehouse,   self.technician_warehouse),
+			(removed_to_tech, self.customer_warehouse, self.technician_warehouse),
 		]:
 			if not items:
 				continue
