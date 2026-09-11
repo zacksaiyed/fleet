@@ -57,7 +57,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Destination",
-   "options": "\nTechnicians\nCustomer",
+   "options": "\nCustomer\nTechnician\nTechnicians\nMy Assets",
    "reqd": 1
   },
   {

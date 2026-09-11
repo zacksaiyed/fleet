@@ -551,6 +551,13 @@ def get_job(job: str) -> dict:
         order_by="idx asc",
     )
 
+    removal_items = frappe.db.get_all(
+        "Removal Items",
+        filters={"parent": job_doc.name},
+        fields=["name", "item", "item_name", "item_type", "brand", "destination", "warehouse"],
+        order_by="idx asc",
+    )
+
     return {
         "status": "success",
         "job": {
@@ -575,6 +582,7 @@ def get_job(job: str) -> dict:
             "unread_count_tech":      job_doc.unread_count_tech or 0,
             "unread_count_support":   job_doc.unread_count_support or 0,
             "item_installed_removed": item_groups,
+            "removal_items":          removal_items,
             "job_images":             images,
         },
     }
@@ -1320,13 +1328,19 @@ def get_job_item_options(job: str, direction: str = None) -> dict:
                 item_row
             )
 
-    return {
+    res = {
         "status": "success",
         "job_type": task_type,
         "direction": direction,
         "allowed_directions": allowed_directions,
         "groups": group_items(items),
     }
+
+    if task_type == "Removal":
+        res["destination_options"] = ["My Assets", "Customer"]
+        res["move_to_options"] = ["My Assets", "Customer"]
+
+    return res
 
 
 @frappe.whitelist()
@@ -2862,6 +2876,10 @@ def update_job(
     # NORMAL ITEMS
     # ------------------------------------------------------------
 
+    # Support asset_mapping as fallback for Removal jobs if passed
+    if set_items is None and asset_mapping is not None and job_doc.task_type == "Removal":
+        set_items = asset_mapping
+
     if set_items is not None:
 
         if isinstance(
@@ -2892,6 +2910,8 @@ def update_job(
 
         # Full replacement
         job_doc.item_installed_removed = []
+        if hasattr(job_doc, "removal_items"):
+            job_doc.removal_items = []
 
         seen_items = set()
 
@@ -2909,6 +2929,7 @@ def update_job(
 
             item_code = (
                 row.get("item")
+                or row.get("items")
             )
 
             if not item_code:
@@ -2947,6 +2968,38 @@ def update_job(
                     f"Item {item_code} not found."
                 )
 
+            # Destination handling
+            raw_dest = row.get("destination") or row.get("move_to") or row.get("dest")
+            dest = None
+            dest_wh = None
+
+            if raw_dest:
+                raw_dest_str = str(raw_dest).strip()
+                if raw_dest_str.lower() in ("customer", "customer warehouse", "cust"):
+                    dest = "Customer"
+                    dest_wh = job_doc.customer_warehouse
+                elif raw_dest_str.lower() in ("technician", "technicians", "my assets", "my asset", "myassets", "technician warehouse", "tech"):
+                    dest = "Technicians"
+                    dest_wh = job_doc.technician_warehouse
+                else:
+                    if "customer" in raw_dest_str.lower():
+                        dest = "Customer"
+                        dest_wh = job_doc.customer_warehouse
+                    else:
+                        dest = "Technicians"
+                        dest_wh = job_doc.technician_warehouse
+
+            # For Removal jobs: only items that have a destination are added
+            if job_doc.task_type == "Removal" and not dest:
+                continue
+
+            inst_or_rem = row.get("installed_or_removed")
+            if not inst_or_rem:
+                if job_doc.task_type == "Removal" or dest:
+                    inst_or_rem = "Removed"
+                else:
+                    inst_or_rem = "Installed"
+
             job_doc.append(
                 "item_installed_removed",
                 {
@@ -2963,12 +3016,40 @@ def update_job(
                         fetched.brand,
 
                     "installed_or_removed":
-                        row.get(
-                            "installed_or_removed",
-                            "Installed",
-                        ),
+                        inst_or_rem,
                 }
             )
+
+            # Populate removal_items child table when destination is given or for Removal task type
+            if hasattr(job_doc, "removal_items") and (dest or (job_doc.task_type == "Removal" and inst_or_rem == "Removed")):
+                final_dest = dest or "Technicians"
+                final_wh = dest_wh or (
+                    job_doc.customer_warehouse
+                    if final_dest == "Customer"
+                    else job_doc.technician_warehouse
+                )
+                job_doc.append(
+                    "removal_items",
+                    {
+                        "item":
+                            item_code,
+
+                        "item_name":
+                            fetched.item_name,
+
+                        "item_type":
+                            fetched.custom_item_type,
+
+                        "brand":
+                            fetched.brand,
+
+                        "destination":
+                            final_dest,
+
+                        "warehouse":
+                            final_wh,
+                    }
+                )
 
         if (
             job_doc.status
@@ -3028,7 +3109,7 @@ def update_job(
         set_items,
     )
 
-    return {
+    response = {
         "status":
             "success",
 
@@ -3041,6 +3122,33 @@ def update_job(
         "job_status":
             job_doc.status,
     }
+
+    if hasattr(job_doc, "removal_items") and job_doc.removal_items:
+        response["removal_items"] = [
+            {
+                "item": r.item,
+                "item_name": r.item_name,
+                "item_type": r.item_type,
+                "brand": r.brand,
+                "destination": r.destination,
+                "warehouse": r.warehouse,
+            }
+            for r in job_doc.removal_items
+        ]
+
+    if hasattr(job_doc, "item_installed_removed") and job_doc.item_installed_removed:
+        response["item_installed_removed"] = [
+            {
+                "item": r.item,
+                "item_name": r.item_name,
+                "item_type": r.item_type,
+                "brand": r.brand,
+                "installed_or_removed": r.installed_or_removed,
+            }
+            for r in job_doc.item_installed_removed
+        ]
+
+    return response
 
 @frappe.whitelist()
 def upload_job_image(job: str, image_data: str = None, filename: str = None, comment: str = None) -> dict:
@@ -3375,7 +3483,18 @@ def _post_job_update_message(job_doc, employee, changed_scalars: dict, set_items
                 else:
                     lines.append(f"  {item_type}: {item_code} - {brand}")
 
-        if removed_items:
+        if hasattr(job_doc, "removal_items") and job_doc.removal_items:
+            lines.append("")
+            lines.append("Removed:")
+            for idx, row in enumerate(job_doc.removal_items):
+                if idx > 0:
+                    lines.append("")
+                item_type = row.item_type or "Item"
+                item_code = row.item or "—"
+                brand     = row.brand or "—"
+                dest_str  = f" ({row.destination})" if row.destination else ""
+                lines.append(f"  {item_type}: {item_code} - {brand}{dest_str}")
+        elif removed_items:
             lines.append("")
             lines.append("Removed:")
             for idx, row in enumerate(removed_items):

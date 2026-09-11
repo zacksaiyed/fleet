@@ -85,6 +85,18 @@ frappe.ui.form.on("Job Item", {
 	},
 });
 
+frappe.ui.form.on("Removal Items", {
+	destination(frm, cdt, cdn) {
+		const row = locals[cdt][cdn];
+		if (!row) return;
+		if (row.destination === "Customer") {
+			frappe.model.set_value(cdt, cdn, "warehouse", frm.doc.customer_warehouse || "");
+		} else {
+			frappe.model.set_value(cdt, cdn, "warehouse", frm.doc.technician_warehouse || "");
+		}
+	},
+});
+
 function _attachVehicleNumberMask(frm) {
 	const field = frm.get_field("vehicle_number");
 	// if (e.key === " ") { e.preventDefault(); return; }
@@ -395,16 +407,27 @@ function _populate_removal_items(frm) {
 							(r2.message || []).forEach(i => { item_map[i.name] = i; });
 
 							frm.clear_table("item_installed_removed");
+							frm.clear_table("removal_items");
 							items.forEach(vi => {
-								const row = frm.add_child("item_installed_removed");
 								const detail = item_map[vi.item] || {};
+
+								const row = frm.add_child("item_installed_removed");
 								row.installed_or_removed = "Removed";
 								row.item      = vi.item;
 								row.item_type = vi.item_type;
 								row.item_name = detail.item_name || "";
 								row.brand     = detail.brand     || "";
+
+								const rem_row = frm.add_child("removal_items");
+								rem_row.item = vi.item;
+								rem_row.item_name = detail.item_name || "";
+								rem_row.item_type = vi.item_type;
+								rem_row.brand = detail.brand || "";
+								rem_row.destination = "Technicians";
+								rem_row.warehouse = frm.doc.technician_warehouse || "";
 							});
 							frm.refresh_field("item_installed_removed");
+							frm.refresh_field("removal_items");
 						},
 					});
 				},
