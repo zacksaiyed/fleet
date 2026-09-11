@@ -22,12 +22,11 @@ frappe.pages['Technician Activity'].on_page_load = function(wrapper) {
         }
     });
 
-    // --- NEW CODE ADDED HERE: Technician MultiSelect Filter ---
     wrapper.tech_field = page.add_field({
         fieldname: 'technicians',
         label: 'Select Technicians',
         fieldtype: 'MultiSelectList',
-        options: 'Employee',
+        placeholder: 'All Active Technicians',
         get_data: function(txt) {
             return frappe.db.get_list('Employee', {
                 filters: {
@@ -35,11 +34,14 @@ frappe.pages['Technician Activity'].on_page_load = function(wrapper) {
                     designation: 'Technician'
                 },
                 fields: ['name', 'employee_name'],
-                limit_page_length: 0 
+                order_by: 'employee_name asc',
+                // frappe.db.get_list defaults to 20 unless limit is explicit.
+                limit: 0
             }).then(r => {
                 let options = r.map(emp => ({
                     value: emp.name,
-                    label: `${emp.employee_name} (${emp.name})`
+                    label: `${emp.employee_name} (${emp.name})`,
+                    description: ''
                 }));
                 
                 // Search filtering logic if user types in the dropdown
