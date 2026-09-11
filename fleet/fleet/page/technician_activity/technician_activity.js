@@ -28,22 +28,37 @@ frappe.pages['Technician Activity'].on_page_load = function(wrapper) {
         label: 'Select Technicians',
         fieldtype: 'MultiSelectList',
         options: 'Employee',
-        // get_data ensures only Active Technicians show up in the dropdown
         get_data: function(txt) {
-            return frappe.db.get_link_options('Employee', txt, {
-                status: 'Active',
-                designation: 'Technician'
+            return frappe.db.get_list('Employee', {
+                filters: {
+                    status: 'Active',
+                    designation: 'Technician'
+                },
+                fields: ['name', 'employee_name'],
+                limit_page_length: 0 
+            }).then(r => {
+                let options = r.map(emp => ({
+                    value: emp.name,
+                    label: `${emp.employee_name} (${emp.name})`
+                }));
+                
+                // Search filtering logic if user types in the dropdown
+                if (txt) {
+                    return options.filter(opt => 
+                        opt.label.toLowerCase().includes(txt.toLowerCase()) || 
+                        opt.value.toLowerCase().includes(txt.toLowerCase())
+                    );
+                }
+                return options;
             });
         },
         change: function() {
-            // Trigger data reload when technicians are selected or removed
             let new_date = wrapper.date_field.get_value();
             if(new_date) {
                 wrapper.load_data(new_date, false); 
             }
         }
     });
-    // --- END NEW CODE ---
 
     wrapper.$container = $(`<div class="grid-container" style="padding: 15px; overflow-x: auto;"></div>`).appendTo(page.main);
 
