@@ -18,13 +18,88 @@ frappe.ui.form.on("Customer", {
                 show_vehicle_invoice_dialog(frm);
             }, __("Actions"));
         }
+
+        // PERFECT RESET: Jab bhi form load ya save hoga, sab fresh start hoga
+        frm.doc.__old_invoice_frequency = frm.doc.custom_invoice_frequency_months;
+        frm.frequency_validated = false;
+        frm.tpin_validated = false;
     },
+
+    // ==========================================
+    // NAYA CODE: Yahan ek hi jagah pe Frequency aur TPIN sequentially check honge
+    // ==========================================
+    before_save: function(frm) {
+        let old_val = frm.doc.__old_invoice_frequency;
+        let new_val = frm.doc.custom_invoice_frequency_months;
+        let freq_changed = (old_val && new_val && old_val !== new_val);
+
+        // STEP 1: Pehle Invoice Frequency Check Karein
+        if (freq_changed && !frm.frequency_validated) {
+            frappe.validated = false; // Save ko yahin rok dein
+
+            frappe.confirm(
+                `Change Invoice Frequency from <b>${old_val}</b> to <b>${new_val}</b> months?<br><br>This will affect upcoming automatic billing cycles.`,
+                function() {
+                    // YES Action
+                    frm.frequency_validated = true;
+                    frm.save(); // Ab dubara save trigger hoga jo Step 2 par jayega
+                },
+                function() {
+                    // NO Action
+                    frm.frequency_validated = false;
+                    frappe.model.set_value(frm.doctype, frm.docname, 'custom_invoice_frequency_months', old_val);
+                }
+            );
+            return; // Execution yahi rok dein taaki dono popup ek sath na khulein
+        }
+
+        // STEP 2: Uske baad TPIN Check Karein (Yeh tabhi chalega jab Step 1 clear ho jayega)
+        if (frm.doc.custom_tpin && !frm.tpin_validated) {
+            frappe.validated = false; // Save ko yahin rok dein
+            
+            frappe.call({
+                method: "fleet.api.billing.check_tpin_existence",
+                args: {
+                    tpin: frm.doc.custom_tpin,
+                    docname: frm.doc.name,
+                    doc_type: "Customer"
+                },
+                callback: function(r) {
+                    if (r.message && r.message.exists) {
+                        let existing = r.message;
+                        let msg = `TPIN ${frm.doc.custom_tpin} already exists in ${existing.type} "${existing.name}"`;
+                        if (existing.customer) {
+                            msg += ` (linked to Customer: ${existing.customer})`;
+                        }
+                        msg += `. Do you still want to save?`;
+                        
+                        frappe.confirm(msg, function() {
+                            frm.tpin_validated = true;
+                            frm.save(); // TPIN confirm hone ke baad final save
+                        }, function() {
+                            frm.tpin_validated = false;
+                        });
+                    } else {
+                        frm.tpin_validated = true;
+                        frm.save(); // Bina problem ke direct save
+                    }
+                }
+            });
+            return; // Execution yahi rok dein
+        }
+    },
+    // ==========================================
+    // END NAYA CODE
+    // ==========================================
+    
     custom_parent_customer(frm) {
         setup_invoice_generation_mode(frm);
     },
+    
     custom_is_group(frm) {
         setup_invoice_generation_mode(frm);
     },
+    
     custom_generate_pending_invoice(frm) {
         frappe.call({
             method: "fleet.api.billing.generate_customer_invoice",
@@ -49,41 +124,6 @@ frappe.ui.form.on("Customer", {
                 }
             }
         });
-    },
-    before_save: function(frm) {
-        if (frm.doc.custom_tpin && !frm.tpin_validated) {
-            frappe.validated = false;
-            frappe.call({
-                method: "fleet.api.billing.check_tpin_existence",
-                args: {
-                    tpin: frm.doc.custom_tpin,
-                    docname: frm.doc.name,
-                    doc_type: "Customer"
-                },
-                callback: function(r) {
-                    if (r.message && r.message.exists) {
-                        let existing = r.message;
-                        let msg = `TPIN ${frm.doc.custom_tpin} already exists in ${existing.type} "${existing.name}"`;
-                        if (existing.customer) {
-                            msg += ` (linked to Customer: ${existing.customer})`;
-                        }
-                        msg += `. Do you still want to save?`;
-                        
-                        frappe.confirm(msg, function() {
-                            frm.tpin_validated = true;
-                            frm.save();
-                        }, function() {
-                            frm.tpin_validated = false;
-                        });
-                    } else {
-                        frm.tpin_validated = true;
-                        frm.save();
-                    }
-                }
-            });
-        } else {
-            frm.tpin_validated = false;
-        }
     }
 });
 

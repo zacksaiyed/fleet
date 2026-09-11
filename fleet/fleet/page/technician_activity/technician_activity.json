@@ -9,7 +9,7 @@
  "module": "Fleet",
  "name": "technician_activity",
  "owner": "Administrator",
- "page_name": "technician_activity",
+ "page_name": "Technician Activity",
  "roles": [
   {
    "role": "Fleet Administrator"

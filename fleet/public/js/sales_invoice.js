@@ -657,7 +657,6 @@ frappe.ui.form.on('Sales Invoice', {
               .fleet-pagination button { padding: 4px 12px; font-size: 12px; }
               .fleet-pagination span { font-weight: 500; font-size: 12px; color: #333; }
             </style>
-            <h4 style="font-weight: bold; margin-bottom: 10px; color: #333;">Local</h4>
             <div class="erp-grid-wrapper">
               <table class="erp-grid-table">
                 <thead>
@@ -1052,7 +1051,6 @@ frappe.ui.form.on('Sales Invoice', {
               .cb-fleet-pagination button { padding: 4px 12px; font-size: 12px; }
               .cb-fleet-pagination span { font-weight: 500; font-size: 12px; color: #333; }
             </style>
-            <h4 style="font-weight: bold; margin-bottom: 10px; color: #333;">CB</h4>
             <div class="cb-erp-grid-wrapper erp-grid-wrapper">
               <table class="erp-grid-table">
                 <thead>
