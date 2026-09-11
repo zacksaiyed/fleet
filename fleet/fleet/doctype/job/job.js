@@ -423,7 +423,7 @@ function _populate_removal_items(frm) {
 								rem_row.item_name = detail.item_name || "";
 								rem_row.item_type = vi.item_type;
 								rem_row.brand = detail.brand || "";
-								rem_row.destination = "Technicians";
+								rem_row.destination = "Technician";
 								rem_row.warehouse = frm.doc.technician_warehouse || "";
 							});
 							frm.refresh_field("item_installed_removed");

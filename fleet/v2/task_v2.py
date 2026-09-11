@@ -1337,8 +1337,8 @@ def get_job_item_options(job: str, direction: str = None) -> dict:
     }
 
     if task_type == "Removal":
-        res["destination_options"] = ["My Assets", "Customer"]
-        res["move_to_options"] = ["My Assets", "Customer"]
+        res["destination_options"] = ["Customer", "Technician"]
+        res["move_to_options"] = ["Customer", "Technician"]
 
     return res
 
@@ -2979,14 +2979,14 @@ def update_job(
                     dest = "Customer"
                     dest_wh = job_doc.customer_warehouse
                 elif raw_dest_str.lower() in ("technician", "technicians", "my assets", "my asset", "myassets", "technician warehouse", "tech"):
-                    dest = "Technicians"
+                    dest = "Technician"
                     dest_wh = job_doc.technician_warehouse
                 else:
                     if "customer" in raw_dest_str.lower():
                         dest = "Customer"
                         dest_wh = job_doc.customer_warehouse
                     else:
-                        dest = "Technicians"
+                        dest = "Technician"
                         dest_wh = job_doc.technician_warehouse
 
             # For Removal jobs: only items that have a destination are added
@@ -3022,7 +3022,7 @@ def update_job(
 
             # Populate removal_items child table when destination is given or for Removal task type
             if hasattr(job_doc, "removal_items") and (dest or (job_doc.task_type == "Removal" and inst_or_rem == "Removed")):
-                final_dest = dest or "Technicians"
+                final_dest = dest or "Technician"
                 final_wh = dest_wh or (
                     job_doc.customer_warehouse
                     if final_dest == "Customer"
