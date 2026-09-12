@@ -1,6 +1,6 @@
 import frappe
 
-@frappe.whitelist()
+@frappe.whitelist(allow_guest=True)
 def get_vehicle_types():
 	vehicle_types = frappe.get_all(
 		"Vehicle Type",
@@ -12,7 +12,7 @@ def get_vehicle_types():
 
 
 
-@frappe.whitelist()
+@frappe.whitelist(allow_guest=True)
 def get_item(item_code):
 	if not item_code:
 		return {
