@@ -194,6 +194,11 @@ class Job(Document):
 		if self.status not in ("In Progress", "In Review"):
 			return
 
+		# Re-Installation selects items already installed on the vehicle.
+		# Never unlock them merely because a row is changed/removed from this Job.
+		if self.task_type == "Re-Installation":
+			return
+
 		before = self.get_doc_before_save()
 
 		if not before:
@@ -483,6 +488,7 @@ class Job(Document):
 					"item_type": row.item_type,
 					"status": "Installed",
 					"date_of_installation": self.date,
+					"is_chargeable": 1 if self.is_chargeable else 0,
 				},
 			)
 
@@ -636,6 +642,12 @@ class Job(Document):
 		if not self.item_installed_removed:
 			return
 
+		# Re-Installation reuses the SAME item already installed on the vehicle.
+		# There is no Technician -> Customer or Customer -> Technician stock movement.
+		if self.task_type == "Re-Installation":
+			self._handle_reinstallation_vehicle()
+			return
+
 		# Guard against duplicate stock entries on re-saving Completed jobs
 		if frappe.db.exists("Stock Entry", {"custom_job": self.name, "docstatus": 1}):
 			return
@@ -747,6 +759,8 @@ class Job(Document):
 			self._handle_checkup_vehicle()
 		elif task_type == "Accessory":
 			self._handle_accessory_vehicle()
+		elif task_type == "Re-Installation":
+			self._handle_reinstallation_vehicle()
 
 	# Installation
 
@@ -777,7 +791,8 @@ class Job(Document):
 				"item":      row.item,
 				"item_type": row.item_type,
 				"status":    "Installed",
-				"date_of_installation":      self.date,
+				"date_of_installation": self.date,
+				"is_chargeable": 1 if self.is_chargeable else 0,
 			})
 
 		vehicle.flags.updated_from_job_document = 1
@@ -836,6 +851,8 @@ class Job(Document):
 			vi        = vehicle_items[row.item]
 			vi.status = "Removed"
 			vi.date_of_removal   = self.date
+
+		self._set_chargeable_on_matched_vehicle_items(vehicle)
 
 		vehicle.flags.updated_from_job_document = 1
 		vehicle.save(ignore_permissions=True)
@@ -908,6 +925,8 @@ class Job(Document):
 						"date_of_installation":      self.date,
 					})
 
+		self._set_chargeable_on_matched_vehicle_items(vehicle)
+
 		vehicle.flags.updated_from_job_document = 1
 		vehicle.save(ignore_permissions=True)
 
@@ -967,6 +986,8 @@ class Job(Document):
 					"date_of_installation":      self.date,
 				})
 
+		self._set_chargeable_on_matched_vehicle_items(vehicle)
+
 		vehicle.flags.updated_from_job_document = 1
 		vehicle.save(ignore_permissions=True)
 		for row in self.item_installed_removed:
@@ -979,6 +1000,99 @@ class Job(Document):
 					update_modified=False,
 				)
 		self._attach_job_images_to_vehicle(self.vehicle_number)
+
+	# Re-Installation
+
+	def _handle_reinstallation_vehicle(self):
+		"""
+		Re-Installation uses the SAME physical item already present on the Vehicle.
+
+		Rules:
+		  - Vehicle must already exist.
+		  - Every selected Job item must already exist in Vehicle.custom_vehicle_item.
+		  - No new Vehicle Item row is created.
+		  - No stock movement is created.
+		  - Selected rows are set to Installed and installation date is refreshed.
+		  - Chargeable is applied only to Job-matched Vehicle Item rows.
+		"""
+		if not frappe.db.exists("Vehicle", self.vehicle_number):
+			frappe.throw(
+				f"Vehicle <b>{self.vehicle_number}</b> not found. "
+				f"Re-Installation requires an existing vehicle."
+			)
+
+		vehicle = frappe.get_doc("Vehicle", self.vehicle_number)
+		vehicle_items = {
+			r.item: r
+			for r in vehicle.get("custom_vehicle_item", [])
+			if r.item
+		}
+
+		selected_items = [
+			row.item
+			for row in (self.item_installed_removed or [])
+			if row.item
+		]
+
+		missing = [
+			item
+			for item in selected_items
+			if item not in vehicle_items
+		]
+
+		if missing:
+			frappe.throw(
+				f"Cannot complete Re-Installation. The following item(s) are not "
+				f"present on Vehicle <b>{self.vehicle_number}</b>:<br>"
+				+ "<br>".join(missing)
+			)
+
+		for row in self.item_installed_removed or []:
+			if not row.item:
+				continue
+
+			vi = vehicle_items[row.item]
+			vi.status = "Installed"
+			vi.date_of_installation = self.date
+			vi.date_of_removal = None
+			vi.is_chargeable = 1 if self.is_chargeable else 0
+
+		self._set_chargeable_on_matched_vehicle_items(vehicle)
+
+		vehicle.flags.updated_from_job_document = 1
+		vehicle.save(ignore_permissions=True)
+
+		# Item remains locked because it is still installed on the vehicle.
+		for row in self.item_installed_removed or []:
+			if row.item:
+				frappe.db.set_value(
+					"Item",
+					row.item,
+					"custom_is_locked",
+					1,
+					update_modified=False,
+				)
+
+		self._attach_job_images_to_vehicle(self.vehicle_number)
+
+	def _set_chargeable_on_matched_vehicle_items(self, vehicle):
+		"""
+		For existing-vehicle task types, only items present in the Job's
+		item_installed_removed table are marked chargeable when the Job is chargeable.
+		All other vehicle rows are reset to 0.
+		"""
+		job_items = {
+			row.item
+			for row in (self.item_installed_removed or [])
+			if row.item
+		}
+
+		for vehicle_row in vehicle.get("custom_vehicle_item", []):
+			vehicle_row.is_chargeable = (
+				1
+				if self.is_chargeable and vehicle_row.item in job_items
+				else 0
+			)
 
 	def _attach_job_images_to_vehicle(self, vehicle_number):
 		for row in self.job_images:
@@ -1080,6 +1194,115 @@ def get_items_in_warehouse(
 		""",
 		values,
 	)
+
+
+@frappe.whitelist()
+@frappe.validate_and_sanitize_search_inputs
+def get_reinstallation_items(
+	doctype,
+	txt,
+	searchfield,
+	start,
+	page_len,
+	filters,
+):
+	"""
+	Re-Installation picker:
+	Show ALL items currently marked Installed on the selected Vehicle.
+
+	Important:
+	- No warehouse condition.
+	- No custom_is_locked condition.
+	- No cross-job condition.
+	- The same physical item already installed on this vehicle is intentionally allowed.
+	"""
+	filters = filters or {}
+
+	vehicle_number = (
+		(filters.get("vehicle_number") or "")
+		.replace(" ", "")
+		.upper()
+	)
+	customer = filters.get("customer")
+
+	if not vehicle_number:
+		return []
+
+	vehicle_filters = {"license_plate": vehicle_number}
+
+	if customer:
+		vehicle_filters["custom_customer"] = customer
+
+	vehicle_name = frappe.db.get_value(
+		"Vehicle",
+		vehicle_filters,
+		"name",
+	)
+
+	if not vehicle_name:
+		return []
+
+	# Fetch directly from Vehicle Item so every Installed row is available.
+	vehicle_items = frappe.get_all(
+		"Vehicle Item",
+		filters={
+			"parent": vehicle_name,
+			"parenttype": "Vehicle",
+			"status": "Installed",
+		},
+		fields=["item"],
+		order_by="idx asc",
+	)
+
+	item_codes = [
+		row.item
+		for row in vehicle_items
+		if row.item
+	]
+
+	if not item_codes:
+		return []
+
+	txt = (txt or "").strip()
+
+	item_details = frappe.get_all(
+		"Item",
+		filters={
+			"name": ["in", item_codes],
+		},
+		fields=["name", "item_name"],
+	)
+
+	item_map = {
+		row.name: row.item_name or row.name
+		for row in item_details
+	}
+
+	results = []
+
+	for item_code in item_codes:
+		item_name = item_map.get(item_code, item_code)
+
+		if txt:
+			search_text = txt.lower()
+
+			if (
+				search_text not in item_code.lower()
+				and search_text not in item_name.lower()
+			):
+				continue
+
+		results.append([
+			item_code,
+			item_name,
+		])
+
+	# Preserve Vehicle child-table order and respect Frappe paging.
+	start = int(start or 0)
+	page_len = int(page_len or 20)
+
+	return results[start:start + page_len]
+
 
 @frappe.whitelist()
 @frappe.validate_and_sanitize_search_inputs
@@ -1269,5 +1492,4 @@ def set_progress_jobs_to_pending():
 			"status",
 			"Pending",
 		)
-
 

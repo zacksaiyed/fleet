@@ -4,7 +4,8 @@ frappe.ui.form.on("Job Item", {
 		if (!row.item) return;
 
 		if (
-			["In Progress", "In Review"].includes(frm.doc.status)
+			frm.doc.task_type !== "Re-Installation"
+			&& ["In Progress", "In Review"].includes(frm.doc.status)
 			&& row.item
 			&& row.installed_or_removed === "Installed"
 		) {
@@ -21,8 +22,12 @@ frappe.ui.form.on("Job Item", {
 			return;
 		}
 
-		// Cross-job check: only for items being installed
-		if (row.installed_or_removed !== "Removed") {
+		// Cross-job check for normal installations.
+		// Re-Installation intentionally reuses an item already installed on this vehicle.
+		if (
+			row.installed_or_removed !== "Removed"
+			&& frm.doc.task_type !== "Re-Installation"
+		) {
 			frappe.call({
 				method: "fleet.fleet.doctype.job.job.check_item_available",
 				args: { item: row.item, current_job: frm.doc.name },
@@ -43,7 +48,8 @@ frappe.ui.form.on("Job Item", {
 		const row = locals[cdt][cdn];
 
 		if (
-			["In Progress", "In Review"].includes(frm.doc.status)
+			frm.doc.task_type !== "Re-Installation"
+			&& ["In Progress", "In Review"].includes(frm.doc.status)
 			&& row.item
 			&& row.installed_or_removed === "Installed"
 		) {
@@ -61,7 +67,7 @@ frappe.ui.form.on("Job Item", {
 		const val = row.installed_or_removed;
 		const task_type = frm.doc.task_type;
 
-		const install_only_types = ["Installation", "Accessory"];
+		const install_only_types = ["Installation", "Accessory", "Re-Installation"];
 		const remove_only_types = ["Removal"];
 
 		if (install_only_types.includes(task_type)) {
@@ -176,16 +182,43 @@ frappe.ui.form.on("Job", {
 			_populate_removal_items(frm);
 		}
 
-		frm.set_query("item", "item_installed_removed", function(doc, cdt, cdn) {
+		frm.set_query("item", "item_installed_removed", function (doc, cdt, cdn) {
 			const row = locals[cdt][cdn];
+			const task_type = (doc.task_type || "").trim();
+
+			// Re-Installation:
+			// show all items already installed on this exact vehicle.
+			// No warehouse filter and no custom_is_locked filter.
+			if (task_type === "Re-Installation") {
+				if (!doc.vehicle_number) return {};
+
+				return {
+					query: "fleet.fleet.doctype.job.job.get_reinstallation_items",
+					filters: {
+						vehicle_number: doc.vehicle_number || "",
+						customer: doc.customer || "",
+					},
+				};
+			}
+
+			// Normal Installed flow:
+			// Installation / Accessory / Checkup-installed
 			if (row.installed_or_removed === "Installed") {
 				if (!doc.technician_warehouse) return {};
+
 				return {
 					query: "fleet.fleet.doctype.job.job.get_items_in_warehouse",
-					filters: { warehouse: doc.technician_warehouse ,custom_is_locked: 0},
+					filters: {
+						warehouse: doc.technician_warehouse,
+						custom_is_locked: 0,
+					},
 				};
-			} else if (row.installed_or_removed === "Removed") {
+			}
+
+			// Removal flow
+			if (row.installed_or_removed === "Removed") {
 				if (!doc.customer_warehouse) return {};
+
 				return {
 					query: "fleet.fleet.doctype.job.job.get_removable_items",
 					filters: {
@@ -195,16 +228,17 @@ frappe.ui.form.on("Job", {
 					},
 				};
 			}
+
 			return {};
 		});
 
-		frm.set_query("items", "items", function(doc, cdt, cdn) {
+		frm.set_query("items", "items", function (doc, cdt, cdn) {
 			const row = locals[cdt][cdn];
 			if (row.source === "Technician") {
 				if (!doc.technician_warehouse) return {};
 				return {
 					query: "fleet.fleet.doctype.job.job.get_items_in_warehouse",
-					filters: { warehouse: doc.technician_warehouse ,custom_is_locked: 0},
+					filters: { warehouse: doc.technician_warehouse, custom_is_locked: 0 },
 				};
 			} else if (row.source === "Old Vehicle") {
 				if (!doc.customer_warehouse) return {};
@@ -222,10 +256,10 @@ frappe.ui.form.on("Job", {
 
 		if (frm.is_new()) return;
 
-		const roles      = frappe.user_roles;
+		const roles = frappe.user_roles;
 		const is_support = roles.includes("Support Team");
-		const is_tech    = roles.includes("Technician");
-		const status     = frm.doc.status;
+		const is_tech = roles.includes("Technician");
+		const status = frm.doc.status;
 
 		if (["Completed", "Cancelled"].includes(status)) {
 			frm.disable_save();
@@ -413,10 +447,10 @@ function _populate_removal_items(frm) {
 
 								const row = frm.add_child("item_installed_removed");
 								row.installed_or_removed = "Removed";
-								row.item      = vi.item;
+								row.item = vi.item;
 								row.item_type = vi.item_type;
 								row.item_name = detail.item_name || "";
-								row.brand     = detail.brand     || "";
+								row.brand = detail.brand || "";
 
 								const rem_row = frm.add_child("removal_items");
 								rem_row.item = vi.item;
@@ -437,73 +471,73 @@ function _populate_removal_items(frm) {
 }
 
 function _clearVehicleDetails(frm) {
-    frm.set_value("make",  "");
-    frm.set_value("model", "");
-    frm.set_value("color", "");
-    frm.set_value("type",  "");
+	frm.set_value("make", "");
+	frm.set_value("model", "");
+	frm.set_value("color", "");
+	frm.set_value("type", "");
 }
 
 function fetch_vehicle_details(frm) {
-    const vehicle_number = frm.doc.vehicle_number;
+	const vehicle_number = frm.doc.vehicle_number;
 
-    if (!vehicle_number) {
-        _clearVehicleDetails(frm);
-        return;
-    }
+	if (!vehicle_number) {
+		_clearVehicleDetails(frm);
+		return;
+	}
 
-    // const normalized = vehicle_number.replace(/\s+/g, "").toUpperCase();
-	   const normalized = vehicle_number.toUpperCase();
+	// const normalized = vehicle_number.replace(/\s+/g, "").toUpperCase();
+	const normalized = vehicle_number.toUpperCase();
 
-    frappe.db.get_value(
-        "Vehicle",
-        normalized,
-        ["name", "make", "model", "color", "custom_vehicle_type", "custom_customer"]
-    ).then(r => {
-        // Bail if the field changed while the request was in flight
-        if (frm.doc.vehicle_number !== normalized) return;
+	frappe.db.get_value(
+		"Vehicle",
+		normalized,
+		["name", "make", "model", "color", "custom_vehicle_type", "custom_customer"]
+	).then(r => {
+		// Bail if the field changed while the request was in flight
+		if (frm.doc.vehicle_number !== normalized) return;
 
-        const vehicle   = r.message;
-        const exists    = !!(vehicle && vehicle.name);
-        const task_type = frm.doc.task_type;   // read fresh from doc, not closure
+		const vehicle = r.message;
+		const exists = !!(vehicle && vehicle.name);
+		const task_type = frm.doc.task_type;   // read fresh from doc, not closure
 
-        if (task_type === "Installation") {
-            if (exists) {
-                frappe.msgprint({
-                    title:     __("Vehicle Already Registered"),
-                    message:   __("Vehicle <b>{0}</b> is already in the system. Installation is only for new vehicles.", [normalized]),
-                    indicator: "red",
-                });
-                frm.set_value("vehicle_number", "");
-                _clearVehicleDetails(frm);
-            }
-            // else: new vehicle — OK for Installation, nothing to fetch
-        } else {
-            if (exists) {
-                if (vehicle.custom_customer && frm.doc.customer && vehicle.custom_customer !== frm.doc.customer) {
-                    frappe.msgprint({
-                        title:     __("Customer Mismatch"),
-                        message:   __("Vehicle <b>{0}</b> belongs to <b>{1}</b>, not <b>{2}</b>.", [normalized, vehicle.custom_customer, frm.doc.customer]),
-                        indicator: "red",
-                    });
-                    frm.set_value("vehicle_number", "");
-                    _clearVehicleDetails(frm);
-                    return;
-                }
-                frm.set_value("make",  vehicle.make                || "");
-                frm.set_value("model", vehicle.model               || "");
-                frm.set_value("color", vehicle.color               || "");
-                frm.set_value("type",  vehicle.custom_vehicle_type || "");
-            } else {
-                frappe.msgprint({
-                    title:     __("Vehicle Not Found"),
-                    message:   __("Vehicle <b>{0}</b> is not registered in the system.", [normalized]),
-                    indicator: "orange",
-                });
-                frm.set_value("vehicle_number", "");
-                _clearVehicleDetails(frm);
-            }
-        }
-    });
+		if (task_type === "Installation") {
+			if (exists) {
+				frappe.msgprint({
+					title: __("Vehicle Already Registered"),
+					message: __("Vehicle <b>{0}</b> is already in the system. Installation is only for new vehicles.", [normalized]),
+					indicator: "red",
+				});
+				frm.set_value("vehicle_number", "");
+				_clearVehicleDetails(frm);
+			}
+			// else: new vehicle — OK for Installation, nothing to fetch
+		} else {
+			if (exists) {
+				if (vehicle.custom_customer && frm.doc.customer && vehicle.custom_customer !== frm.doc.customer) {
+					frappe.msgprint({
+						title: __("Customer Mismatch"),
+						message: __("Vehicle <b>{0}</b> belongs to <b>{1}</b>, not <b>{2}</b>.", [normalized, vehicle.custom_customer, frm.doc.customer]),
+						indicator: "red",
+					});
+					frm.set_value("vehicle_number", "");
+					_clearVehicleDetails(frm);
+					return;
+				}
+				frm.set_value("make", vehicle.make || "");
+				frm.set_value("model", vehicle.model || "");
+				frm.set_value("color", vehicle.color || "");
+				frm.set_value("type", vehicle.custom_vehicle_type || "");
+			} else {
+				frappe.msgprint({
+					title: __("Vehicle Not Found"),
+					message: __("Vehicle <b>{0}</b> is not registered in the system.", [normalized]),
+					indicator: "orange",
+				});
+				frm.set_value("vehicle_number", "");
+				_clearVehicleDetails(frm);
+			}
+		}
+	});
 }
 function go_to_chat(frm) {
 	if (!frm.doc.assigned_technician) {
@@ -616,7 +650,7 @@ function wait_for_job(instance, job_name, technician) {
 	}, 100);
 }
 function render_vehicle_items(frm) {
-	if(frm.doc.task_type === "Installation") {
+	if (frm.doc.task_type === "Installation") {
 		return;
 	}
 	const wrapper = frm.fields_dict.item_details.$wrapper;
@@ -738,11 +772,10 @@ function render_job_images(frm) {
 				</a>
 
 				<div class="job-image-comment">
-					${
-						comment
-							? comment
-							: '<span class="no-comment">No comment</span>'
-					}
+					${comment
+				? comment
+				: '<span class="no-comment">No comment</span>'
+			}
 				</div>
 
 			</div>
