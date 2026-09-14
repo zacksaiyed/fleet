@@ -3649,15 +3649,8 @@ def delete_job_image(job: str, row_name: str) -> dict:
 @frappe.whitelist()
 def mark_job_done(job: str, done_comment: str) -> dict:
     """
-    POST /api/method/fleet.v2.task_v2.mark_job_done
-
-    Sample payload:
-    {
-        "job": "JOB-2026-09-000001",
-        "done_comment": "Work completed successfully"
-    }
-
-    Deprecated wrapper. Prefer job_action.
+    Deprecated — use job_action(action="done", comment=...) instead.
+    Kept for backward compatibility.
     """
     return job_action(job=job, action="done", comment=done_comment)
 
@@ -3665,27 +3658,19 @@ def mark_job_done(job: str, done_comment: str) -> dict:
 @frappe.whitelist()
 def job_action(job: str, action: str, comment: str = None) -> dict:
     """
-    POST /api/method/fleet.v2.task_v2.job_action
+    POST /api/method/fleet.mobile_api.tasks.job_action
+    Headers:
+        Cookie: sid=<logged_in_user_sid>
+    Body:
+        job     — job name (e.g. JOB-2026-03-000001)
+        action  — "done" | "reopen"
+        comment — required when action is "done"
 
-    Done:
-    {
-        "job": "JOB-2026-09-000001",
-        "action": "done",
-        "comment": "Work completed successfully"
-    }
+    Technician-facing actions only. Support handles hold/complete/cancel.
 
-    Hold:
-    {
-        "job": "JOB-2026-09-000001",
-        "action": "hold",
-        "comment": "Waiting for customer"
-    }
-
-    Reopen:
-    {
-        "job": "JOB-2026-09-000001",
-        "action": "reopen"
-    }
+    Transitions:
+        done   : Pending / On Hold → In Review  (comment required)
+        reopen : On Hold → Pending
     """
     if not job:
         return _error(400, "MISSING_PARAMS", "job is required.")
