@@ -68,129 +68,194 @@ def _is_store_warehouse(warehouse):
 
 
 # 1. Technician warehouse inventory grouped by item type
-
 @frappe.whitelist()
 def get_my_warehouse_inventory():
-    """
-    GET /api/method/fleet.mobile_api.inventory.get_my_warehouse_inventory
+	"""
+	GET /api/method/fleet.mobile_api.inventory.get_my_warehouse_inventory
 
-    Returns items in the logged-in technician's warehouse, grouped by item type.
+	Returns unlocked items available in the logged-in
+	technician's own warehouse, grouped by item type.
 
-    Response:
-    {
-        "status": "success",
-        "warehouse": "Tech Warehouse - XB",
-        "summary": [{"item_type": "GPS Device", "icon": "...", "qty": 8}, ...],
-        "groups": [
-            {
-                "item_type": "GPS Device",
-                "icon": "...",
-                "total_qty": 8,
-                "items": [{"item_code", "item_name", "qty"}, ...]
-            }
-        ]
-    }
-    """
-    employee, err = _get_auth()
-    if err:
-        return err
-    warehouse = _get_tech_warehouse(employee)
+	Response:
+	{
+		"status": "success",
+		"warehouse": "Tech Warehouse - XB",
+		"summary": [
+			{
+				"item_type": "GPS Device",
+				"icon": "...",
+				"qty": 8
+			}
+		],
+		"groups": [
+			{
+				"item_type": "GPS Device",
+				"icon": "...",
+				"total_qty": 8,
+				"items": [
+					{
+						"item_code": "ITEM-001",
+						"item_name": "GPS Device",
+						"brand": "ABC",
+						"qty": 1
+					}
+				]
+			}
+		]
+	}
+	"""
 
-    if not warehouse:
-        return {"status": "success", "warehouse": None, "summary": [], "groups": []}
+	# =========================================================
+	# AUTH
+	# =========================================================
 
-    rows = frappe.db.sql("""
-        SELECT
-            COALESCE(i.custom_item_type, 'Uncategorized') AS item_type,
-            it.icon                                        AS item_type_icon,
-            i.name                                         AS item_code,
-            i.item_name,
-            i.brand,
-            i.custom_imei_no,
-            i.custom_sim_type,
-            i.custom_sensor_unique_number,
-            i.custom_temperature_serial_number,
-            CAST(b.actual_qty AS UNSIGNED)                 AS qty
-        FROM `tabBin` b
-        JOIN `tabItem` i ON i.name = b.item_code
-        LEFT JOIN `tabItem Type` it ON it.name = i.custom_item_type
-        WHERE b.warehouse = %s
-          AND b.actual_qty > 0
-          AND i.disabled = 0
-          AND i.name NOT IN (
-              SELECT mti.item
-              FROM `tabMaterial Transfer Item` mti
-              JOIN `tabMaterial Transfer` mt ON mt.name = mti.parent
-              WHERE mt.source = %s
-                AND mt.workflow_state = 'Approval Pending'
-                AND mt.docstatus < 2
-          )
-          AND i.name NOT IN (
-              SELECT ji.item
-              FROM `tabJob Item` ji
-              JOIN `tabJob` j ON j.name = ji.parent
-              WHERE ji.installed_or_removed = 'Installed'
-                AND j.status NOT IN ('Cancelled', 'Completed')
-          )
-        ORDER BY i.custom_item_type, i.item_name
-    """, (warehouse, warehouse), as_dict=True)
+	employee, err = _get_auth()
 
-    # which extra field to include per item type
-    _TYPE_EXTRA = {
-        "GPS Device":    "custom_imei_no",
-        "SIM":           "custom_sim_type",
-        "Fuel Sensor":   "custom_sensor_unique_number",
-        "Temperature":   "custom_temperature_serial_number",
-        "Dashcam":       "custom_dashcam_unique_number",
-    }
+	if err:
+		return err
 
-    groups = {}
-    for r in rows:
-        key = r.item_type
-        if key not in groups:
-            groups[key] = {
-                "item_type": key,
-                "icon": r.item_type_icon,
-                "total_qty": 0,
-                "items": [],
-            }
-        groups[key]["total_qty"] += r.qty
+	# =========================================================
+	# GET TECHNICIAN'S OWN WAREHOUSE
+	# =========================================================
 
-        item_row = {
-            "item_code": r.item_code,
-            "item_name": r.item_name,
-            "brand":     r.brand,
-            "qty":       r.qty,
-        }
+	warehouse = _get_tech_warehouse(employee)
 
-        extra_field = _TYPE_EXTRA.get(key)
-        if extra_field:
-            item_row[extra_field] = r.get(extra_field)
+	if not warehouse:
+		return {
+			"status": "success",
+			"warehouse": None,
+			"summary": [],
+			"groups": [],
+		}
 
-        groups[key]["items"].append(item_row)
+	# =========================================================
+	# GET INVENTORY
+	# =========================================================
+	#
+	# Only conditions:
+	#
+	# 1. Warehouse = logged-in technician's warehouse
+	# 2. actual_qty > 0
+	# 3. Item is not disabled
+	# 4. custom_is_locked = 0
+	#
+	# =========================================================
 
-    groups_list = list(groups.values())
+	rows = frappe.db.sql(
+		"""
+		SELECT
+			COALESCE(
+				i.custom_item_type,
+				'Uncategorized'
+			) AS item_type,
 
-    # Build summary from ALL item types, not just those with stock
-    all_item_types = frappe.db.get_all(
-        "Item Type", fields=["name as item_type", "icon"], order_by="name"
-    )
-    summary = [
-        {
-            "item_type": it.item_type,
-            "icon":      it.icon,
-            "qty":       groups.get(it.item_type, {}).get("total_qty", 0),
-        }
-        for it in all_item_types
-    ]
+			it.icon AS item_type_icon,
 
-    return {
-        "status":    "success",
-        "warehouse": warehouse,
-        "summary":   summary,
-        "groups":    groups_list,
-    }
+			i.name AS item_code,
+			i.item_name,
+			i.brand,
 
+			CAST(b.actual_qty AS UNSIGNED) AS qty
+
+		FROM `tabBin` b
+
+		JOIN `tabItem` i
+			ON i.name = b.item_code
+
+		LEFT JOIN `tabItem Type` it
+			ON it.name = i.custom_item_type
+
+		WHERE b.warehouse = %s
+			AND b.actual_qty > 0
+			AND i.disabled = 0
+			AND i.custom_is_locked = 0
+
+		ORDER BY
+			i.custom_item_type,
+			i.item_name
+		""",
+		(warehouse,),
+		as_dict=True,
+	)
+
+	# =========================================================
+	# GROUP ITEMS BY ITEM TYPE
+	# =========================================================
+
+	groups = {}
+
+	for row in rows:
+
+		item_type = row.item_type
+
+		if item_type not in groups:
+			groups[item_type] = {
+				"item_type": item_type,
+				"icon": row.item_type_icon,
+				"total_qty": 0,
+				"items": [],
+			}
+
+		groups[item_type]["total_qty"] += row.qty
+
+		groups[item_type]["items"].append({
+			"item_code": row.item_code,
+			"item_name": row.item_name,
+			"brand": row.brand,
+			"qty": row.qty,
+		})
+
+	# =========================================================
+	# GROUPS LIST
+	# =========================================================
+
+	groups_list = list(groups.values())
+
+	# =========================================================
+	# SUMMARY
+	# =========================================================
+	#
+	# Keep all Item Types in summary.
+	# If technician does not have an item of that type,
+	# qty will be 0.
+	#
+	# =========================================================
+
+	all_item_types = frappe.db.get_all(
+		"Item Type",
+		fields=[
+			"name as item_type",
+			"icon",
+		],
+		order_by="name",
+	)
+
+	summary = []
+
+	for item_type in all_item_types:
+
+		summary.append({
+			"item_type": item_type.item_type,
+			"icon": item_type.icon,
+			"qty": groups.get(
+				item_type.item_type,
+				{}
+			).get(
+				"total_qty",
+				0
+			),
+		})
+
+	# =========================================================
+	# RESPONSE
+	# =========================================================
+
+	return {
+		"status": "success",
+		"warehouse": warehouse,
+		"summary": summary,
+		"groups": groups_list,
+	}
 
 # 2. Get all valid transfer targets (active tech warehouses + store)
 
@@ -253,57 +318,27 @@ def get_transfer_targets():
     return {"status": "success", "targets": targets}
 
 # 3. List my material transfers
-
 @frappe.whitelist()
 def get_my_transfers(workflow_state=None):
     """
     GET /api/method/fleet.mobile_api.inventory.get_my_transfers
 
-    Returns all Material Transfers related to the logged-in technician.
+    Returns Material Transfers related to the logged-in technician.
 
-    Outgoing:
-        source = logged-in technician warehouse
+    Response groups:
 
-    Incoming:
-        target = logged-in technician warehouse
-        only when workflow_state is Approval Pending or Approved
+        pending:
+            - Initiated
+            - Approval Pending
 
-    For Material Return:
-        Destination warehouse is fetched from each Material Transfer Item row
-        because each returned item can have a different destination warehouse.
+        approved:
+            - Approved
 
-    Optional query param:
-        workflow_state — filter by state e.g.
-        "Approval Pending", "Initiated", "Approved", "Rejected"
+        rejected:
+            - Rejected
 
-    Response:
-    {
-        "status": "success",
-        "total": 5,
-        "transfers": [
-            {
-                "name": "MT-2026-09-00001",
-                "date": "2026-09-08",
-                "creation": "2026-09-08 18:20:00",
-                "purpose": "Material Handover",
-
-                "source": "Ganesh - FM",
-                "source_name": "Ganesh",
-
-                "target": "Robert Fox - FM",
-                "target_name": "Robert Fox",
-
-                "movement_type": "OUT",
-                "display_title": "To Robert Fox",
-
-                "workflow_state": "Approval Pending",
-                "qty": 12,
-                "stock_entry": null,
-
-                "items": []
-            }
-        ]
-    }
+    Optional:
+        workflow_state
     """
 
     employee, err = _get_auth()
@@ -313,22 +348,25 @@ def get_my_transfers(workflow_state=None):
     my_warehouse = _get_tech_warehouse(employee)
     user = frappe.session.user
 
+    # ---------------------------------------------------------
+    # TRANSFER VISIBILITY
+    # ---------------------------------------------------------
+    #
     # Outgoing:
-    #     source = my warehouse — all purposes and all states
+    #     source = my warehouse
     #
     # Incoming:
-    #     target = my warehouse — all purposes,
-    #     but only Approval Pending and Approved
+    #     target = my warehouse
     #
-    # This returns every Material Transfer purpose.
-    # Material Return is handled separately only for item-level warehouse details.
+    # We include all relevant workflow states here because
+    # response grouping is done later.
+    # ---------------------------------------------------------
+
     if my_warehouse:
         where = """(
             `tabMaterial Transfer`.source = %(warehouse)s
-            OR (
-                `tabMaterial Transfer`.target = %(warehouse)s
-                AND `tabMaterial Transfer`.workflow_state IN ('Approval Pending', 'Approved')
-            )
+            OR
+            `tabMaterial Transfer`.target = %(warehouse)s
         )"""
 
         values = {
@@ -342,12 +380,17 @@ def get_my_transfers(workflow_state=None):
             "user": user
         }
 
+    # Optional workflow filter
     if workflow_state:
-        where += " AND `tabMaterial Transfer`.workflow_state = %(workflow_state)s"
+        where += """
+            AND `tabMaterial Transfer`.workflow_state = %(workflow_state)s
+        """
         values["workflow_state"] = workflow_state
 
-    # Fetch every Material Transfer purpose.
-    # No purpose filter is applied here.
+    # ---------------------------------------------------------
+    # FETCH MATERIAL TRANSFERS
+    # ---------------------------------------------------------
+
     transfers = frappe.db.sql("""
         SELECT
             name,
@@ -376,25 +419,48 @@ def get_my_transfers(workflow_state=None):
         LIMIT 100
     """.format(where=where), values, as_dict=True)
 
+    # ---------------------------------------------------------
+    # EMPTY RESPONSE
+    # ---------------------------------------------------------
+
     if not transfers:
         return {
             "status": "success",
-            "total": 0,
-            "transfers": []
+
+            "pending": {
+                "total": 0,
+                "transfers": [],
+            },
+
+            "approved": {
+                "total": 0,
+                "transfers": [],
+            },
+
+            "rejected": {
+                "total": 0,
+                "transfers": [],
+            },
         }
 
     names = tuple(t.name for t in transfers)
 
-    # Fetch item quantity for every Material Transfer.
+    # ---------------------------------------------------------
+    # QUANTITY
+    # ---------------------------------------------------------
     #
-    # Each Material Transfer Item represents one individual asset/item,
-    # therefore COUNT(*) is used as the quantity shown in Stock Movement.
+    # Every Material Transfer Item represents one asset/item.
+    # ---------------------------------------------------------
+
     qty_rows = frappe.db.sql("""
         SELECT
             parent,
             COUNT(*) AS qty
+
         FROM `tabMaterial Transfer Item`
+
         WHERE parent IN %(names)s
+
         GROUP BY parent
     """, {
         "names": names
@@ -405,13 +471,10 @@ def get_my_transfers(workflow_state=None):
         for r in qty_rows
     }
 
-    # Fetch warehouse display information once.
-    #
-    # Technician warehouse:
-    #     display name = Employee Name
-    #
-    # Store warehouse:
-    #     display name = Store / Warehouse Name
+    # ---------------------------------------------------------
+    # WAREHOUSE DISPLAY INFORMATION
+    # ---------------------------------------------------------
+
     warehouse_names = set()
 
     for t in transfers:
@@ -431,15 +494,19 @@ def get_my_transfers(workflow_state=None):
                 w.warehouse_type,
                 w.custom_employee,
                 e.employee_name
+
             FROM `tabWarehouse` w
+
             LEFT JOIN `tabEmployee` e
                 ON e.name = w.custom_employee
+
             WHERE w.name IN %(warehouses)s
         """, {
             "warehouses": tuple(warehouse_names)
         }, as_dict=True)
 
         for row in warehouse_rows:
+
             if row.employee_name:
                 display_name = row.employee_name
 
@@ -447,7 +514,10 @@ def get_my_transfers(workflow_state=None):
                 display_name = "Store"
 
             else:
-                display_name = row.warehouse_name or row.warehouse
+                display_name = (
+                    row.warehouse_name
+                    or row.warehouse
+                )
 
             warehouse_map[row.warehouse] = {
                 "warehouse_name": row.warehouse_name,
@@ -456,10 +526,14 @@ def get_my_transfers(workflow_state=None):
                 "display_name": display_name,
             }
 
-    # Fetch Material Return item details.
+    # ---------------------------------------------------------
+    # MATERIAL RETURN ITEMS
+    # ---------------------------------------------------------
     #
-    # For Material Return, target warehouse is stored at item level,
-    # therefore every item's return_type and warehouse are returned.
+    # Material Return can have different target warehouse
+    # for every item.
+    # ---------------------------------------------------------
+
     return_names = [
         t.name
         for t in transfers
@@ -469,6 +543,7 @@ def get_my_transfers(workflow_state=None):
     return_items_map = {}
 
     if return_names:
+
         return_rows = frappe.db.sql("""
             SELECT
                 mti.parent,
@@ -496,6 +571,7 @@ def get_my_transfers(workflow_state=None):
         }, as_dict=True)
 
         for row in return_rows:
+
             if row.parent not in return_items_map:
                 return_items_map[row.parent] = []
 
@@ -512,24 +588,10 @@ def get_my_transfers(workflow_state=None):
                 ),
             })
 
-    # Prepare Stock Movement response.
-    #
-    # movement_type:
-    #
-    #     ADD = Material Request / Material Issue coming from Store
-    #
-    #     IN  = Material Handover coming from another technician
-    #
-    #     OUT = Material Handover / Material Return going out
-    #
-    # display_title examples:
-    #
-    #     Stock Add
-    #     From Cody Fisher
-    #     To Robert Fox
-    #     Return to Store
-    #     Return to Damage
-    #     Return to Lost
+    # ---------------------------------------------------------
+    # PREPARE TRANSFER DATA
+    # ---------------------------------------------------------
+
     for t in transfers:
 
         source_info = warehouse_map.get(
@@ -560,32 +622,42 @@ def get_my_transfers(workflow_state=None):
             0
         )
 
-        # Material Request / Material Issue
-        #
+        # -----------------------------------------------------
+        # MATERIAL REQUEST / MATERIAL ISSUE
         # Store -> Technician
+        # -----------------------------------------------------
+
         if t.purpose in (
             "Material Request",
             "Material Issue"
         ):
+
             if t.target == my_warehouse:
+
                 t["movement_type"] = "ADD"
                 t["display_title"] = "Stock Add"
 
             else:
+
                 t["movement_type"] = "OUT"
+
                 t["display_title"] = (
                     f"To {target_name}"
                     if target_name
                     else t.purpose
                 )
 
-        # Material Handover
-        #
+        # -----------------------------------------------------
+        # MATERIAL HANDOVER
         # Technician -> Technician
+        # -----------------------------------------------------
+
         elif t.purpose == "Material Handover":
 
             if t.source == my_warehouse:
+
                 t["movement_type"] = "OUT"
+
                 t["display_title"] = (
                     f"To {target_name}"
                     if target_name
@@ -593,7 +665,9 @@ def get_my_transfers(workflow_state=None):
                 )
 
             elif t.target == my_warehouse:
+
                 t["movement_type"] = "IN"
+
                 t["display_title"] = (
                     f"From {source_name}"
                     if source_name
@@ -601,14 +675,15 @@ def get_my_transfers(workflow_state=None):
                 )
 
             else:
+
                 t["movement_type"] = "IN"
                 t["display_title"] = "Material Handover"
 
-        # Material Return
-        #
+        # -----------------------------------------------------
+        # MATERIAL RETURN
         # Technician -> Store / Damage / Lost
-        #
-        # Destination is item-wise.
+        # -----------------------------------------------------
+
         elif t.purpose == "Material Return":
 
             t["movement_type"] = "OUT"
@@ -623,29 +698,39 @@ def get_my_transfers(workflow_state=None):
             return_types = []
 
             for item in return_items:
-                return_type = item.get("return_type")
+
+                return_type = item.get(
+                    "return_type"
+                )
 
                 if (
                     return_type
                     and return_type not in return_types
                 ):
-                    return_types.append(return_type)
+                    return_types.append(
+                        return_type
+                    )
 
             if len(return_types) == 1:
+
                 t["display_title"] = (
                     f"Return to {return_types[0]}"
                 )
 
             else:
-                t["display_title"] = "Material Return"
 
-        # Future / other Material Transfer purposes
-        #
-        # They are still returned even when no special
-        # purpose-specific UI mapping exists.
+                t["display_title"] = (
+                    "Material Return"
+                )
+
+        # -----------------------------------------------------
+        # OTHER / FUTURE TRANSFER TYPES
+        # -----------------------------------------------------
+
         else:
 
             if t.source == my_warehouse:
+
                 t["movement_type"] = "OUT"
 
                 t["display_title"] = (
@@ -655,6 +740,7 @@ def get_my_transfers(workflow_state=None):
                 )
 
             elif t.target == my_warehouse:
+
                 t["movement_type"] = "IN"
 
                 t["display_title"] = (
@@ -664,20 +750,71 @@ def get_my_transfers(workflow_state=None):
                 )
 
             else:
+
                 t["movement_type"] = "IN"
                 t["display_title"] = t.purpose
 
-        # Always provide items key so mobile does not
-        # need to check whether the key exists.
+        # Always return items
         if "items" not in t:
             t["items"] = []
 
+    # ---------------------------------------------------------
+    # GROUP BY WORKFLOW STATE
+    # ---------------------------------------------------------
+
+    pending_transfers = []
+    approved_transfers = []
+    rejected_transfers = []
+
+    for transfer in transfers:
+
+        state = transfer.get(
+            "workflow_state"
+        )
+
+        # Initiated + Approval Pending = Pending
+        if state in (
+            "Initiated",
+            "Approval Pending"
+        ):
+            pending_transfers.append(
+                transfer
+            )
+
+        # Approved
+        elif state == "Approved":
+            approved_transfers.append(
+                transfer
+            )
+
+        # Rejected
+        elif state == "Rejected":
+            rejected_transfers.append(
+                transfer
+            )
+
+    # ---------------------------------------------------------
+    # FINAL RESPONSE
+    # ---------------------------------------------------------
+
     return {
         "status": "success",
-        "total": len(transfers),
-        "transfers": transfers
-    }
 
+        "pending": {
+            "total": len(pending_transfers),
+            "transfers": pending_transfers,
+        },
+
+        "approved": {
+            "total": len(approved_transfers),
+            "transfers": approved_transfers,
+        },
+
+        "rejected": {
+            "total": len(rejected_transfers),
+            "transfers": rejected_transfers,
+        },
+    }
 # 4. Get single material transfer detail
 
 @frappe.whitelist()

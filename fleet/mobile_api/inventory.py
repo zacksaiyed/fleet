@@ -359,10 +359,12 @@ def get_transfer(name):
     doc = frappe.get_doc("Material Transfer", name)
 
     # Allow if user is source warehouse → full access
+    # pyrefly: ignore [missing-attribute]
     if my_warehouse and doc.source == my_warehouse:
         pass
 
     # Allow if user is target warehouse with restricted states
+    # pyrefly: ignore [missing-attribute]
     elif my_warehouse and doc.target == my_warehouse:
         if doc.workflow_state not in ["Approval Pending", "Approved", "Rejected"]:
             return _error(403, "FORBIDDEN", "You do not have access to this Material Transfer.")

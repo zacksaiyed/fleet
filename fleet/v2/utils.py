@@ -10,9 +10,7 @@ def get_vehicle_types():
 
 	return vehicle_types
 
-
-
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist()
 def get_item(item_code):
 	if not item_code:
 		return {
@@ -23,144 +21,112 @@ def get_item(item_code):
 
 	item_code = item_code.strip()
 
+	# ---------------------------------------------------------
+	# AUTH
+	# ---------------------------------------------------------
+
+	employee, err = _get_auth()
+
+	if err:
+		return err
+
+	# ---------------------------------------------------------
+	# GET TECHNICIAN'S OWN WAREHOUSE
+	# ---------------------------------------------------------
+
+	own_warehouse = frappe.db.get_value(
+		"Warehouse",
+		{
+			"custom_employee": employee,
+			"disabled": 0,
+		},
+		"name",
+	)
+
+	# ---------------------------------------------------------
+	# GET STORES WAREHOUSE
+	# ---------------------------------------------------------
+
+	stores_warehouse = frappe.db.get_value(
+		"Warehouse",
+		{
+			"warehouse_name": "Stores",
+			"disabled": 0,
+		},
+		"name",
+	)
+
+	# ---------------------------------------------------------
+	# GET ITEM
+	#
+	# Only unlocked + enabled items
+	# ---------------------------------------------------------
+
 	item = frappe.db.get_value(
 		"Item",
-		{"item_code": item_code},
+		{
+			"item_code": item_code,
+			"disabled": 0,
+			"custom_is_locked": 0,
+		},
 		[
 			"name",
 			"item_code",
 			"item_name",
 			"custom_item_type",
 			"custom_current_warehouse",
-			"custom_is_locked",
-			"disabled",
 		],
 		as_dict=True,
 	)
+
+	# ---------------------------------------------------------
+	# ITEM NOT AVAILABLE
+	# ---------------------------------------------------------
 
 	if not item:
 		return {
 			"status": "error",
-			"code": "ITEM_NOT_FOUND",
-			"message": "No such item exists in the system."
+			"code": "ITEM_NOT_AVAILABLE",
+			"message": "Item not available."
 		}
 
-	if item.disabled:
+	# ---------------------------------------------------------
+	# ALLOWED WAREHOUSES
+	#
+	# 1. Stores
+	# 2. Logged-in technician's own warehouse
+	# ---------------------------------------------------------
+
+	allowed_warehouses = []
+
+	if stores_warehouse:
+		allowed_warehouses.append(stores_warehouse)
+
+	if own_warehouse:
+		allowed_warehouses.append(own_warehouse)
+
+	if item.custom_current_warehouse not in allowed_warehouses:
 		return {
 			"status": "error",
-			"code": "ITEM_DISABLED",
-			"message": "This item is disabled and cannot be used."
+			"code": "ITEM_NOT_AVAILABLE",
+			"message": "Item not available."
 		}
 
-	if item.custom_is_locked:
-		lock_info = get_item_lock_info(item.name)
-
-		if lock_info:
-			return {
-				"status": "error",
-				"code": lock_info["code"],
-				"message": lock_info["message"],
-			}
-
-		return {
-			"status": "error",
-			"code": "ITEM_LOCKED",
-			"message": "This item is currently locked and cannot be used."
-		}
-
-	if not item.custom_current_warehouse:
-		return {
-			"status": "error",
-			"code": "ITEM_NOT_IN_WAREHOUSE",
-			"message": "This item is currently not available in any warehouse."
-		}
-
-	warehouse = frappe.db.get_value(
-		"Warehouse",
-		item.custom_current_warehouse,
-		[
-			"name",
-			"warehouse_name",
-			"warehouse_type",
-		],
-		as_dict=True,
-	)
-
-	if not warehouse:
-		return {
-			"status": "error",
-			"code": "WAREHOUSE_NOT_FOUND",
-			"message": "The current warehouse of this item could not be found."
-		}
-
-	if warehouse.warehouse_name == "Stores":
-		return {
-			"status": "success",
-			"code": "ITEM_AVAILABLE",
-			"message": "Item found.",
-			"item": {
-				"item_code": item.item_code,
-				"item_name": item.item_name,
-				"item_type": item.custom_item_type,
-				"current_warehouse": item.custom_current_warehouse,
-			}
-		}
-
-	if warehouse.warehouse_type == "Technician":
-		return {
-			"status": "error",
-			"code": "ITEM_IN_TECHNICIAN_WAREHOUSE",
-			"message": (
-				f"This item is currently in "
-				f"{warehouse.warehouse_name}'s warehouse."
-			),
-		}
-
-	if warehouse.warehouse_type == "Customer":
-		return {
-			"status": "error",
-			"code": "ITEM_IN_CUSTOMER_WAREHOUSE",
-			"message": (
-				f"This item is currently in "
-				f"{warehouse.warehouse_name}'s warehouse."
-			),
-		}
+	# ---------------------------------------------------------
+	# SUCCESS
+	# ---------------------------------------------------------
 
 	return {
-		"status": "error",
-		"code": "ITEM_NOT_IN_STORE",
-		"message": (
-			f"This item is currently in {warehouse.warehouse_name} "
-			f"and is not available in Stores."
-		),
+		"status": "success",
+		"code": "ITEM_AVAILABLE",
+		"message": "Item found.",
+		"item": {
+			"item_code": item.item_code,
+			"item_name": item.item_name,
+			"item_type": item.custom_item_type,
+			"current_warehouse": item.custom_current_warehouse,
+		}
 	}
-
-
-def get_item_lock_info(item_code):
-	job = get_active_job_for_item(item_code)
-
-	if job:
-		return {
-			"code": "ITEM_IN_JOB",
-			"message": (
-				f"This item is currently being used in "
-				f"Job {job}."
-			),
-		}
-
-	material_transfer = get_active_material_transfer_for_item(item_code)
-
-	if material_transfer:
-		return {
-			"code": "ITEM_IN_MATERIAL_TRANSFER",
-			"message": (
-				f"This item is currently being used in "
-				f"Material Transfer {material_transfer}."
-			),
-		}
-
-	return None
-
 
 def get_active_job_for_item(item_code):
 	job_meta = frappe.get_meta("Job")

@@ -53,7 +53,7 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 					<div>
 
 						<div class="tsb-title">
-							Task Sequence Board
+							Task Activity
 						</div>
 
 						<div class="tsb-subtitle">

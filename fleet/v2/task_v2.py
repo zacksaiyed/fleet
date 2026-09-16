@@ -1661,7 +1661,6 @@ def get_vehicle_details(vehicle_number: str, task: str, task_type: str) -> dict:
         "type":            vehicle_data.custom_vehicle_type,
         "installed_items": installed_items,
     }
-
 @frappe.whitelist()
 def create_job_for_task(
     task: str,
@@ -1673,73 +1672,46 @@ def create_job_for_task(
     color: str | None = None,
     items: str | None = None,
     is_chargeable: int | str | None = None,
-
-    # Swap fields
-    new_vehicle_number: str | None = None,
-    swap_make: str | None = None,
-    swap_model: str | None = None,
-    swap_color: str | None = None,
-    swap_type: str | None = None,
 ) -> dict:
-
     """
     POST /api/method/fleet.v2.task_v2.create_job_for_task
 
-    Installation:
-    {
-        "task": "TASK-0001",
-        "task_type": "Installation",
-        "vehicle_number": "GJ05NEW1234",
-        "make": "Tata",
-        "model": "Ace",
-        "type": "Mini Truck",
-        "color": "White"
-    }
+    Same parameters for ALL task types:
 
-    Checkup:
     {
         "task": "TASK-0001",
         "task_type": "Checkup",
         "vehicle_number": "GJ05SY0888",
+        "make": "Tata",
+        "model": "Ace",
+        "type": "Mini Truck",
+        "color": "White",
+        "items": [],
         "is_chargeable": 1
     }
 
-    Removal:
-    {
-        "task": "TASK-0001",
-        "task_type": "Removal",
-        "vehicle_number": "GJ05SY0888"
-    }
+    Supported task types can include:
 
-    Accessory:
-    {
-        "task": "TASK-0001",
-        "task_type": "Accessory",
-        "vehicle_number": "GJ05SY0888"
-    }
+        Installation
+        Checkup
+        Removal
+        Accessory
+        Re-Installation
+        Swap
 
-    Re-Installation:
-    {
-        "task": "TASK-0001",
-        "task_type": "Re-Installation",
-        "vehicle_number": "GJ05SY0888",
-        "is_chargeable": 1
-    }
+    IMPORTANT:
 
-    Swap:
-    {
-        "task": "TASK-0001",
-        "task_type": "Swap",
-        "vehicle_number": "GJ05OLD1234",
-        "new_vehicle_number": "GJ05NEW1234",
-        "swap_make": "Tata",
-        "swap_model": "Ace",
-        "swap_type": "Mini Truck",
-        "swap_color": "White"
-    }
+    For Swap:
+        vehicle_number = current / old vehicle.
 
-    is_chargeable is accepted only for Checkup and Re-Installation.
+    New vehicle details are NOT handled by this API.
+    They will be updated through the separate Swap API.
     """
+
+    # =========================================================
+    # REQUIRED PARAMS
+    # =========================================================
+
     if not task:
         return _error(
             400,
@@ -1754,28 +1726,11 @@ def create_job_for_task(
             "task_type is required."
         )
 
-    # Normalize
+    # =========================================================
+    # NORMALIZE
+    # =========================================================
 
     task_type = task_type.strip()
-
-    chargeable_value = 0
-    if task_type in ("Checkup", "Re-Installation"):
-        chargeable_value = (
-            1
-            if str(is_chargeable or "").strip().lower()
-            in ("1", "true", "yes", "on")
-            else 0
-        )
-
-    type = type or None
-    make = make or None
-    model = model or None
-    color = color or None
-
-    swap_make = swap_make or None
-    swap_model = swap_model or None
-    swap_color = swap_color or None
-    swap_type = swap_type or None
 
     vehicle_number = (
         vehicle_number.replace(" ", "").upper().strip()
@@ -1783,13 +1738,28 @@ def create_job_for_task(
         else None
     )
 
-    new_vehicle_number = (
-        new_vehicle_number.replace(" ", "").upper().strip()
-        if new_vehicle_number
-        else None
+    make = make or None
+    model = model or None
+    type = type or None
+    color = color or None
+
+    # =========================================================
+    # IS CHARGEABLE
+    # =========================================================
+    #
+    # Same parameter handling for ALL task types.
+    # =========================================================
+
+    chargeable_value = (
+        1
+        if str(is_chargeable or "").strip().lower()
+        in ("1", "true", "yes", "on")
+        else 0
     )
 
-    # Validate vehicle types
+    # =========================================================
+    # VEHICLE TYPE VALIDATION
+    # =========================================================
 
     if type and type not in _VALID_VEHICLE_TYPES:
         return _error(
@@ -1799,22 +1769,18 @@ def create_job_for_task(
             + ", ".join(sorted(_VALID_VEHICLE_TYPES))
         )
 
-    if swap_type and swap_type not in _VALID_VEHICLE_TYPES:
-        return _error(
-            400,
-            "INVALID_PARAMS",
-            "swap_type must be one of: "
-            + ", ".join(sorted(_VALID_VEHICLE_TYPES))
-        )
-
-    # Auth
+    # =========================================================
+    # AUTH
+    # =========================================================
 
     employee, err = _get_auth()
 
     if err:
         return err
 
-    # Task
+    # =========================================================
+    # GET TASK
+    # =========================================================
 
     task_doc = frappe.db.get_value(
         "Task",
@@ -1839,7 +1805,9 @@ def create_job_for_task(
 
     customer = task_doc.custom_customer
 
-    # Warehouses
+    # =========================================================
+    # TECHNICIAN WAREHOUSE
+    # =========================================================
 
     tech_warehouse = frappe.db.get_value(
         "Warehouse",
@@ -1849,6 +1817,10 @@ def create_job_for_task(
         },
         "name",
     )
+
+    # =========================================================
+    # CUSTOMER WAREHOUSE
+    # =========================================================
 
     customer_warehouse = None
 
@@ -1862,83 +1834,23 @@ def create_job_for_task(
             "name",
         )
 
-    # SWAP
+    # =========================================================
+    # VEHICLE HANDLING
+    # =========================================================
+    #
+    # Same logic for ALL task types.
+    #
+    # If vehicle already exists:
+    #     - validate customer
+    #     - fetch vehicle details from Vehicle master
+    #
+    # If vehicle does not exist:
+    #     - keep make/model/type/color received from API
+    #
+    # Swap is NOT treated separately here.
+    # =========================================================
 
-    if task_type == "Swap":
-
-        if not vehicle_number:
-            return _error(
-                400,
-                "MISSING_PARAMS",
-                "vehicle_number is required for Swap job."
-            )
-
-        old_vehicle = frappe.db.get_value(
-            "Vehicle",
-            vehicle_number,
-            [
-                "name",
-                "custom_customer",
-                "make",
-                "model",
-                "color",
-                "custom_vehicle_type",
-            ],
-            as_dict=True,
-        )
-
-        if not old_vehicle:
-            return _error(
-                404,
-                "NOT_FOUND",
-                f"Old Vehicle {vehicle_number} not found."
-            )
-
-        if old_vehicle.custom_customer != customer:
-            return _error(
-                422,
-                "INVALID_STATE",
-                f"Vehicle {vehicle_number} is linked to "
-                f"customer {old_vehicle.custom_customer or '(none)'}, "
-                f"not the task customer {customer}."
-            )
-
-        # Old vehicle details
-        make = old_vehicle.make
-        model = old_vehicle.model
-        color = old_vehicle.color
-        type = old_vehicle.custom_vehicle_type
-
-        # New vehicle number validation
-
-        if new_vehicle_number:
-
-            if new_vehicle_number == vehicle_number:
-                return _error(
-                    422,
-                    "SAME_VEHICLE",
-                    "New vehicle number cannot be the same as old vehicle number."
-                )
-
-            if frappe.db.exists(
-                "Vehicle",
-                new_vehicle_number
-            ):
-                return _error(
-                    422,
-                    "NEW_VEHICLE_ALREADY_EXISTS",
-                    f"New Vehicle {new_vehicle_number} is already registered in the system."
-                )
-
-
-    elif task_type == "Re-Installation":
-
-        if not vehicle_number:
-            return _error(
-                400,
-                "MISSING_PARAMS",
-                "vehicle_number is required for Re-Installation job."
-            )
+    if vehicle_number:
 
         vehicle_data = frappe.db.get_value(
             "Vehicle",
@@ -1954,65 +1866,39 @@ def create_job_for_task(
             as_dict=True,
         )
 
-        if not vehicle_data:
-            return _error(
-                404,
-                "VEHICLE_NOT_FOUND",
-                f"Vehicle {vehicle_number} is not registered in the system."
-            )
+        if vehicle_data:
 
-        if (
-            vehicle_data.custom_customer
-            and customer
-            and vehicle_data.custom_customer != customer
-        ):
-            return _error(
-                422,
-                "CUSTOMER_MISMATCH",
-                f"Vehicle {vehicle_number} belongs to "
-                f"{vehicle_data.custom_customer}, not {customer}."
-            )
+            # -------------------------------------------------
+            # CUSTOMER VALIDATION
+            # -------------------------------------------------
 
-        make = vehicle_data.make
-        model = vehicle_data.model
-        color = vehicle_data.color
-        type = vehicle_data.custom_vehicle_type
+            if (
+                vehicle_data.custom_customer
+                and customer
+                and vehicle_data.custom_customer != customer
+            ):
+                return _error(
+                    422,
+                    "CUSTOMER_MISMATCH",
+                    f"Vehicle {vehicle_number} belongs to "
+                    f"{vehicle_data.custom_customer}, "
+                    f"not {customer}."
+                )
 
+            # -------------------------------------------------
+            # EXISTING VEHICLE
+            #
+            # Vehicle master is the source of truth.
+            # -------------------------------------------------
 
-    else:
+            make = vehicle_data.make
+            model = vehicle_data.model
+            color = vehicle_data.color
+            type = vehicle_data.custom_vehicle_type
 
-        if vehicle_number:
-
-            vehicle_data = frappe.db.get_value(
-                "Vehicle",
-                vehicle_number,
-                [
-                    "custom_customer",
-                    "make",
-                    "model",
-                    "color",
-                    "custom_vehicle_type",
-                ],
-                as_dict=True,
-            )
-
-            if vehicle_data:
-
-                if vehicle_data.custom_customer != customer:
-                    return _error(
-                        422,
-                        "INVALID_STATE",
-                        f"Vehicle {vehicle_number} is linked to "
-                        f"customer {vehicle_data.custom_customer or '(none)'}, "
-                        f"not the task customer {customer}."
-                    )
-
-                make = vehicle_data.make
-                model = vehicle_data.model
-                color = vehicle_data.color
-                type = vehicle_data.custom_vehicle_type
-
-    # Create Job
+    # =========================================================
+    # CREATE JOB
+    # =========================================================
 
     parts = [task_type]
 
@@ -2021,10 +1907,12 @@ def create_job_for_task(
 
     job_data = {
         "doctype": "Job",
+
         "title": " - ".join(parts),
 
         "task": task_doc.name,
         "assigned_technician": employee,
+
         "status": "Pending",
 
         "vehicle_number": vehicle_number,
@@ -2035,26 +1923,18 @@ def create_job_for_task(
         "customer_warehouse": customer_warehouse or None,
 
         "date": task_doc.custom_date,
+
         "is_chargeable": chargeable_value,
 
-        # Old/current vehicle
         "make": make or None,
         "model": model or None,
         "type": type or None,
         "color": color or None,
     }
 
-    # IMPORTANT:
-    # save Swap fields in Job itself
-    if task_type == "Swap":
-
-        job_data.update({
-            "new_vehicle_number": new_vehicle_number or None,
-            "swap_make": swap_make or None,
-            "swap_model": swap_model or None,
-            "swap_color": swap_color or None,
-            "swap_type": swap_type or None,
-        })
+    # =========================================================
+    # CREATE JOB DOCUMENT
+    # =========================================================
 
     job = frappe.get_doc(job_data)
 
@@ -2062,7 +1942,9 @@ def create_job_for_task(
         ignore_permissions=True
     )
 
-    # Add into Task child table
+    # =========================================================
+    # ADD JOB TO TASK CHILD TABLE
+    # =========================================================
 
     task_parent = frappe.get_doc(
         "Task",
@@ -2083,30 +1965,36 @@ def create_job_for_task(
         ignore_permissions=True
     )
 
-    # Response
+    # =========================================================
+    # RESPONSE
+    # =========================================================
+    #
+    # SAME RESPONSE STRUCTURE FOR ALL TASK TYPES.
+    # Swap has no additional fields here.
+    # =========================================================
 
-    response = {
+    return {
         "status": "success",
         "msg": "Job created.",
+
         "job": job.name,
+        "task": task_doc.name,
+
         "task_type": task_type,
-        "vehicle_number": vehicle_number,
+
+        "vehicle_number": job.vehicle_number,
+
+        "make": job.make,
+        "model": job.model,
+        "type": job.type,
+        "color": job.color,
+
+        "is_chargeable": (
+            1
+            if job.is_chargeable
+            else 0
+        ),
     }
-
-    if task_type == "Swap":
-
-        response.update({
-            "new_vehicle_number": job.new_vehicle_number,
-            "swap_make": job.swap_make,
-            "swap_model": job.swap_model,
-            "swap_color": job.swap_color,
-            "swap_type": job.swap_type,
-        })
-
-    if task_type in ("Checkup", "Re-Installation"):
-        response["is_chargeable"] = 1 if job.is_chargeable else 0
-
-    return response
 
 
 @frappe.whitelist()
