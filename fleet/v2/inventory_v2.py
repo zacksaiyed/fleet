@@ -804,23 +804,12 @@ def get_my_transfers(workflow_state=None):
     # FINAL RESPONSE
     # ---------------------------------------------------------
 
+    all_transfers = pending_transfers + approved_transfers + rejected_transfers
+
     return {
         "status": "success",
-
-        "pending": {
-            "total": len(pending_transfers),
-            "transfers": pending_transfers,
-        },
-
-        "approved": {
-            "total": len(approved_transfers),
-            "transfers": approved_transfers,
-        },
-
-        "rejected": {
-            "total": len(rejected_transfers),
-            "transfers": rejected_transfers,
-        },
+        "total": len(all_transfers),
+        "transfers": all_transfers
     }
     
 # 4. Get single material transfer detail
