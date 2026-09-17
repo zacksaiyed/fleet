@@ -648,7 +648,7 @@ def get_job(job: str) -> dict:
         ["name", "title", "status", "task_type", "task", "vehicle_number",
          "customer", "make", "model", "color", "type", "date", "done_comment",
          "hold_comment", "completion_comment", "technician_name",
-         "is_chargeable", "unread_count_tech", "unread_count_support"],
+         "is_chargeable", "unread_count_tech", "unread_count_support","new_vehicle_number","swap_make","swap_make","swap_model","swap_color"],
         as_dict=True
     )
     if not job_doc:
@@ -661,6 +661,12 @@ def get_job(job: str) -> dict:
         order_by="idx asc",
     )
 
+	# swap item fetch
+    swap_items = frappe.db.get_all("Swap Items",
+		filters={"parent": job_doc.name},
+		fields=["item_name", "item_type", "items", "brand","source"],
+		order_by="idx asc",
+	)
     # fetch icons for all item types in one query
     type_icon = {
         r.name: r.icon
@@ -757,7 +763,13 @@ def get_job(job: str) -> dict:
             "item_installed_removed": item_groups,
             "removal_items":          removal_items,
             "job_images":             images,
+            "swap_vehicle_number":        job_doc.new_vehicle_number,
+            "swap_make":                  job_doc.swap_make,
+            "swap_model":                 job_doc.swap_model,
+            "swap_color":                 job_doc.swap_color,
+            "swap_items":                 swap_items
         },
+
     }
 
     if job_doc.task_type in ("Checkup", "Re-Installation"):
