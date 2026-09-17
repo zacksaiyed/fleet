@@ -4,14 +4,21 @@ import re
 import frappe
 from frappe.model.document import Document
 from frappe.query_builder.functions import Max
-from frappe.utils import add_to_date, now_datetime , now
+from frappe.utils import add_to_date, get_datetime, getdate, now_datetime, now
 
 # _VEH_RE = re.compile(r"^[A-Z]{3}\d{3,4}$")
 
 
 class Job(Document):
 
+	def before_insert(self):
+		if self.task_type not in ["Checkup", "Re-Installation"]:
+			self.is_chargeable = 1
+
 	def before_save(self):
+		if self.task_type in ["Installation", "Accessory"]:
+			self.is_chargeable = 1
+
 		self._vehicle_strip()
 		self._fetch_technician_warehouse()
 		self._fetch_customer_warehouse()
@@ -64,7 +71,7 @@ class Job(Document):
 	def validate_swap_vehicle(self):
 		if not self.task_type == "Swap" :
 			return
-		
+
 		if not self.new_vehicle_number:
 			return
 
@@ -410,7 +417,7 @@ class Job(Document):
 				update_modified=False,
 			)
 
-		
+
 		items_to_install = [
 			row
 			for row in (self.get("items") or [])
@@ -923,6 +930,7 @@ class Job(Document):
 						"item_type": row.item_type,
 						"status":    "Installed",
 						"date_of_installation":      self.date,
+						"is_chargeable": 1 if self.is_chargeable else 0,
 					})
 
 		self._set_chargeable_on_matched_vehicle_items(vehicle)
@@ -984,6 +992,7 @@ class Job(Document):
 					"item_type": row.item_type,
 					"status":    "Installed",
 					"date_of_installation":      self.date,
+					"is_chargeable": 1 if self.is_chargeable else 0,
 				})
 
 		self._set_chargeable_on_matched_vehicle_items(vehicle)
@@ -1055,7 +1064,6 @@ class Job(Document):
 			vi.status = "Installed"
 			vi.date_of_installation = self.date
 			vi.date_of_removal = None
-			vi.is_chargeable = 1 if self.is_chargeable else 0
 
 		self._set_chargeable_on_matched_vehicle_items(vehicle)
 
@@ -1079,7 +1087,9 @@ class Job(Document):
 		"""
 		For existing-vehicle task types, only items present in the Job's
 		item_installed_removed table are marked chargeable when the Job is chargeable.
-		All other vehicle rows are reset to 0.
+		All other vehicle rows are left as they are.
+		Also, installed items should be considered chargeable only when their corresponding
+		Vehicle Master item is marked Chargeable.
 		"""
 		job_items = {
 			row.item
@@ -1088,11 +1098,14 @@ class Job(Document):
 		}
 
 		for vehicle_row in vehicle.get("custom_vehicle_item", []):
-			vehicle_row.is_chargeable = (
-				1
-				if self.is_chargeable and vehicle_row.item in job_items
-				else 0
-			)
+			if vehicle_row.item in job_items:
+				# Installed items should be considered chargeable only when their corresponding
+				# Vehicle Master item is marked Chargeable.
+				vehicle_row.is_chargeable = (
+					1
+					if self.is_chargeable and vehicle_row.is_chargeable
+					else 0
+				)
 
 	def _attach_job_images_to_vehicle(self, vehicle_number):
 		for row in self.job_images:
@@ -1382,7 +1395,7 @@ def check_item_available(item, current_job=None):
 # Job Actions
 
 @frappe.whitelist()
-def job_action(job, action, comment=None, comment_field=None):
+def job_action(job, action, comment=None, comment_field=None, hold_until_date=None):
 	"""Handle Job status transitions. Called from job.js and mobile API."""
 	doc        = frappe.get_doc("Job", job)
 	roles      = frappe.get_roles()
@@ -1412,9 +1425,15 @@ def job_action(job, action, comment=None, comment_field=None):
 			frappe.throw("Permission denied.")
 		if not comment:
 			frappe.throw("Hold comment is required.")
+		held_at = now_datetime()
+		if not hold_until_date:
+			frappe.throw("Hold Until Date and Time is required.")
+		doc.hold_until = get_datetime(hold_until_date)
+		if doc.hold_until <= held_at:
+			frappe.throw("Hold Until Date & Time must be in the future.")
 		doc.hold_comment = comment
 		doc.status = "On Hold"
-		msg = "Job put on hold."
+		msg = f"Job put on hold until {frappe.format_value(doc.hold_until, {'fieldtype': 'Datetime'})}."
 
 	elif action == "reopen":
 		if doc.status != "On Hold":
@@ -1422,6 +1441,7 @@ def job_action(job, action, comment=None, comment_field=None):
 		if not (is_support or is_tech):
 			frappe.throw("Permission denied.")
 		doc.status = "Pending"
+		doc.hold_until = None
 		msg = "Job reopened to Pending."
 
 	elif action == "complete":
@@ -1443,6 +1463,7 @@ def job_action(job, action, comment=None, comment_field=None):
 		if not is_support:
 			frappe.throw("Only Support Team can send a job back to Pending.")
 		doc.status = "Pending"
+		doc.hold_until = None
 		msg = "Job marked as Pending."
 
 	elif action == "cancel":
@@ -1460,7 +1481,7 @@ def job_action(job, action, comment=None, comment_field=None):
 
 	doc.flags.updated_from_job_document = 1
 	doc.save(ignore_permissions=True)
-	return {"msg": msg, "job_status": doc.status}
+	return {"msg": msg, "job_status": doc.status, "hold_until": doc.hold_until}
 
 
 def set_progress_jobs_to_pending():
@@ -1493,3 +1514,22 @@ def set_progress_jobs_to_pending():
 			"Pending",
 		)
 
+
+def reopen_expired_held_jobs():
+	"""Reopen jobs whose configured hold period has elapsed."""
+	expired_jobs = frappe.get_all(
+		"Job",
+		filters={"status": "On Hold", "hold_until": ["<=", now_datetime()]},
+		fields=["name", "task","status"],
+	)
+	for job in expired_jobs:
+		# This is a status-only transition. Avoid re-validating old Jobs, whose
+		# vehicle master data may have changed since the Job was originally created.
+		frappe.db.set_value(
+			"Job", job.name, {"status": "Pending", "hold_until": None}, update_modified=False
+		)
+		job=frappe.db.set_value(
+			"Task Job", {"job": job.name}, "status", "Pending", update_modified=False
+		)
+
+	return len(expired_jobs)

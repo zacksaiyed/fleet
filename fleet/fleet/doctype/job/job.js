@@ -161,6 +161,30 @@ frappe.ui.form.on("Job", {
 	refresh(frm) {
 		_attachVehicleNumberMask(frm);
 		render_vehicle_items(frm);
+
+		const roles = frappe.user_roles;
+		const is_erp_crm = roles.includes("System Manager") || roles.includes("Administrator") || roles.includes("Fleet Administrator") || roles.includes("Fleet Manager") || roles.includes("Support Team");
+		const is_tech_only = roles.includes("Technician") && !is_erp_crm;
+
+		if (frm.is_new()) {
+			if (!["Checkup", "Re-Installation"].includes(frm.doc.task_type)) {
+				frm.set_value("is_chargeable", 1);
+			}
+		}
+
+		if (["Installation", "Accessory"].includes(frm.doc.task_type)) {
+			frm.set_value("is_chargeable", 1);
+			frm.set_df_property("is_chargeable", "read_only", 1);
+		} else if (is_erp_crm) {
+			frm.set_df_property("is_chargeable", "read_only", 0);
+		} else if (is_tech_only) {
+			if (["Checkup", "Re-Installation"].includes(frm.doc.task_type)) {
+				frm.set_df_property("is_chargeable", "read_only", 0);
+			} else {
+				frm.set_df_property("is_chargeable", "read_only", 1);
+			}
+		}
+
 		if (frm.is_new()) {
 			return;
 		}
@@ -256,7 +280,6 @@ frappe.ui.form.on("Job", {
 
 		if (frm.is_new()) return;
 
-		const roles = frappe.user_roles;
 		const is_support = roles.includes("Support Team");
 		const is_tech = roles.includes("Technician");
 		const status = frm.doc.status;
@@ -326,7 +349,7 @@ frappe.ui.form.on("Job", {
 
 			if (["Pending", "In Progress"].includes(status)) {
 				frm.add_custom_button(__("Hold"), () =>
-					_job_action_with_comment(frm, "hold", __("Hold Comment"), "hold_comment")
+					_job_hold_action(frm)
 				);
 			}
 
@@ -365,6 +388,27 @@ frappe.ui.form.on("Job", {
 	task_type(frm) {
 		// Re-run the vehicle check when task type changes while a number is already entered
 		fetch_vehicle_details(frm);
+
+		if (!["Checkup", "Re-Installation"].includes(frm.doc.task_type)) {
+			frm.set_value("is_chargeable", 1);
+		}
+
+		const roles = frappe.user_roles;
+		const is_erp_crm = roles.includes("System Manager") || roles.includes("Administrator") || roles.includes("Fleet Administrator") || roles.includes("Fleet Manager") || roles.includes("Support Team");
+		const is_tech_only = roles.includes("Technician") && !is_erp_crm;
+
+		if (["Installation", "Accessory"].includes(frm.doc.task_type)) {
+			frm.set_value("is_chargeable", 1);
+			frm.set_df_property("is_chargeable", "read_only", 1);
+		} else if (is_erp_crm) {
+			frm.set_df_property("is_chargeable", "read_only", 0);
+		} else if (is_tech_only) {
+			if (["Checkup", "Re-Installation"].includes(frm.doc.task_type)) {
+				frm.set_df_property("is_chargeable", "read_only", 0);
+			} else {
+				frm.set_df_property("is_chargeable", "read_only", 1);
+			}
+		}
 	},
 
 	async validate(frm) {
@@ -397,10 +441,28 @@ function _job_action_with_comment(frm, action, label, field) {
 	);
 }
 
-function _job_action(frm, action, comment, comment_field) {
+function _job_hold_action(frm) {
+	const fields = [{
+		fieldtype: "Small Text", fieldname: "comment", label: __("Hold Comment"), reqd: 1,
+	}];
+
+
+	fields.push({
+		fieldtype: "Datetime", fieldname: "hold_until_date", label: __("Hold Until Date & Time"),
+		// Frappe's datepicker expects a JavaScript Date object for min_date.
+		reqd: 1, min_date: frappe.datetime.str_to_obj(frappe.datetime.now_datetime()),
+		description: __("Select the date and time when the job should automatically reopen."),
+	});
+
+	frappe.prompt(fields, (values) => {
+		_job_action(frm, "hold", values.comment, "hold_comment", values.hold_until_date);
+	}, __("Put Job On Hold"), __("Submit"));
+}
+
+function _job_action(frm, action, comment, comment_field, hold_until_date) {
 	frappe.call({
 		method: "fleet.fleet.doctype.job.job.job_action",
-		args: { job: frm.doc.name, action, comment, comment_field },
+		args: { job: frm.doc.name, action, comment, comment_field, hold_until_date },
 		freeze: true,
 		freeze_message: __("Updating…"),
 		callback(r) {

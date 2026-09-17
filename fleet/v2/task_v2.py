@@ -3551,12 +3551,13 @@ def job_action(job: str, action: str, comment: str = None) -> dict:
         Cookie: sid=<logged_in_user_sid>
     Body:
         job     — job name (e.g. JOB-2026-03-000001)
-        action  — "done" | "reopen"
-        comment — required when action is "done"
+        action  — "done" | "hold" | "reopen"
+        comment — required when action is "done" or "hold"
 
     Technician-facing actions only. Support handles hold/complete/cancel.
 
     Transitions:
+        hold   : Pending / In Progress → On Hold for 24 hours (comment required)
         done   : Pending / On Hold → In Review  (comment required)
         reopen : On Hold → Pending
     """
