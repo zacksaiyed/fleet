@@ -15,10 +15,13 @@ ROLE_STORE      = "Support Team"
 # document class
 class MaterialTransfer(Document):
 
-	
 	def before_insert(self):
 		self.stock_entry = None
 		self.accepted_by = None
+		self.initiated_by = None
+		self.initiated_on = None
+		self.rejected_by = None
+		self.rejected_on = None
 
 	def validate(self):
 		self.validate_source_target()
@@ -29,9 +32,38 @@ class MaterialTransfer(Document):
 		self.set_approval_timeline()
 
 	def on_update(self):
-		if self.workflow_state != "Approved":
+		if self.workflow_state == "Initiated":
+			self.set_initiated_details()
+
+		elif self.workflow_state == "Approved":
+			self.set_approved_details()
+
+		elif self.workflow_state == "Rejected":
+			self.set_rejected_details()
+
+	def set_initiated_details(self):
+		updates = {}
+
+		if not self.initiated_by:
+			updates["initiated_by"] = frappe.session.user
+
+		if not self.initiated_on:
+			updates["initiated_on"] = frappe.utils.now()
+
+		if not updates:
 			return
 
+		frappe.db.set_value(
+			"Material Transfer",
+			self.name,
+			updates,
+			update_modified=False,
+		)
+
+		for fieldname, value in updates.items():
+			setattr(self, fieldname, value)
+
+	def set_approved_details(self):
 		if not self.accepted_by:
 			frappe.db.set_value(
 				"Material Transfer",
@@ -40,10 +72,33 @@ class MaterialTransfer(Document):
 				frappe.session.user,
 				update_modified=False,
 			)
+
 			self.accepted_by = frappe.session.user
 
 		if not self.stock_entry:
 			_create_stock_entry(self.name)
+
+	def set_rejected_details(self):
+		updates = {}
+
+		if not self.rejected_by:
+			updates["rejected_by"] = frappe.session.user
+
+		if not self.rejected_on:
+			updates["rejected_on"] = frappe.utils.now()
+
+		if not updates:
+			return
+
+		frappe.db.set_value(
+			"Material Transfer",
+			self.name,
+			updates,
+			update_modified=False,
+		)
+
+		for fieldname, value in updates.items():
+			setattr(self, fieldname, value)
 	# def validate_items(self):
 	# 	if not self.items:
 	# 		frappe.throw(_("Please add at least one item before saving."))
