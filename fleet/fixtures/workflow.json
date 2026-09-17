@@ -4,7 +4,7 @@
   "doctype": "Workflow",
   "document_type": "Material Transfer",
   "is_active": 1,
-  "modified": "2026-09-01 18:45:06.434340",
+  "modified": "2026-09-16 18:11:38.853327",
   "name": "Material Transfer Workflow",
   "override_status": 0,
   "send_email_alert": 0,
@@ -44,7 +44,7 @@
    {
     "allow_edit": "Material Transfer User",
     "avoid_status_override": 0,
-    "doc_status": "1",
+    "doc_status": "0",
     "is_optional_state": 0,
     "message": null,
     "next_action_email_template": null,
@@ -60,7 +60,7 @@
    {
     "allow_edit": "Material Transfer User",
     "avoid_status_override": 0,
-    "doc_status": "1",
+    "doc_status": "0",
     "is_optional_state": 0,
     "message": null,
     "next_action_email_template": null,

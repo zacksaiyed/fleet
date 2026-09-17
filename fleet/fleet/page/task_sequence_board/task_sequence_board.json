@@ -4,13 +4,26 @@
  "docstatus": 0,
  "doctype": "Page",
  "idx": 0,
- "modified": "2026-09-15 09:11:31.468120",
+ "modified": "2026-09-17 20:25:04.092741",
  "modified_by": "Administrator",
  "module": "Fleet",
  "name": "task-sequence-board",
  "owner": "Administrator",
  "page_name": "task-sequence-board",
- "roles": [],
+ "roles": [
+  {
+   "role": "Fleet Administrator"
+  },
+  {
+   "role": "Fleet Manager"
+  },
+  {
+   "role": "Support Team"
+  },
+  {
+   "role": "System Manager"
+  }
+ ],
  "script": null,
  "standard": "Yes",
  "style": null,

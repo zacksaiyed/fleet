@@ -316,7 +316,6 @@ def get_transfer_targets():
         })
 
     return {"status": "success", "targets": targets}
-
 # 3. List my material transfers
 @frappe.whitelist()
 def get_my_transfers(workflow_state=None):
@@ -328,7 +327,6 @@ def get_my_transfers(workflow_state=None):
     Response groups:
 
         pending:
-            - Initiated
             - Approval Pending
 
         approved:
@@ -336,6 +334,8 @@ def get_my_transfers(workflow_state=None):
 
         rejected:
             - Rejected
+
+    Initiated transfers are not included in any group.
 
     Optional:
         workflow_state
@@ -350,16 +350,6 @@ def get_my_transfers(workflow_state=None):
 
     # ---------------------------------------------------------
     # TRANSFER VISIBILITY
-    # ---------------------------------------------------------
-    #
-    # Outgoing:
-    #     source = my warehouse
-    #
-    # Incoming:
-    #     target = my warehouse
-    #
-    # We include all relevant workflow states here because
-    # response grouping is done later.
     # ---------------------------------------------------------
 
     if my_warehouse:
@@ -380,11 +370,23 @@ def get_my_transfers(workflow_state=None):
             "user": user
         }
 
-    # Optional workflow filter
+    # ---------------------------------------------------------
+    # EXCLUDE INITIATED
+    # ---------------------------------------------------------
+
+    where += """
+        AND `tabMaterial Transfer`.workflow_state != 'Initiated'
+    """
+
+    # ---------------------------------------------------------
+    # OPTIONAL WORKFLOW FILTER
+    # ---------------------------------------------------------
+
     if workflow_state:
         where += """
             AND `tabMaterial Transfer`.workflow_state = %(workflow_state)s
         """
+
         values["workflow_state"] = workflow_state
 
     # ---------------------------------------------------------
@@ -403,6 +405,18 @@ def get_my_transfers(workflow_state=None):
             owner,
             creation,
             modified,
+
+            CASE
+                WHEN workflow_state = 'Approved'
+                THEN approved_on
+                ELSE NULL
+            END AS approved_on,
+
+            CASE
+                WHEN workflow_state = 'Rejected'
+                THEN rejected_on
+                ELSE NULL
+            END AS rejected_on,
 
             CASE
                 WHEN workflow_state = 'Rejected'
@@ -447,9 +461,6 @@ def get_my_transfers(workflow_state=None):
 
     # ---------------------------------------------------------
     # QUANTITY
-    # ---------------------------------------------------------
-    #
-    # Every Material Transfer Item represents one asset/item.
     # ---------------------------------------------------------
 
     qty_rows = frappe.db.sql("""
@@ -528,10 +539,6 @@ def get_my_transfers(workflow_state=None):
 
     # ---------------------------------------------------------
     # MATERIAL RETURN ITEMS
-    # ---------------------------------------------------------
-    #
-    # Material Return can have different target warehouse
-    # for every item.
     # ---------------------------------------------------------
 
     return_names = [
@@ -772,23 +779,23 @@ def get_my_transfers(workflow_state=None):
             "workflow_state"
         )
 
-        # Initiated + Approval Pending = Pending
-        if state in (
-            "Initiated",
-            "Approval Pending"
-        ):
+        # Approval Pending only
+        if state == "Approval Pending":
+
             pending_transfers.append(
                 transfer
             )
 
         # Approved
         elif state == "Approved":
+
             approved_transfers.append(
                 transfer
             )
 
         # Rejected
         elif state == "Rejected":
+
             rejected_transfers.append(
                 transfer
             )
@@ -815,6 +822,7 @@ def get_my_transfers(workflow_state=None):
             "transfers": rejected_transfers,
         },
     }
+    
 # 4. Get single material transfer detail
 
 @frappe.whitelist()
@@ -1079,6 +1087,8 @@ def get_transfer(name):
                 if doc.workflow_state == "Rejected"
                 else None
             ),
+            "rejected_on":(doc.rejected_on if doc.workflow_state == "Rejected" else None),
+            "approved_on":(doc.rejected_on if doc.workflow_state == "Approved" else None),
 
             "groups": item_groups,
         },

@@ -70,7 +70,6 @@ def _strip_html(value):
     text = re.sub(r"\s+", " ", text).strip()
     return text or None
 
-
 @frappe.whitelist()
 def get_my_tasks() -> dict:
     """
@@ -105,15 +104,18 @@ def get_my_tasks() -> dict:
 
     Send these as query parameters.
     """
+
     employee, err = _get_auth()
+
     if err:
         return err
 
-    tab           = frappe.form_dict.get("tab")
-    from_date     = frappe.form_dict.get("from_date")
-    to_date       = frappe.form_dict.get("to_date")
+    tab = frappe.form_dict.get("tab")
+    from_date = frappe.form_dict.get("from_date")
+    to_date = frappe.form_dict.get("to_date")
     status_filter = frappe.form_dict.get("status")
-    today         = nowdate()
+
+    today = nowdate()
 
     # base filter: never return completed or cancelled tasks
     filters = {
@@ -122,23 +124,41 @@ def get_my_tasks() -> dict:
     }
 
     if tab == "today":
+
         filters["custom_date"] = today
-        filters["status"]      = ["in", list(_ACTIVE)]
+        filters["status"] = ["in", list(_ACTIVE)]
 
     elif tab == "overdue":
+
         filters["custom_date"] = ["<", today]
-        filters["status"]      = ["in", list(_ACTIVE)]
+        filters["status"] = ["in", list(_ACTIVE)]
 
     elif tab == "requests":
+
         filters["status"] = "Open"
 
     else:
+
         if from_date and to_date:
-            filters["custom_date"] = ["between", [from_date, to_date]]
+
+            filters["custom_date"] = [
+                "between",
+                [from_date, to_date]
+            ]
+
         elif from_date:
-            filters["custom_date"] = [">=", from_date]
+
+            filters["custom_date"] = [
+                ">=",
+                from_date
+            ]
+
         elif to_date:
-            filters["custom_date"] = ["<=", to_date]
+
+            filters["custom_date"] = [
+                "<=",
+                to_date
+            ]
 
         if status_filter:
             filters["status"] = status_filter
@@ -153,6 +173,7 @@ def get_my_tasks() -> dict:
             "priority",
             "description",
             "custom_date",
+            "custom_sequence",
             "custom_customer",
             "custom_address",
             "custom_complete_address",
@@ -170,84 +191,202 @@ def get_my_tasks() -> dict:
         order_by="custom_date asc, modified desc"
     )
 
-    # aggregate job counts in one sql query to avoid n+1
-    task_names      = [t["name"] for t in tasks]
-    job_counts      = {}
-    job_type_counts = {}
+    # ---------------------------------------------------------
+    # ORDER TASKS BY CUSTOM SEQUENCE
+    # ---------------------------------------------------------
+    #
+    # If custom_sequence is present:
+    #     sequence is given priority
+    #
+    # If custom_sequence is not present:
+    #     existing custom_date / modified order is retained
+    #
+    # Python sort is stable, so tasks having no sequence
+    # preserve the order returned by frappe.get_all().
+    # ---------------------------------------------------------
 
-    completed_counts = {}  # jobs in "In Review" per task
+    tasks.sort(
+        key=lambda task: (
+            task.get("custom_sequence") in (None, ""),
+            task.get("custom_sequence")
+            if task.get("custom_sequence") not in (None, "")
+            else 0
+        )
+    )
+
+    # aggregate job counts in one sql query to avoid n+1
+
+    task_names = [
+        t["name"]
+        for t in tasks
+    ]
+
+    job_counts = {}
+    job_type_counts = {}
+    completed_counts = {}
 
     if task_names:
+
         rows = frappe.db.sql(
             """
             SELECT
                 task,
                 task_type,
                 COUNT(*) AS cnt,
-                SUM(CASE WHEN status = 'Completed' THEN 1 ELSE 0 END) AS completed_cnt
+                SUM(
+                    CASE
+                        WHEN status = 'Completed'
+                        THEN 1
+                        ELSE 0
+                    END
+                ) AS completed_cnt
+
             FROM `tabJob`
+
             WHERE task IN %(tasks)s
               AND status != 'Cancelled'
-            GROUP BY task, task_type
+
+            GROUP BY
+                task,
+                task_type
             """,
-            {"tasks": tuple(task_names)},
+            {
+                "tasks": tuple(task_names)
+            },
             as_dict=True
         )
+
         for row in rows:
+
             t = row["task"]
-            job_counts[t] = job_counts.get(t, 0) + row["cnt"]
-            completed_counts[t] = completed_counts.get(t, 0) + (row["completed_cnt"] or 0)
+
+            job_counts[t] = (
+                job_counts.get(t, 0)
+                + row["cnt"]
+            )
+
+            completed_counts[t] = (
+                completed_counts.get(t, 0)
+                + (row["completed_cnt"] or 0)
+            )
+
             if t not in job_type_counts:
                 job_type_counts[t] = {}
-            job_type_counts[t][row["task_type"]] = row["cnt"]
+
+            job_type_counts[t][row["task_type"]] = (
+                row["cnt"]
+            )
 
     # fetch lat/long from Address (source of truth) in one query
-    address_names = list({t["custom_address"] for t in tasks if t.get("custom_address")})
+
+    address_names = list({
+        t["custom_address"]
+        for t in tasks
+        if t.get("custom_address")
+    })
+
     address_coords = {}
+
     if address_names:
+
         for row in frappe.get_all(
             "Address",
-            filters={"name": ["in", address_names]},
-            fields=["name", "custom_latitude", "custom_longitude"],
+            filters={
+                "name": [
+                    "in",
+                    address_names
+                ]
+            },
+            fields=[
+                "name",
+                "custom_latitude",
+                "custom_longitude"
+            ],
         ):
-            address_coords[row.name] = (row.custom_latitude or 0, row.custom_longitude or 0)
+
+            address_coords[row.name] = (
+                row.custom_latitude or 0,
+                row.custom_longitude or 0
+            )
 
     for task in tasks:
+
         n = task["name"]
-        task["total_jobs"]              = job_counts.get(n, 0)
-        task["completed_jobs"]          = completed_counts.get(n, 0)
-        task["job_type_counts"]         = job_type_counts.get(n, {})
-        task["description"]             = _strip_html(task.get("description"))
-        task["custom_complete_address"] = _strip_html(task.get("custom_complete_address"))
-        coords = address_coords.get(task.get("custom_address"), (0, 0))
-        task["custom_latitude"]         = coords[0]
-        task["custom_longitude"]        = coords[1]
+
+        task["total_jobs"] = (
+            job_counts.get(n, 0)
+        )
+
+        task["completed_jobs"] = (
+            completed_counts.get(n, 0)
+        )
+
+        task["job_type_counts"] = (
+            job_type_counts.get(n, {})
+        )
+
+        task["description"] = _strip_html(
+            task.get("description")
+        )
+
+        task["custom_complete_address"] = _strip_html(
+            task.get("custom_complete_address")
+        )
+
+        coords = address_coords.get(
+            task.get("custom_address"),
+            (0, 0)
+        )
+
+        task["custom_latitude"] = coords[0]
+        task["custom_longitude"] = coords[1]
 
     # tab badge counts for mobile nav
+
     tab_counts = {
-        "today": frappe.db.count("Task", {
-            "custom_assign_to": employee,
-            "custom_date":      today,
-            "status":           ["in", list(_ACTIVE)],
-        }),
-        "overdue": frappe.db.count("Task", {
-            "custom_assign_to": employee,
-            "custom_date":      ["<", today],
-            "status":           ["in", list(_ACTIVE)],
-        }),
-        "requests": frappe.db.count("Task", {
-            "custom_assign_to": employee,
-            "status":           "Open",
-        }),
+
+        "today": frappe.db.count(
+            "Task",
+            {
+                "custom_assign_to": employee,
+                "custom_date": today,
+                "status": [
+                    "in",
+                    list(_ACTIVE)
+                ],
+            }
+        ),
+
+        "overdue": frappe.db.count(
+            "Task",
+            {
+                "custom_assign_to": employee,
+                "custom_date": [
+                    "<",
+                    today
+                ],
+                "status": [
+                    "in",
+                    list(_ACTIVE)
+                ],
+            }
+        ),
+
+        "requests": frappe.db.count(
+            "Task",
+            {
+                "custom_assign_to": employee,
+                "status": "Open",
+            }
+        ),
     }
 
     return {
-        "status":     "success",
+        "status": "success",
         "tab_counts": tab_counts,
-        "total":      len(tasks),
-        "tasks":      tasks,
+        "total": len(tasks),
+        "tasks": tasks,
     }
-
 
 @frappe.whitelist()
 def get_task_jobs(task: str) -> dict:
