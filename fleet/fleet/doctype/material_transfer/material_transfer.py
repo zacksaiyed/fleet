@@ -15,6 +15,7 @@ ROLE_STORE      = "Support Team"
 # document class
 class MaterialTransfer(Document):
 
+	
 	def before_insert(self):
 		self.stock_entry = None
 		self.accepted_by = None
@@ -27,6 +28,22 @@ class MaterialTransfer(Document):
 		self.sync_item_lock_state()
 		self.set_approval_timeline()
 
+	def on_update(self):
+		if self.workflow_state != "Approved":
+			return
+
+		if not self.accepted_by:
+			frappe.db.set_value(
+				"Material Transfer",
+				self.name,
+				"accepted_by",
+				frappe.session.user,
+				update_modified=False,
+			)
+			self.accepted_by = frappe.session.user
+
+		if not self.stock_entry:
+			_create_stock_entry(self.name)
 	# def validate_items(self):
 	# 	if not self.items:
 	# 		frappe.throw(_("Please add at least one item before saving."))
@@ -259,18 +276,18 @@ class MaterialTransfer(Document):
 				"Following items are already reserved in another active Material Transfer:<br><br>{0}<br><br>Please remove them."
 			).format(formatted))
 
-	def before_submit(self):
-		if self.workflow_state == "Approved":
-			self.accepted_by = frappe.session.user
+	# def before_submit(self):
+	# 	if self.workflow_state == "Approved":
+	# 		self.accepted_by = frappe.session.user
 
-	def on_submit(self):
-		# workflow has doc_status=1 on Approved state
-		# frappe sets docstatus=1 which triggers on_submit — reliable every time
-		# if stock entry creation fails here, frappe rolls back the entire submit
-		# doc stays at docstatus=0, never reaches Approved
-		if self.workflow_state in ("Rejected", "Cancelled"):
-			return
-		_create_stock_entry(self.name)
+	# def on_submit(self):
+	# 	# workflow has doc_status=1 on Approved state
+	# 	# frappe sets docstatus=1 which triggers on_submit — reliable every time
+	# 	# if stock entry creation fails here, frappe rolls back the entire submit
+	# 	# doc stays at docstatus=0, never reaches Approved
+	# 	if self.workflow_state in ("Rejected", "Cancelled"):
+	# 		return
+	# 	_create_stock_entry(self.name)
 
 	def on_cancel(self):
 		# Always release item reservation when the Material Transfer is cancelled.
