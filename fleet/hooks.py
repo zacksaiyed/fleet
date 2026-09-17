@@ -248,6 +248,9 @@ doc_events = {
 
 scheduler_events = {
     "cron": {
+		"* * * * *": [
+			"fleet.fleet.doctype.job.job.reopen_expired_held_jobs"
+		],
         "*/5 * * * *": [
             "fleet.scheduled.task_auto_reject.auto_reject_unaccepted_tasks"
         ],
