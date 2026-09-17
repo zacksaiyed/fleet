@@ -648,7 +648,7 @@ def get_job(job: str) -> dict:
         ["name", "title", "status", "task_type", "task", "vehicle_number",
          "customer", "make", "model", "color", "type", "date", "done_comment",
          "hold_comment", "completion_comment", "technician_name",
-         "is_chargeable", "unread_count_tech", "unread_count_support","new_vehicle_number","swap_make","swap_make","swap_model","swap_color"],
+         "is_chargeable", "unread_count_tech", "unread_count_support","new_vehicle_number","swap_type","swap_make","swap_model","swap_color"],
         as_dict=True
     )
     if not job_doc:
@@ -767,6 +767,7 @@ def get_job(job: str) -> dict:
             "swap_make":                  job_doc.swap_make,
             "swap_model":                 job_doc.swap_model,
             "swap_color":                 job_doc.swap_color,
+            "swap_type":                  job_doc.swap_type,
             "swap_items":                 swap_items
         },
 
