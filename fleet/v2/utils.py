@@ -1,4 +1,5 @@
 import frappe
+from fleet.v2.inventory_v2 import _get_auth
 
 @frappe.whitelist(allow_guest=True)
 def get_vehicle_types():
@@ -10,7 +11,7 @@ def get_vehicle_types():
 
 	return vehicle_types
 
-@frappe.whitelist()
+@frappe.whitelist(allow_guest=True)
 def get_item(item_code):
 	if not item_code:
 		return {
