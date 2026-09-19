@@ -3706,15 +3706,16 @@ def mark_job_done(job: str, done_comment: str) -> dict:
 
 
 @frappe.whitelist()
-def job_action(job: str, action: str, comment: str = None) -> dict:
+def job_action(job: str, action: str, comment: str = None, hold_until_date: str = None) -> dict:
     """
-    POST /api/method/fleet.mobile_api.tasks.job_action
+    POST /api/method/fleet.v2.task_v2.job_action
     Headers:
         Cookie: sid=<logged_in_user_sid>
     Body:
-        job     — job name (e.g. JOB-2026-03-000001)
-        action  — "done" | "hold" | "reopen"
-        comment — required when action is "done" or "hold"
+        job             — job name (e.g. JOB-2026-03-000001)
+        action          — "done" | "hold" | "reopen"
+        comment         — required when action is "done" or "hold"
+        hold_until_date — optional (defaults automatically to now + 24 hours)
 
     Technician-facing actions only. Support handles hold/complete/cancel.
 
@@ -3744,7 +3745,7 @@ def job_action(job: str, action: str, comment: str = None) -> dict:
 
     from fleet.fleet.doctype.job.job import job_action as _job_action
     try:
-        result = _job_action(job=job, action=action, comment=comment)
+        result = _job_action(job=job, action=action, comment=comment, hold_until_date=hold_until_date)
     except frappe.ValidationError as e:
         return _error(400, "VALIDATION_ERROR", str(e))
     return {"status": "success", **result}

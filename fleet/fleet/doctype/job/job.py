@@ -1427,10 +1427,11 @@ def job_action(job, action, comment=None, comment_field=None, hold_until_date=No
 			frappe.throw("Hold comment is required.")
 		held_at = now_datetime()
 		if not hold_until_date:
-			frappe.throw("Hold Until Date and Time is required.")
-		doc.hold_until = get_datetime(hold_until_date)
-		if doc.hold_until <= held_at:
-			frappe.throw("Hold Until Date & Time must be in the future.")
+			doc.hold_until = add_to_date(held_at, hours=24)
+		else:
+			doc.hold_until = get_datetime(hold_until_date)
+			if doc.hold_until <= held_at:
+				frappe.throw("Hold Until Date & Time must be in the future.")
 		doc.hold_comment = comment
 		doc.status = "On Hold"
 		msg = f"Job put on hold until {frappe.format_value(doc.hold_until, {'fieldtype': 'Datetime'})}."
