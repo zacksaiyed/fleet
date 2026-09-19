@@ -709,7 +709,7 @@ def get_job(job: str) -> dict:
             }
         groups[key]["total_qty"] += 1
 
-        destination = "New Vehicle" if (r.item and str(r.item).strip() in swap_item_codes) else "My Assets"
+        destination = "new vehicle" if (r.item and str(r.item).strip() in swap_item_codes) else "my assets"
 
         item_row = {
             "name":                r.name,
@@ -2613,6 +2613,9 @@ def update_job(
                         "Every asset_mapping row requires item."
                     )
 
+                if move_to in ("Technician", "My Assets"):
+                    move_to = "My Assets"
+
                 if move_to not in (
                     "My Assets",
                     "New Vehicle",
@@ -3529,6 +3532,51 @@ def update_job(
         response["chargeable_reason_description"] = job_doc.chargeable_reason_description or ""
 
     return response
+
+@frappe.whitelist()
+def update_swap_job(
+    job: str,
+    vehicle_number: str | None = None,
+    make: str | None = None,
+    model: str | None = None,
+    color: str | None = None,
+    type: str | None = None,
+    set_items=None,
+    is_chargeable: int | str | None = None,
+    chargeable_reason: int | str | None = None,
+    chargeable_reason_description: int | str | None = None,
+    new_vehicle_number: str | None = None,
+    swap_make: str | None = None,
+    swap_model: str | None = None,
+    swap_color: str | None = None,
+    swap_type: str | None = None,
+    asset_mapping=None,
+    new_assets=None,
+    **kwargs,
+) -> dict:
+    """
+    POST /api/method/fleet.v2.task_v2.update_swap_job
+    Alias for update_job.
+    """
+    return update_job(
+        job=job,
+        vehicle_number=vehicle_number,
+        make=make,
+        model=model,
+        color=color,
+        type=type,
+        set_items=set_items,
+        is_chargeable=is_chargeable,
+        chargeable_reason=chargeable_reason,
+        chargeable_reason_description=chargeable_reason_description,
+        new_vehicle_number=new_vehicle_number,
+        swap_make=swap_make,
+        swap_model=swap_model,
+        swap_color=swap_color,
+        swap_type=swap_type,
+        asset_mapping=asset_mapping,
+        new_assets=new_assets,
+    )
 
 @frappe.whitelist()
 def upload_job_image(job: str, image_data: str = None, filename: str = None, comment: str = None) -> dict:
