@@ -37,4 +37,5 @@ def execute():
 		""",
 		{"items": tuple(pending_items)},
 	)
+	frappe.db.commit()
 
