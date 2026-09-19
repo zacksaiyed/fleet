@@ -699,7 +699,7 @@ def get_my_transfers(workflow_state=None):
                 t.name,
                 []
             )
-
+            t["target"] = _get_store_warehouse().get("name")
             t["items"] = return_items
 
             return_types = []
