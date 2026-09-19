@@ -324,16 +324,16 @@ def get_my_transfers(workflow_state=None):
 
     Returns Material Transfers related to the logged-in technician.
 
-    Response groups:
-
-        pending:
-            - Approval Pending
-
-        approved:
-            - Approved
-
-        rejected:
-            - Rejected
+    {
+        "status": "success",
+        "total": 5,
+        "transfers": [
+            {
+                "name", "date", "source", "target", "workflow_state",
+                "stock_entry", "owner", "creation", "items_count"
+            }
+        ]
+    }
 
     Initiated transfers are not included in any group.
 

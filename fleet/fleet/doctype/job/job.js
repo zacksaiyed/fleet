@@ -190,6 +190,8 @@ frappe.ui.form.on("Job", {
 		}
 		render_job_images(frm)
 
+		set_get_queries(frm)
+
 		frm.add_custom_button(__("Go to Chat"), () => {
 			go_to_chat(frm);
 		});
@@ -386,6 +388,7 @@ frappe.ui.form.on("Job", {
 	},
 
 	task_type(frm) {
+		set_get_queries(frm)
 		// Re-run the vehicle check when task type changes while a number is already entered
 		fetch_vehicle_details(frm);
 
@@ -429,6 +432,16 @@ frappe.ui.form.on("Job", {
 	},
 
 });
+
+function set_get_queries(frm){
+	frm.fields_dict["chargeable_reason"].get_query = function (doc) {
+			return {
+				filters: {
+					job_type: doc.task_type
+				},
+			};
+		};
+}
 
 function _job_action_with_comment(frm, action, label, field) {
 	frappe.prompt(

@@ -12,6 +12,17 @@ def get_vehicle_types():
 	return vehicle_types
 
 @frappe.whitelist(allow_guest=True)
+def get_chargeable_reason(job_type):
+	vehicle_types = frappe.get_all(
+		"Job Chargeable Reason",
+		{"job_type":job_type},
+		pluck="name",
+		order_by="name asc",
+	)
+
+	return vehicle_types
+
+@frappe.whitelist(allow_guest=True)
 def get_item(item_code):
 	if not item_code:
 		return {

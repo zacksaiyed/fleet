@@ -2159,6 +2159,8 @@ def update_job(
     type: str | None = None,
     set_items=None,
     is_chargeable: int | str | None = None,
+    chargeable_reason: int | str | None = None,
+    chargeable_reason_description: int | str | None = None,
 
     # Swap fields
     new_vehicle_number: str | None = None,
@@ -3048,9 +3050,12 @@ def update_job(
             in ("1", "true", "yes", "on")
             else 0
         )
+
         job_doc.is_chargeable = normalized_chargeable
         changed_scalars["is_chargeable"] = normalized_chargeable
 
+        job_doc.chargeable_reason = chargeable_reason
+        job_doc.chargeable_reason_description = chargeable_reason_description.strip() if chargeable_reason_description else ""
 
     if vehicle_number is not None:
 

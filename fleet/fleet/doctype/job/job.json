@@ -1,558 +1,572 @@
 {
-    "actions": [],
-    "autoname": "JOB-.YYYY.-.MM.-.######",
-    "creation": "2026-03-01 12:23:31.432340",
-    "doctype": "DocType",
-    "engine": "InnoDB",
-    "field_order": [
-        "title",
-        "task",
-        "assigned_technician",
-        "technician_name",
-        "task_type",
-        "col_break_1",
-        "date",
-        "status",
-        "vehicle_number",
-        "new_vehicle_number",
-        "is_chargeable",
-        "vehicle_details",
-        "type",
-        "column_break_ixtg",
-        "make",
-        "column_break_pqjd",
-        "model",
-        "column_break_ameg",
-        "color",
-        "section_break_hnga",
-        "item_details",
-        "section_break_wthp",
-        "item_installed_removed",
-        "new_vehicle_details_section",
-        "swap_type",
-        "column_break_lcus",
-        "swap_make",
-        "column_break_lndf",
-        "swap_model",
-        "column_break_jpqb",
-        "swap_color",
-        "section_break_zbyq",
-        "items",
-        "section_break_aycz",
-        "removal_items",
-        "section_break_zlps",
-        "job_image",
-        "job_images",
-        "section_break_thhl",
-        "done_comment",
-        "column_break_qblo",
-        "completion_comment",
-        "column_break_edkh",
-        "hold_comment",
-        "hold_until",
-        "section_customer",
-        "customer",
-        "customer_warehouse",
-        "column_break_xjgy",
-        "technician_warehouse",
-        "section_break_gjsf",
-        "created_by",
-        "completed_by_technician",
-        "completed_on_technician",
-        "column_break_enxn",
-        "completed_by_support",
-        "completed_on_support",
-        "cancelled_by",
-        "cancelled_on",
-        "section_unread",
-        "unread_count_tech",
-        "column_break_eohm",
-        "unread_count_support"
-    ],
-    "fields": [
-        {
-            "fieldname": "title",
-            "fieldtype": "Data",
-            "label": "Title",
-            "read_only": 1,
-            "reqd": 1
-        },
-        {
-            "columns": 2,
-            "fieldname": "task",
-            "fieldtype": "Link",
-            "in_list_view": 1,
-            "in_standard_filter": 1,
-            "label": "Task",
-            "options": "Task",
-            "read_only": 1,
-            "reqd": 1,
-            "search_index": 1
-        },
-        {
-            "fieldname": "assigned_technician",
-            "fieldtype": "Link",
-            "in_filter": 1,
-            "in_standard_filter": 1,
-            "label": "Assigned Technician",
-            "options": "Employee",
-            "read_only": 1
-        },
-        {
-            "columns": 1,
-            "default": "Pending",
-            "fieldname": "status",
-            "fieldtype": "Select",
-            "in_filter": 1,
-            "in_list_view": 1,
-            "label": "Status",
-            "options": "Pending\nIn Progress\nIn Review\nOn Hold\nCompleted\nCancelled",
-            "read_only": 1,
-            "reqd": 1
-        },
-        {
-            "fieldname": "col_break_1",
-            "fieldtype": "Column Break"
-        },
-        {
-            "columns": 2,
-            "fieldname": "vehicle_number",
-            "fieldtype": "Data",
-            "in_list_view": 1,
-            "in_standard_filter": 1,
-            "label": "Vehicle Number",
-            "placeholder": "ABC1234"
-        },
-        {
-            "fieldname": "section_customer",
-            "fieldtype": "Section Break"
-        },
-        {
-            "fieldname": "customer",
-            "fieldtype": "Link",
-            "in_standard_filter": 1,
-            "label": "Customer",
-            "options": "Customer",
-            "read_only": 1
-        },
-        {
-            "fieldname": "customer_warehouse",
-            "fieldtype": "Link",
-            "label": "Customer Warehouse",
-            "options": "Warehouse",
-            "read_only": 1
-        },
-        {
-            "fieldname": "technician_warehouse",
-            "fieldtype": "Link",
-            "label": "Technician Warehouse",
-            "options": "Warehouse",
-            "read_only": 1
-        },
-        {
-            "description": "Support Comment when Completing.",
-            "fieldname": "completion_comment",
-            "fieldtype": "Small Text",
-            "label": "Comment",
-            "read_only": 1
-        },
-        {
-            "collapsible": 1,
-            "fieldname": "section_unread",
-            "fieldtype": "Section Break",
-            "hidden": 1,
-            "label": "Chat Counters"
-        },
-        {
-            "default": "0",
-            "fieldname": "unread_count_support",
-            "fieldtype": "Int",
-            "label": "Unread (Support)",
-            "read_only": 1
-        },
-        {
-            "default": "0",
-            "fieldname": "unread_count_tech",
-            "fieldtype": "Int",
-            "label": "Unread (Technician)",
-            "read_only": 1
-        },
-        {
-            "columns": 1,
-            "default": "None",
-            "fieldname": "task_type",
-            "fieldtype": "Link",
-            "in_list_view": 1,
-            "in_standard_filter": 1,
-            "label": "Task Type",
-            "options": "Task Type",
-            "reqd": 1
-        },
-        {
-            "fieldname": "section_break_wthp",
-            "fieldtype": "Section Break"
-        },
-        {
-            "fieldname": "item_installed_removed",
-            "fieldtype": "Table",
-            "label": "Item Installed/Removed",
-            "options": "Job Item"
-        },
-        {
-            "fieldname": "section_break_zlps",
-            "fieldtype": "Section Break"
-        },
-        {
-            "fieldname": "job_images",
-            "fieldtype": "Table",
-            "label": "Job Images",
-            "options": "Job Image"
-        },
-        {
-            "columns": 2,
-            "fieldname": "date",
-            "fieldtype": "Date",
-            "in_list_view": 1,
-            "in_standard_filter": 1,
-            "label": "Date",
-            "read_only": 1
-        },
-        {
-            "depends_on": "eval: doc.assigned_technician",
-            "fetch_from": "assigned_technician.employee_name",
-            "fieldname": "technician_name",
-            "fieldtype": "Data",
-            "in_standard_filter": 1,
-            "label": "Technician Name",
-            "read_only": 1
-        },
-        {
-            "description": "Support Comment when marking status as On Hold.",
-            "fieldname": "hold_comment",
-            "fieldtype": "Small Text",
-            "label": "Comment",
-            "read_only": 1
-        },
-        {
-            "depends_on": "eval: doc.status == 'On Hold' && doc.hold_until",
-            "fieldname": "hold_until",
-            "fieldtype": "Datetime",
-            "label": "Hold Until",
-            "read_only": 1
-        },
-        {
-            "fieldname": "section_break_thhl",
-            "fieldtype": "Section Break"
-        },
-        {
-            "fieldname": "column_break_qblo",
-            "fieldtype": "Column Break"
-        },
-        {
-            "fieldname": "column_break_edkh",
-            "fieldtype": "Column Break"
-        },
-        {
-            "description": "Technician Comment when marking job done.",
-            "fieldname": "done_comment",
-            "fieldtype": "Small Text",
-            "label": "Comment",
-            "read_only": 1
-        },
-        {
-            "fieldname": "column_break_xjgy",
-            "fieldtype": "Column Break"
-        },
-        {
-            "fieldname": "column_break_eohm",
-            "fieldtype": "Column Break"
-        },
-        {
-            "fieldname": "section_break_gjsf",
-            "fieldtype": "Section Break"
-        },
-        {
-            "fetch_from": "assigned_technician.user_id",
-            "fieldname": "completed_by_technician",
-            "fieldtype": "Link",
-            "label": "Completed By",
-            "options": "User"
-        },
-        {
-            "fieldname": "completed_on_technician",
-            "fieldtype": "Datetime",
-            "label": "Completed On",
-            "read_only": 1
-        },
-        {
-            "fieldname": "column_break_enxn",
-            "fieldtype": "Column Break"
-        },
-        {
-            "fieldname": "completed_by_support",
-            "fieldtype": "Link",
-            "label": "Completed By",
-            "link_filters": "[[\"User\",\"role\",\"=\",\"Support Team\"]]",
-            "options": "User",
-            "read_only": 1
-        },
-        {
-            "fieldname": "completed_on_support",
-            "fieldtype": "Datetime",
-            "label": "Completed On",
-            "read_only": 1
-        },
-        {
-            "depends_on": "eval: doc.vehicle_number",
-            "fieldname": "make",
-            "fieldtype": "Data",
-            "label": "Make"
-        },
-        {
-            "depends_on": "eval: doc.vehicle_number",
-            "fieldname": "model",
-            "fieldtype": "Data",
-            "label": "Model"
-        },
-        {
-            "depends_on": "eval: doc.vehicle_number",
-            "fieldname": "type",
-            "fieldtype": "Link",
-            "label": "Type",
-            "options": "Vehicle Type"
-        },
-        {
-            "fieldname": "column_break_ixtg",
-            "fieldtype": "Column Break"
-        },
-        {
-            "fieldname": "column_break_pqjd",
-            "fieldtype": "Column Break"
-        },
-        {
-            "fieldname": "column_break_ameg",
-            "fieldtype": "Column Break"
-        },
-        {
-            "depends_on": "eval: doc.vehicle_number",
-            "fieldname": "color",
-            "fieldtype": "Data",
-            "label": "Color"
-        },
-        {
-            "fieldname": "vehicle_details",
-            "fieldtype": "Section Break",
-            "label": "Vehicle Details"
-        },
-        {
-            "fieldname": "section_break_hnga",
-            "fieldtype": "Section Break"
-        },
-        {
-            "depends_on": "eval:doc.task_type != \"Installation\"",
-            "fieldname": "item_details",
-            "fieldtype": "HTML",
-            "label": "Item Details"
-        },
-        {
-            "depends_on": "eval:doc.task_type == \"Swap\"",
-            "fieldname": "new_vehicle_number",
-            "fieldtype": "Data",
-            "label": "New Vehicle Number"
-        },
-        {
-            "depends_on": "eval:doc.task_type == \"Swap\"",
-            "fieldname": "new_vehicle_details_section",
-            "fieldtype": "Section Break",
-            "label": "New Vehicle Details"
-        },
-        {
-            "depends_on": "eval: doc.vehicle_number",
-            "fieldname": "swap_type",
-            "fieldtype": "Link",
-            "label": "Type",
-            "options": "Vehicle Type"
-        },
-        {
-            "fieldname": "column_break_lcus",
-            "fieldtype": "Column Break"
-        },
-        {
-            "depends_on": "eval: doc.vehicle_number",
-            "fieldname": "swap_make",
-            "fieldtype": "Data",
-            "label": "Make"
-        },
-        {
-            "fieldname": "column_break_lndf",
-            "fieldtype": "Column Break"
-        },
-        {
-            "depends_on": "eval: doc.vehicle_number",
-            "fieldname": "swap_model",
-            "fieldtype": "Data",
-            "label": "Model"
-        },
-        {
-            "fieldname": "column_break_jpqb",
-            "fieldtype": "Column Break"
-        },
-        {
-            "depends_on": "eval: doc.vehicle_number",
-            "fieldname": "swap_color",
-            "fieldtype": "Data",
-            "label": "Color"
-        },
-        {
-            "fieldname": "section_break_zbyq",
-            "fieldtype": "Section Break"
-        },
-        {
-            "depends_on": "eval:doc.task_type == \"Swap\"",
-            "fieldname": "items",
-            "fieldtype": "Table",
-            "label": "Items",
-            "options": "Swap Items"
-        },
-        {
-            "default": "User",
-            "fetch_from": "assigned_technician.user_id",
-            "fieldname": "created_by",
-            "fieldtype": "Link",
-            "label": "Created By",
-            "options": "User",
-            "read_only": 1
-        },
-        {
-            "depends_on": "eval:doc.status == \"Cancelled\"",
-            "fieldname": "cancelled_by",
-            "fieldtype": "Link",
-            "label": "Cancelled By",
-            "options": "User",
-            "read_only": 1
-        },
-        {
-            "depends_on": "eval:doc.status == \"Cancelled\"",
-            "fieldname": "cancelled_on",
-            "fieldtype": "Datetime",
-            "label": "Cancelled On",
-            "read_only": 1
-        },
-        {
-            "fieldname": "job_image",
-            "fieldtype": "HTML",
-            "label": "Job Image"
-        },
-        {
-            "depends_on": "eval:doc.task_type == \"Removal\"",
-            "fieldname": "section_break_aycz",
-            "fieldtype": "Section Break"
-        },
-        {
-            "depends_on": "eval:doc.task_type == \"Removal\"",
-            "fieldname": "removal_items",
-            "fieldtype": "Table",
-            "label": "Removal Items",
-            "options": "Removal Items"
-        },
-        {
-            "default": "0",
-            "fieldname": "is_chargeable",
-            "fieldtype": "Check",
-            "label": "Is Chargeable"
-        }
-    ],
-    "hide_toolbar": 0,
-    "in_create": 1,
-    "links": [],
-    "make_attachments_public": 1,
-    "modified": "2026-09-11 17:31:55.698989",
-    "modified_by": "Administrator",
-    "module": "Fleet",
-    "name": "Job",
-    "naming_rule": "Expression",
-    "owner": "Administrator",
-    "permissions": [
-        {
-            "create": 1,
-            "read": 1,
-            "report": 1,
-            "role": "Technician",
-            "select": 1,
-            "share": 1,
-            "write": 1
-        },
-        {
-            "create": 1,
-            "delete": 1,
-            "export": 1,
-            "read": 1,
-            "report": 1,
-            "role": "Support Team",
-            "select": 1,
-            "share": 1,
-            "write": 1
-        },
-        {
-            "create": 1,
-            "delete": 1,
-            "read": 1,
-            "role": "System Manager",
-            "write": 1
-        },
-        {
-            "create": 1,
-            "delete": 1,
-            "export": 1,
-            "read": 1,
-            "report": 1,
-            "role": "Fleet Administrator",
-            "select": 1,
-            "share": 1,
-            "write": 1
-        },
-        {
-            "create": 1,
-            "delete": 1,
-            "email": 1,
-            "export": 1,
-            "print": 1,
-            "read": 1,
-            "report": 1,
-            "role": "Fleet Manager",
-            "select": 1,
-            "share": 1,
-            "write": 1
-        }
-    ],
-    "row_format": "Dynamic",
-    "sort_field": "modified",
-    "sort_order": "DESC",
-    "states": [
-        {
-            "color": "Orange",
-            "title": "Pending"
-        },
-        {
-            "color": "Cyan",
-            "title": "In Review"
-        },
-        {
-            "color": "Purple",
-            "title": "On Hold"
-        },
-        {
-            "color": "Green",
-            "title": "Completed"
-        },
-        {
-            "color": "Red",
-            "title": "Cancelled"
-        },
-        {
-            "color": "Blue",
-            "title": "In Progress"
-        }
-    ],
-    "track_changes": 1
+ "actions": [],
+ "autoname": "JOB-.YYYY.-.MM.-.######",
+ "creation": "2026-03-01 12:23:31.432340",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "title",
+  "task",
+  "assigned_technician",
+  "technician_name",
+  "task_type",
+  "col_break_1",
+  "date",
+  "status",
+  "vehicle_number",
+  "new_vehicle_number",
+  "is_chargeable",
+  "chargeable_reason",
+  "chargeable_reason_description",
+  "vehicle_details",
+  "type",
+  "column_break_ixtg",
+  "make",
+  "column_break_pqjd",
+  "model",
+  "column_break_ameg",
+  "color",
+  "section_break_hnga",
+  "item_details",
+  "section_break_wthp",
+  "item_installed_removed",
+  "new_vehicle_details_section",
+  "swap_type",
+  "column_break_lcus",
+  "swap_make",
+  "column_break_lndf",
+  "swap_model",
+  "column_break_jpqb",
+  "swap_color",
+  "section_break_zbyq",
+  "items",
+  "section_break_aycz",
+  "removal_items",
+  "section_break_zlps",
+  "job_image",
+  "job_images",
+  "section_break_thhl",
+  "done_comment",
+  "column_break_qblo",
+  "completion_comment",
+  "column_break_edkh",
+  "hold_comment",
+  "hold_until",
+  "section_customer",
+  "customer",
+  "customer_warehouse",
+  "column_break_xjgy",
+  "technician_warehouse",
+  "section_break_gjsf",
+  "created_by",
+  "completed_by_technician",
+  "completed_on_technician",
+  "column_break_enxn",
+  "completed_by_support",
+  "completed_on_support",
+  "cancelled_by",
+  "cancelled_on",
+  "section_unread",
+  "unread_count_tech",
+  "column_break_eohm",
+  "unread_count_support"
+ ],
+ "fields": [
+  {
+   "fieldname": "title",
+   "fieldtype": "Data",
+   "label": "Title",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "task",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Task",
+   "options": "Task",
+   "read_only": 1,
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "assigned_technician",
+   "fieldtype": "Link",
+   "in_filter": 1,
+   "in_standard_filter": 1,
+   "label": "Assigned Technician",
+   "options": "Employee",
+   "read_only": 1
+  },
+  {
+   "columns": 1,
+   "default": "Pending",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_filter": 1,
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Pending\nIn Progress\nIn Review\nOn Hold\nCompleted\nCancelled",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "col_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "fieldname": "vehicle_number",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Vehicle Number",
+   "placeholder": "ABC1234"
+  },
+  {
+   "fieldname": "section_customer",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Customer",
+   "options": "Customer",
+   "read_only": 1
+  },
+  {
+   "fieldname": "customer_warehouse",
+   "fieldtype": "Link",
+   "label": "Customer Warehouse",
+   "options": "Warehouse",
+   "read_only": 1
+  },
+  {
+   "fieldname": "technician_warehouse",
+   "fieldtype": "Link",
+   "label": "Technician Warehouse",
+   "options": "Warehouse",
+   "read_only": 1
+  },
+  {
+   "description": "Support Comment when Completing.",
+   "fieldname": "completion_comment",
+   "fieldtype": "Small Text",
+   "label": "Comment",
+   "read_only": 1
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_unread",
+   "fieldtype": "Section Break",
+   "hidden": 1,
+   "label": "Chat Counters"
+  },
+  {
+   "default": "0",
+   "fieldname": "unread_count_support",
+   "fieldtype": "Int",
+   "label": "Unread (Support)",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "unread_count_tech",
+   "fieldtype": "Int",
+   "label": "Unread (Technician)",
+   "read_only": 1
+  },
+  {
+   "columns": 1,
+   "default": "None",
+   "fieldname": "task_type",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Task Type",
+   "options": "Task Type",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_break_wthp",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "item_installed_removed",
+   "fieldtype": "Table",
+   "label": "Item Installed/Removed",
+   "options": "Job Item"
+  },
+  {
+   "fieldname": "section_break_zlps",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "job_images",
+   "fieldtype": "Table",
+   "label": "Job Images",
+   "options": "Job Image"
+  },
+  {
+   "columns": 2,
+   "fieldname": "date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Date",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval: doc.assigned_technician",
+   "fetch_from": "assigned_technician.employee_name",
+   "fieldname": "technician_name",
+   "fieldtype": "Data",
+   "in_standard_filter": 1,
+   "label": "Technician Name",
+   "read_only": 1
+  },
+  {
+   "description": "Support Comment when marking status as On Hold.",
+   "fieldname": "hold_comment",
+   "fieldtype": "Small Text",
+   "label": "Comment",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval: doc.status == 'On Hold' && doc.hold_until",
+   "fieldname": "hold_until",
+   "fieldtype": "Datetime",
+   "label": "Hold Until",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_thhl",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "column_break_qblo",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_edkh",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Technician Comment when marking job done.",
+   "fieldname": "done_comment",
+   "fieldtype": "Small Text",
+   "label": "Comment",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_xjgy",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_eohm",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "section_break_gjsf",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fetch_from": "assigned_technician.user_id",
+   "fieldname": "completed_by_technician",
+   "fieldtype": "Link",
+   "label": "Completed By",
+   "options": "User"
+  },
+  {
+   "fieldname": "completed_on_technician",
+   "fieldtype": "Datetime",
+   "label": "Completed On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_enxn",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "completed_by_support",
+   "fieldtype": "Link",
+   "label": "Completed By",
+   "link_filters": "[[\"User\",\"role\",\"=\",\"Support Team\"]]",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "completed_on_support",
+   "fieldtype": "Datetime",
+   "label": "Completed On",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval: doc.vehicle_number",
+   "fieldname": "make",
+   "fieldtype": "Data",
+   "label": "Make"
+  },
+  {
+   "depends_on": "eval: doc.vehicle_number",
+   "fieldname": "model",
+   "fieldtype": "Data",
+   "label": "Model"
+  },
+  {
+   "depends_on": "eval: doc.vehicle_number",
+   "fieldname": "type",
+   "fieldtype": "Link",
+   "label": "Type",
+   "options": "Vehicle Type"
+  },
+  {
+   "fieldname": "column_break_ixtg",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_pqjd",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_ameg",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "eval: doc.vehicle_number",
+   "fieldname": "color",
+   "fieldtype": "Data",
+   "label": "Color"
+  },
+  {
+   "fieldname": "vehicle_details",
+   "fieldtype": "Section Break",
+   "label": "Vehicle Details"
+  },
+  {
+   "fieldname": "section_break_hnga",
+   "fieldtype": "Section Break"
+  },
+  {
+   "depends_on": "eval:doc.task_type != \"Installation\"",
+   "fieldname": "item_details",
+   "fieldtype": "HTML",
+   "label": "Item Details"
+  },
+  {
+   "depends_on": "eval:doc.task_type == \"Swap\"",
+   "fieldname": "new_vehicle_number",
+   "fieldtype": "Data",
+   "label": "New Vehicle Number"
+  },
+  {
+   "depends_on": "eval:doc.task_type == \"Swap\"",
+   "fieldname": "new_vehicle_details_section",
+   "fieldtype": "Section Break",
+   "label": "New Vehicle Details"
+  },
+  {
+   "depends_on": "eval: doc.vehicle_number",
+   "fieldname": "swap_type",
+   "fieldtype": "Link",
+   "label": "Type",
+   "options": "Vehicle Type"
+  },
+  {
+   "fieldname": "column_break_lcus",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "eval: doc.vehicle_number",
+   "fieldname": "swap_make",
+   "fieldtype": "Data",
+   "label": "Make"
+  },
+  {
+   "fieldname": "column_break_lndf",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "eval: doc.vehicle_number",
+   "fieldname": "swap_model",
+   "fieldtype": "Data",
+   "label": "Model"
+  },
+  {
+   "fieldname": "column_break_jpqb",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "eval: doc.vehicle_number",
+   "fieldname": "swap_color",
+   "fieldtype": "Data",
+   "label": "Color"
+  },
+  {
+   "fieldname": "section_break_zbyq",
+   "fieldtype": "Section Break"
+  },
+  {
+   "depends_on": "eval:doc.task_type == \"Swap\"",
+   "fieldname": "items",
+   "fieldtype": "Table",
+   "label": "Items",
+   "options": "Swap Items"
+  },
+  {
+   "default": "User",
+   "fetch_from": "assigned_technician.user_id",
+   "fieldname": "created_by",
+   "fieldtype": "Link",
+   "label": "Created By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.status == \"Cancelled\"",
+   "fieldname": "cancelled_by",
+   "fieldtype": "Link",
+   "label": "Cancelled By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.status == \"Cancelled\"",
+   "fieldname": "cancelled_on",
+   "fieldtype": "Datetime",
+   "label": "Cancelled On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "job_image",
+   "fieldtype": "HTML",
+   "label": "Job Image"
+  },
+  {
+   "depends_on": "eval:doc.task_type == \"Removal\"",
+   "fieldname": "section_break_aycz",
+   "fieldtype": "Section Break"
+  },
+  {
+   "depends_on": "eval:doc.task_type == \"Removal\"",
+   "fieldname": "removal_items",
+   "fieldtype": "Table",
+   "label": "Removal Items",
+   "options": "Removal Items"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_chargeable",
+   "fieldtype": "Check",
+   "label": "Is Chargeable"
+  },
+  {
+   "depends_on": "eval:doc.is_chargeable==1",
+   "fieldname": "chargeable_reason",
+   "fieldtype": "Link",
+   "label": "Chargeable Reason",
+   "options": "Job Chargeable Reason"
+  },
+  {
+   "depends_on": "eval:doc.is_chargeable==1",
+   "fieldname": "chargeable_reason_description",
+   "fieldtype": "Small Text",
+   "label": "Chargeable Reason Description"
+  }
+ ],
+ "in_create": 1,
+ "links": [],
+ "make_attachments_public": 1,
+ "modified": "2026-09-19 07:08:19.199296",
+ "modified_by": "Administrator",
+ "module": "Fleet",
+ "name": "Job",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Technician",
+   "select": 1,
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Support Team",
+   "select": 1,
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
+   "role": "System Manager",
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Fleet Administrator",
+   "select": 1,
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Fleet Manager",
+   "select": 1,
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [
+  {
+   "color": "Orange",
+   "title": "Pending"
+  },
+  {
+   "color": "Cyan",
+   "title": "In Review"
+  },
+  {
+   "color": "Purple",
+   "title": "On Hold"
+  },
+  {
+   "color": "Green",
+   "title": "Completed"
+  },
+  {
+   "color": "Red",
+   "title": "Cancelled"
+  },
+  {
+   "color": "Blue",
+   "title": "In Progress"
+  }
+ ],
+ "track_changes": 1
 }
