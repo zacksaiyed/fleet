@@ -632,7 +632,7 @@ def get_job(job: str) -> dict:
 
     Send as query parameters.
 
-    is_chargeable, chargeable_reason, and chargeable_reason_description are returned only for Checkup and Re-Installation.
+    is_chargeable is returned only for Checkup and Re-Installation.
     """
     if not job:
         return _error(400, "MISSING_PARAMS", "job is required.")
@@ -648,8 +648,7 @@ def get_job(job: str) -> dict:
         ["name", "title", "status", "task_type", "task", "vehicle_number",
          "customer", "make", "model", "color", "type", "date", "done_comment",
          "hold_comment", "completion_comment", "technician_name",
-         "is_chargeable", "chargeable_reason", "chargeable_reason_description",
-         "unread_count_tech", "unread_count_support","new_vehicle_number","swap_type","swap_make","swap_model","swap_color"],
+         "is_chargeable", "unread_count_tech", "unread_count_support","new_vehicle_number","swap_make","swap_make","swap_model","swap_color"],
         as_dict=True
     )
     if not job_doc:
@@ -776,8 +775,6 @@ def get_job(job: str) -> dict:
 
     if job_doc.task_type in ("Checkup", "Re-Installation"):
         response["job"]["is_chargeable"] = 1 if job_doc.is_chargeable else 0
-        response["job"]["chargeable_reason"] = job_doc.chargeable_reason or ""
-        response["job"]["chargeable_reason_description"] = job_doc.chargeable_reason_description or ""
 
     return response
 
@@ -2162,8 +2159,6 @@ def update_job(
     type: str | None = None,
     set_items=None,
     is_chargeable: int | str | None = None,
-    chargeable_reason: int | str | None = None,
-    chargeable_reason_description: int | str | None = None,
 
     # Swap fields
     new_vehicle_number: str | None = None,
@@ -2175,7 +2170,7 @@ def update_job(
     new_assets=None,
 ) -> dict:
 
-    """
+    """x
     POST /api/method/fleet.v2.task_v2.update_job
 
     Installation:
@@ -3053,12 +3048,9 @@ def update_job(
             in ("1", "true", "yes", "on")
             else 0
         )
-
         job_doc.is_chargeable = normalized_chargeable
         changed_scalars["is_chargeable"] = normalized_chargeable
 
-        job_doc.chargeable_reason = chargeable_reason
-        job_doc.chargeable_reason_description = chargeable_reason_description.strip() if chargeable_reason_description else ""
 
     if vehicle_number is not None:
 
@@ -3520,8 +3512,6 @@ def update_job(
 
     if job_doc.task_type in ("Checkup", "Re-Installation"):
         response["is_chargeable"] = 1 if job_doc.is_chargeable else 0
-        response["chargeable_reason"] = job_doc.chargeable_reason or ""
-        response["chargeable_reason_description"] = job_doc.chargeable_reason_description or ""
 
     return response
 
