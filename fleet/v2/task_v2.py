@@ -683,6 +683,8 @@ def get_job(job: str) -> dict:
         "Dashcam":     "custom_dashcam_unique_number",
     }
 
+    swap_item_codes = {str(s.get("items")).strip() for s in swap_items if s.get("items")}
+
     item_codes = [r.item for r in items]
     item_master = {}
     if item_codes:
@@ -707,12 +709,15 @@ def get_job(job: str) -> dict:
             }
         groups[key]["total_qty"] += 1
 
+        destination = "New Vehicle" if (r.item and str(r.item).strip() in swap_item_codes) else "My Assets"
+
         item_row = {
             "name":                r.name,
-            "item_code":                r.item,
+            "item_code":           r.item,
             "item_name":           r.item_name,
             "brand":               r.brand,
             "installed_or_removed": r.installed_or_removed,
+            "destination":         destination,
         }
 
         extra_field = _TYPE_EXTRA.get(key)
