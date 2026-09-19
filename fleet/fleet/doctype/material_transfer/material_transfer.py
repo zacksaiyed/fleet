@@ -24,6 +24,8 @@ class MaterialTransfer(Document):
 		self.rejected_on = None
 
 	def validate(self):
+		if not self.purpose:
+			frappe.throw(_("Purpose is mandatory for Material Transfer."))
 		self.validate_source_target()
 		self.validate_items()
 		self.validate_purpose_warehouses()
