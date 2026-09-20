@@ -10,7 +10,8 @@
   "item",
   "item_type",
   "item_name",
-  "brand"
+  "brand",
+  "replace_item"
  ],
  "fields": [
   {
@@ -56,6 +57,14 @@
    "in_list_view": 1,
    "label": "Installed/Removed",
    "options": "\nInstalled\nRemoved"
+  },
+  {
+   "columns": 2,
+   "fieldname": "replace_item",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Replace Item",
+   "options": "Item"
   }
  ],
  "grid_page_length": 50,
