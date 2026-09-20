@@ -658,7 +658,7 @@ def get_job(job: str) -> dict:
     items = frappe.db.get_all(
         "Job Item",
         filters={"parent": job_doc.name},
-        fields=["name", "item", "item_name", "item_type", "brand", "installed_or_removed", "replace_item"],
+        fields=["name", "item", "item_name", "item_type", "brand", "installed_or_removed"],
         order_by="idx asc",
     )
 
@@ -719,13 +719,6 @@ def get_job(job: str) -> dict:
             "installed_or_removed": r.installed_or_removed,
             "destination":         destination,
         }
-
-        if job_doc.task_type == "Swap":
-            destination = "new vehicle" if (r.item and str(r.item).strip() in swap_item_codes) else "my assets"
-            item_row["destination"] = destination
-
-        if r.installed_or_removed == "Installed":
-            item_row["replace_item"] = r.get("replace_item") or None
 
         extra_field = _TYPE_EXTRA.get(key)
         if extra_field:
@@ -2218,8 +2211,7 @@ def update_job(
         "set_items": [
             {
                 "item": "GPS-0001",
-                "installed_or_removed": "Installed",
-                "replace_item": "SIM-0001"
+                "installed_or_removed": "Installed"
             },
             {
                 "item": "SIM-0001",
@@ -3379,13 +3371,6 @@ def update_job(
                 else:
                     inst_or_rem = "Installed"
 
-            # Replacement handling — only for Installed items, param is replace_item
-            replace_item = None
-            if inst_or_rem == "Installed":
-                raw_rep = row.get("replace_item") or None
-                if raw_rep:
-                    replace_item = str(raw_rep).strip() or None
-
             job_doc.append(
                 "item_installed_removed",
                 {
@@ -3403,9 +3388,6 @@ def update_job(
 
                     "installed_or_removed":
                         inst_or_rem,
-
-                    "replace_item":
-                        replace_item,
                 }
             )
 
@@ -3449,17 +3431,6 @@ def update_job(
                             final_wh,
                     }
                 )
-
-        # Validate replace_item exists if provided on Installed items
-        for child in job_doc.item_installed_removed:
-            rep = getattr(child, "replace_item", None)
-            if child.installed_or_removed == "Installed" and rep:
-                if not frappe.db.exists("Item", rep):
-                    return _error(
-                        404,
-                        "REPLACE_ITEM_NOT_FOUND",
-                        f"Replace item {rep} not found."
-                    )
 
         if (
             job_doc.status
@@ -3544,18 +3515,16 @@ def update_job(
         ]
 
     if hasattr(job_doc, "item_installed_removed") and job_doc.item_installed_removed:
-        response["item_installed_removed"] = []
-        for r in job_doc.item_installed_removed:
-            row_dict = {
+        response["item_installed_removed"] = [
+            {
                 "item": r.item,
                 "item_name": r.item_name,
                 "item_type": r.item_type,
                 "brand": r.brand,
                 "installed_or_removed": r.installed_or_removed,
             }
-            if r.installed_or_removed == "Installed":
-                row_dict["replace_item"] = getattr(r, "replace_item", None) or None
-            response["item_installed_removed"].append(row_dict)
+            for r in job_doc.item_installed_removed
+        ]
 
     if job_doc.task_type in ("Checkup", "Re-Installation"):
         response["is_chargeable"] = 1 if job_doc.is_chargeable else 0
@@ -3917,19 +3886,17 @@ def _post_job_update_message(job_doc, employee, changed_scalars: dict, set_items
                 item_type = row.item_type or "Item"
                 item_code = row.item or "—"
                 brand     = row.brand or "—"
-                rep = getattr(row, "replace_item", None)
-                rep_str = f" (Replace: {rep})" if rep else ""
                 if item_type == "SIM":
                     details = frappe.db.get_value("Item", item_code, ["custom_sim_type", "custom_serial_no", "custom_mobile_number"], as_dict=True) or {}
                     sim_type = details.get("custom_sim_type") or "—"
                     serial_no = details.get("custom_serial_no") or "—"
                     mobile_no = details.get("custom_mobile_number") or "—"
-                    lines.append(f"  {item_type}: {item_code} - {brand}{rep_str}")
+                    lines.append(f"  {item_type}: {item_code} - {brand}")
                     # lines.append(f"  SIM Serial No: {serial_no}")
                     lines.append(f"  SIM Mobile No: {mobile_no}")
                     lines.append(f"  SIM Type: {sim_type}")
                 else:
-                    lines.append(f"  {item_type}: {item_code} - {brand}{rep_str}")
+                    lines.append(f"  {item_type}: {item_code} - {brand}")
 
         if hasattr(job_doc, "removal_items") and job_doc.removal_items:
             lines.append("")
