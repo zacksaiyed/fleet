@@ -2251,6 +2251,8 @@ def update_job(
         "job": "JOB-REINSTALLATION-0001",
         "vehicle_number": "GJ05SY0888",
         "is_chargeable": 1,
+        "chargeable_reason":"",
+        "chargeable_reason_description":""
         "set_items": [
             {
                 "item": "258525825558",
@@ -3345,11 +3347,11 @@ def update_job(
 
             if job_doc.task_type == "Re-Installation":
 
-                if item_code not in reinstallation_vehicle_items:
+                if item_code in reinstallation_vehicle_items:
                     return _error(
                         422,
-                        "ITEM_NOT_ON_VEHICLE",
-                        f"Item {item_code} is not currently Installed on "
+                        "ITEM_ON_VEHICLE",
+                        f"Item {item_code} is currently Installed on "
                         f"Vehicle {job_doc.vehicle_number}."
                     )
 
