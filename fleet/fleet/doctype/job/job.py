@@ -319,18 +319,18 @@ class Job(Document):
 			if row.installed_or_removed == "Removed" and row.item
 		]
 
+		old_vehicle = frappe.get_doc(
+			"Vehicle",
+			self.vehicle_number,
+		)
+
+		old_vehicle_items = {
+			row.item: row
+			for row in old_vehicle.get("custom_vehicle_item", [])
+			if row.item and row.status == "Installed"
+		}
+
 		if removal_rows:
-			old_vehicle = frappe.get_doc(
-				"Vehicle",
-				self.vehicle_number,
-			)
-
-			old_vehicle_items = {
-				row.item: row
-				for row in old_vehicle.get("custom_vehicle_item", [])
-				if row.item and row.status == "Installed"
-			}
-
 			# Validate that every removed item is actually installed
 			missing = [
 				row.item
@@ -394,28 +394,35 @@ class Job(Document):
 
 			for row in removal_rows:
 				update_item_warehouse(
-				row.item,
-				self.technician_warehouse,
-			)
+					row.item,
+					self.technician_warehouse,
+				)
 
-			vehicle_item = old_vehicle_items[row.item]
-			vehicle_item.status = "Removed"
-			vehicle_item.date_of_removal = self.date
+				if row.item in old_vehicle_items:
+					vehicle_item = old_vehicle_items[row.item]
+					vehicle_item.status = "Removed"
+					vehicle_item.date_of_removal = self.date
 
-		# pyrefly: ignore [unbound-name]
+			for row in removal_rows:
+				frappe.db.set_value(
+					"Item",
+					row.item,
+					"custom_is_locked",
+					0,
+					update_modified=False,
+				)
+
+		# Ensure all items being installed on new vehicle that originate from old vehicle are marked as Removed on old vehicle
+		for row in (self.get("items") or []):
+			if row.items and row.items in old_vehicle_items:
+				vehicle_item = old_vehicle_items[row.items]
+				vehicle_item.status = "Removed"
+				vehicle_item.date_of_removal = self.date
+
 		old_vehicle.flags.updated_from_job_document = 1
 		old_vehicle.save(
 			ignore_permissions=True
 		)
-
-		for row in removal_rows:
-			frappe.db.set_value(
-				"Item",
-				row.item,
-				"custom_is_locked",
-				0,
-				update_modified=False,
-			)
 
 
 		items_to_install = [
@@ -1014,15 +1021,14 @@ class Job(Document):
 
 	def _handle_reinstallation_vehicle(self):
 		"""
-		Re-Installation uses the SAME physical item already present on the Vehicle.
-
-		Rules:
+		Re-Installation handling for vehicle items:
 		  - Vehicle must already exist.
-		  - Every selected Job item must already exist in Vehicle.custom_vehicle_item.
-		  - No new Vehicle Item row is created.
-		  - No stock movement is created.
-		  - Selected rows are set to Installed and installation date is refreshed.
-		  - Chargeable is applied only to Job-matched Vehicle Item rows.
+		  - Items being installed must NOT already be installed on the vehicle.
+		    If the same item is already installed on the vehicle, throw an error.
+		  - If a new item is provided, add it to the vehicle items as Installed.
+		  - If an existing vehicle item was previously removed, set its status back to Installed.
+		  - Lock installed items.
+		  - Apply chargeable status to matched vehicle items.
 		"""
 		if not frappe.db.exists("Vehicle", self.vehicle_number):
 			frappe.throw(
@@ -1031,48 +1037,65 @@ class Job(Document):
 			)
 
 		vehicle = frappe.get_doc("Vehicle", self.vehicle_number)
-		vehicle_items = {
+
+		# Currently installed items on the vehicle
+		installed_vehicle_items = {
+			r.item: r
+			for r in vehicle.get("custom_vehicle_item", [])
+			if r.item and r.status == "Installed"
+		}
+
+		# Validate that none of the items being installed are already installed on the vehicle
+		already_installed = [
+			row.item
+			for row in (self.item_installed_removed or [])
+			if row.item and row.installed_or_removed == "Installed" and row.item in installed_vehicle_items
+		]
+
+		if already_installed:
+			frappe.throw(
+				f"Cannot complete Re-Installation. The following item(s) are already "
+				f"installed on Vehicle <b>{self.vehicle_number}</b>:<br>"
+				+ "<br>".join(already_installed)
+			)
+
+		vehicle_items_map = {
 			r.item: r
 			for r in vehicle.get("custom_vehicle_item", [])
 			if r.item
 		}
 
-		selected_items = [
-			row.item
-			for row in (self.item_installed_removed or [])
-			if row.item
-		]
-
-		missing = [
-			item
-			for item in selected_items
-			if item not in vehicle_items
-		]
-
-		if missing:
-			frappe.throw(
-				f"Cannot complete Re-Installation. The following item(s) are not "
-				f"present on Vehicle <b>{self.vehicle_number}</b>:<br>"
-				+ "<br>".join(missing)
-			)
-
 		for row in self.item_installed_removed or []:
-			if not row.item:
+			if not row.item or row.installed_or_removed != "Installed":
 				continue
 
-			vi = vehicle_items[row.item]
-			vi.status = "Installed"
-			vi.date_of_installation = self.date
-			vi.date_of_removal = None
+			if row.item in vehicle_items_map:
+				# Update status of existing item on vehicle
+				vi = vehicle_items_map[row.item]
+				vi.status = "Installed"
+				vi.date_of_installation = self.date
+				vi.date_of_removal = None
+				vi.is_chargeable = 1 if self.is_chargeable else 0
+			else:
+				# Add new item to vehicle
+				vehicle.append("custom_vehicle_item", {
+					"item": row.item,
+					"item_type": row.item_type,
+					"item_name": row.item_name,
+					"brand": row.brand,
+					"status": "Installed",
+					"date_of_installation": self.date,
+					"is_chargeable": 1 if self.is_chargeable else 0,
+				})
 
 		self._set_chargeable_on_matched_vehicle_items(vehicle)
 
 		vehicle.flags.updated_from_job_document = 1
 		vehicle.save(ignore_permissions=True)
 
-		# Item remains locked because it is still installed on the vehicle.
+		# Lock installed items
 		for row in self.item_installed_removed or []:
-			if row.item:
+			if row.item and row.installed_or_removed == "Installed":
 				frappe.db.set_value(
 					"Item",
 					row.item,
