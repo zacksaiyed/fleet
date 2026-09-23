@@ -319,7 +319,7 @@ def _create_material_transfer_for_job(
 
 	material_transfer.source = old_warehouse
 	material_transfer.target = new_warehouse
-
+	material_transfer.purpose = "Material Handover"
 	for row in rows:
 		item_code = (
 			row.get("item")

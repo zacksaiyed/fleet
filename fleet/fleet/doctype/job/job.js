@@ -215,17 +215,17 @@ frappe.ui.form.on("Job", {
 			// Re-Installation:
 			// show all items already installed on this exact vehicle.
 			// No warehouse filter and no custom_is_locked filter.
-			if (task_type === "Re-Installation") {
-				if (!doc.vehicle_number) return {};
+			// if (task_type === "Re-Installation") {
+			// 	if (!doc.vehicle_number) return {};
 
-				return {
-					query: "fleet.fleet.doctype.job.job.get_reinstallation_items",
-					filters: {
-						vehicle_number: doc.vehicle_number || "",
-						customer: doc.customer || "",
-					},
-				};
-			}
+			// 	return {
+			// 		query: "fleet.fleet.doctype.job.job.get_reinstallation_items",
+			// 		filters: {
+			// 			vehicle_number: doc.vehicle_number || "",
+			// 			customer: doc.customer || "",
+			// 		},
+			// 	};
+			// }
 
 			// Normal Installed flow:
 			// Installation / Accessory / Checkup-installed
