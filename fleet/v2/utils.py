@@ -1,5 +1,5 @@
 import frappe
-from fleet.v2.inventory_v2 import _get_auth
+from fleet.v2.inventory_v2 import _get_auth, _error
 
 @frappe.whitelist(allow_guest=True)
 def get_vehicle_types():
@@ -139,6 +139,47 @@ def get_item(item_code):
 			"current_warehouse": item.custom_current_warehouse,
 		}
 	}
+
+@frappe.whitelist()
+def is_vehicle_exists(vehicle_number=None):
+	"""
+	GET / POST /api/method/fleet.v2.utils.is_vehicle_exists
+	Params:
+		vehicle_number (string) — e.g. "ABC 123" or "ABC123"
+
+	Returns True if vehicle exists in Vehicle DocType, otherwise False.
+	"""
+	if frappe.session.user == "Guest":
+		return _error(401, "SESSION_EXPIRED", "Session expired. Please login again.")
+
+	employee, err = _get_auth()
+	if err and frappe.session.user != "Administrator":
+		return err
+
+	if not vehicle_number:
+		vehicle_number = frappe.form_dict.get("vehicle_number") or frappe.form_dict.get("vehicle_no")
+
+	if not vehicle_number:
+		return False
+
+	vehicle_number = str(vehicle_number).strip()
+	clean_number = vehicle_number.replace(" ", "").upper()
+
+	exists = bool(
+		frappe.db.exists("Vehicle", vehicle_number)
+		or frappe.db.exists("Vehicle", clean_number)
+		or frappe.db.sql(
+			"""
+			SELECT name FROM `tabVehicle`
+			WHERE REPLACE(name, ' ', '') = %(clean)s
+			   OR REPLACE(license_plate, ' ', '') = %(clean)s
+			LIMIT 1
+			""",
+			{"clean": clean_number},
+		)
+	)
+
+	return True if exists else False
 
 def get_active_job_for_item(item_code):
 	job_meta = frappe.get_meta("Job")

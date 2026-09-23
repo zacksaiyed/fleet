@@ -683,6 +683,8 @@ def get_job(job: str) -> dict:
         "Dashcam":     "custom_dashcam_unique_number",
     }
 
+    swap_item_codes = {str(s.get("items")).strip() for s in swap_items if s.get("items")}
+
     item_codes = [r.item for r in items]
     item_master = {}
     if item_codes:
@@ -707,12 +709,15 @@ def get_job(job: str) -> dict:
             }
         groups[key]["total_qty"] += 1
 
+        destination = "new vehicle" if (r.item and str(r.item).strip() in swap_item_codes) else "my assets"
+
         item_row = {
             "name":                r.name,
-            "item_code":                r.item,
+            "item_code":           r.item,
             "item_name":           r.item_name,
             "brand":               r.brand,
             "installed_or_removed": r.installed_or_removed,
+            "destination":         destination,
         }
 
         extra_field = _TYPE_EXTRA.get(key)
@@ -2246,6 +2251,8 @@ def update_job(
         "job": "JOB-REINSTALLATION-0001",
         "vehicle_number": "GJ05SY0888",
         "is_chargeable": 1,
+        "chargeable_reason":"",
+        "chargeable_reason_description":""
         "set_items": [
             {
                 "item": "258525825558",
@@ -2607,6 +2614,9 @@ def update_job(
                         "MISSING_ITEM",
                         "Every asset_mapping row requires item."
                     )
+
+                if move_to in ("Technician", "My Assets"):
+                    move_to = "My Assets"
 
                 if move_to not in (
                     "My Assets",
@@ -3337,11 +3347,11 @@ def update_job(
 
             if job_doc.task_type == "Re-Installation":
 
-                if item_code not in reinstallation_vehicle_items:
+                if item_code in reinstallation_vehicle_items:
                     return _error(
                         422,
-                        "ITEM_NOT_ON_VEHICLE",
-                        f"Item {item_code} is not currently Installed on "
+                        "ITEM_ON_VEHICLE",
+                        f"Item {item_code} is currently Installed on "
                         f"Vehicle {job_doc.vehicle_number}."
                     )
 
@@ -3526,6 +3536,51 @@ def update_job(
     return response
 
 @frappe.whitelist()
+def update_swap_job(
+    job: str,
+    vehicle_number: str | None = None,
+    make: str | None = None,
+    model: str | None = None,
+    color: str | None = None,
+    type: str | None = None,
+    set_items=None,
+    is_chargeable: int | str | None = None,
+    chargeable_reason: int | str | None = None,
+    chargeable_reason_description: int | str | None = None,
+    new_vehicle_number: str | None = None,
+    swap_make: str | None = None,
+    swap_model: str | None = None,
+    swap_color: str | None = None,
+    swap_type: str | None = None,
+    asset_mapping=None,
+    new_assets=None,
+    **kwargs,
+) -> dict:
+    """
+    POST /api/method/fleet.v2.task_v2.update_swap_job
+    Alias for update_job.
+    """
+    return update_job(
+        job=job,
+        vehicle_number=vehicle_number,
+        make=make,
+        model=model,
+        color=color,
+        type=type,
+        set_items=set_items,
+        is_chargeable=is_chargeable,
+        chargeable_reason=chargeable_reason,
+        chargeable_reason_description=chargeable_reason_description,
+        new_vehicle_number=new_vehicle_number,
+        swap_make=swap_make,
+        swap_model=swap_model,
+        swap_color=swap_color,
+        swap_type=swap_type,
+        asset_mapping=asset_mapping,
+        new_assets=new_assets,
+    )
+
+@frappe.whitelist()
 def upload_job_image(job: str, image_data: str = None, filename: str = None, comment: str = None) -> dict:
     """
     POST /api/method/fleet.v2.task_v2.upload_job_image
@@ -3706,15 +3761,16 @@ def mark_job_done(job: str, done_comment: str) -> dict:
 
 
 @frappe.whitelist()
-def job_action(job: str, action: str, comment: str = None) -> dict:
+def job_action(job: str, action: str, comment: str = None, hold_until_date: str = None) -> dict:
     """
-    POST /api/method/fleet.mobile_api.tasks.job_action
+    POST /api/method/fleet.v2.task_v2.job_action
     Headers:
         Cookie: sid=<logged_in_user_sid>
     Body:
-        job     — job name (e.g. JOB-2026-03-000001)
-        action  — "done" | "hold" | "reopen"
-        comment — required when action is "done" or "hold"
+        job             — job name (e.g. JOB-2026-03-000001)
+        action          — "done" | "hold" | "reopen"
+        comment         — required when action is "done" or "hold"
+        hold_until_date — optional (defaults automatically to now + 24 hours)
 
     Technician-facing actions only. Support handles hold/complete/cancel.
 
@@ -3744,7 +3800,7 @@ def job_action(job: str, action: str, comment: str = None) -> dict:
 
     from fleet.fleet.doctype.job.job import job_action as _job_action
     try:
-        result = _job_action(job=job, action=action, comment=comment)
+        result = _job_action(job=job, action=action, comment=comment, hold_until_date=hold_until_date)
     except frappe.ValidationError as e:
         return _error(400, "VALIDATION_ERROR", str(e))
     return {"status": "success", **result}
