@@ -2,18 +2,29 @@ import frappe
 from frappe import _
 from fleet.custom_py.item_warehouse import update_item_warehouse
 
-
 def validate_vehicle(doc, method=None):
     if doc.license_plate:
         normalized = doc.license_plate.replace(" ", "").upper()
         doc.license_plate = normalized
         if doc.is_new():
             doc.name = normalized
-            # set_parent_in_children() runs before validate, so child rows already
-            # have the pre-normalization name as their parent. Re-sync them here.
+            
             for df in doc.meta.get_table_fields():
                 for row in doc.get(df.fieldname) or []:
                     row.parent = normalized
+
+    # --- YAHAN SE NAYA CODE ADD KAREIN ---
+    if doc.get("custom_vehicle_item"):
+        for row in doc.custom_vehicle_item:
+            if row.item:
+                item_data = frappe.db.get_value("Item", row.item, ["custom_mac_id", "custom_mobile_number", "custom_item_type"], as_dict=True)
+                if item_data:
+                    type_val = str(item_data.get("custom_item_type") or row.get("item_type") or "").strip().upper()
+                    if type_val == "SIM":
+                        row.custom_device_id = item_data.get("custom_mobile_number")
+                    else:
+                        row.custom_device_id = item_data.get("custom_mac_id")
+    # --- YAHAN TAK ---
 
     _remove_duplicate_vehicle_items(doc)
     _check_installed_items_exist(doc)
@@ -23,7 +34,6 @@ def validate_vehicle(doc, method=None):
     # Re-index all child table rows to ensure consecutive numbering (idx)
     for i, row in enumerate(doc.get("custom_vehicle_item") or []):
         row.idx = i + 1
-
 def update_vechile_status(doc):
     if not doc.custom_vehicle_item:
         return

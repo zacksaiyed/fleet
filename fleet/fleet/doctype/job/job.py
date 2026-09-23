@@ -25,6 +25,20 @@ class Job(Document):
 		self._set_date_from_task()
 		self._set_vehicle_number()
 		self._fetch_vehicle_details()
+
+		# --- નવો કોડ અહિંથી ચાલુ થશે ---
+		if self.item_installed_removed:
+			for row in self.item_installed_removed:
+				if row.item:
+					item_data = frappe.db.get_value("Item", row.item, ["custom_mac_id", "custom_mobile_number", "custom_item_type"], as_dict=True)
+					if item_data:
+						type_val = str(item_data.get("custom_item_type") or row.get("item_type") or "").strip().upper()
+						if type_val == "SIM":
+							row.custom_device_id = item_data.get("custom_mobile_number")
+						else:
+							row.custom_device_id = item_data.get("custom_mac_id")
+		# --- નવો કોડ અહિંયા પૂરો થશે ---
+
 		# if self.status == "Pending" and self.item_installed_removed:
 		# 	self.status = "In Progress"
 		if self.status == "Pending" and self.item_installed_removed and self.task_type != "Swap":
