@@ -34,5 +34,27 @@ frappe.ui.form.on('Vehicle', {
 				}, __('Move to Another Customer'), __('Move'));
 			});
 		}
-	}
+	},
+	
+});
+
+
+frappe.ui.form.on('Vehicle Item', { 
+    item(frm, cdt, cdn) {
+        const row = locals[cdt][cdn];
+        
+        if (row.item) {
+            frappe.db.get_value("Item", row.item, ["custom_mac_id", "custom_mobile_number", "custom_item_type"], (r) => {
+                if (r) {
+                    let type_val = (r.custom_item_type || row.item_type || "").trim().toUpperCase();
+
+                    if (type_val === "SIM") {
+                        frappe.model.set_value(cdt, cdn, "custom_device_id", r.custom_mobile_number || "");
+                    } else {
+                        frappe.model.set_value(cdt, cdn, "custom_device_id", r.custom_mac_id || "");
+                    }
+                }
+            });
+        }
+    }
 });
