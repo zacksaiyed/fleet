@@ -1,6 +1,7 @@
 import json
 import frappe
 from frappe.utils import now_datetime
+from frappe.model.workflow import apply_workflow
 
 
 LOCKED_JOB_STATUSES = ("In Review", "Completed", "Cancelled")
@@ -342,6 +343,11 @@ def _create_material_transfer_for_job(
 	material_transfer.insert(
 		ignore_permissions=True
 	)
+
+	# material_transfer.db_set("workflow_state", "Approved")
+	apply_workflow(material_transfer, "Transfer Material")
+	apply_workflow(material_transfer, "Approve")
+
 
 	return material_transfer.name
 def _get_item_field(meta):
