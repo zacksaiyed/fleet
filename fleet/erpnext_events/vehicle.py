@@ -43,7 +43,7 @@ def update_vechile_status(doc):
                 row.date_of_installation = frappe.utils.nowdate()
             elif row.status == "Removed":
                 row.date_of_removal = frappe.utils.nowdate()
-       
+
 def _check_installed_items_exist(doc):
     """Block save if an Installed item doesn't exist in the Item master."""
     for row in doc.get("custom_vehicle_item") or []:
@@ -383,16 +383,18 @@ def bulk_transfer_vehicle_items():
 
 
 def capture_pre_save_warehouses(doc, method=None):
-    if _is_data_import(doc) or not doc.custom_customer or frappe.flags.in_job:
+    if _is_data_import(doc) or not doc.custom_customer or frappe.flags.in_job or doc.flags.updated_from_job_document:
         return
 
     # Validate that newly installed items are in the Store warehouse
     store_warehouse = _get_store_warehouse()
+
+
     if store_warehouse:
         installed_items, removed_items = get_installed_and_removed_items(doc)
+
         for item in installed_items:
             current_wh = frappe.db.get_value("Item", item, "custom_current_warehouse")
-
             # If the item is already in the customer's warehouse, it means it was already moved/installed, so skip validation.
             customer_warehouse = None
             if doc.custom_customer:
@@ -401,7 +403,7 @@ def capture_pre_save_warehouses(doc, method=None):
             if current_wh and customer_warehouse and current_wh == customer_warehouse:
                 continue
 
-            if current_wh and current_wh != store_warehouse:
+            if current_wh and current_wh != store_warehouse :
                 frappe.throw(
                     _("Item {0} is currently in warehouse {1}. It must be in {2} to be installed.")
                     .format(item, current_wh, store_warehouse)
