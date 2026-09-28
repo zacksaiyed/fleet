@@ -36,7 +36,7 @@ def get_task_sequence_board(technicians=None):
 	Active tasks:
 		- custom_assign_to = Employee
 		- status NOT IN Completed, Cancelled
-		- ordered by custom_sequence
+		- ordered by custom_sequence DESC (reverse order)
 		- tasks without sequence are initialized automatically
 
 	Completed tasks:
@@ -286,7 +286,7 @@ def get_active_tasks(employee):
 			"creation",
 			"modified",
 		],
-		order_by="custom_sequence asc, creation asc",
+		order_by="custom_sequence desc, creation desc",
 		limit_page_length=0,
 	)
 
@@ -482,10 +482,11 @@ def update_task_sequence(employee=None, tasks=None):
 	# SAVE EXACT ORDER
 	# ========================================================
 
-	for sequence, task_name in enumerate(
-		cleaned_tasks,
-		start=1,
-	):
+	total_tasks = len(cleaned_tasks)
+
+	for index, task_name in enumerate(cleaned_tasks):
+		sequence = total_tasks - index
+
 		frappe.db.set_value(
 			"Task",
 			task_name,
@@ -503,11 +504,8 @@ def update_task_sequence(employee=None, tasks=None):
 		"tasks": [
 			{
 				"name": task_name,
-				"custom_sequence": index,
+				"custom_sequence": total_tasks - index,
 			}
-			for index, task_name in enumerate(
-				cleaned_tasks,
-				start=1,
-			)
+			for index, task_name in enumerate(cleaned_tasks)
 		],
 	}
