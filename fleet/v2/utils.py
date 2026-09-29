@@ -297,6 +297,7 @@ def get_active_material_transfer_for_item(item_code):
 
 	return None
 
+
 @frappe.whitelist()
 def is_material_return_allowed():
 	employee, err = _get_auth()
@@ -307,10 +308,10 @@ def is_material_return_allowed():
 	emp = frappe.db.get_value(
 		"Employee",
 		employee,
-		["designation", "allow_material_return_creation_from_app"],
+		["designation", "custom_allow_material_return_creation_from_apps"],
 		as_dict=True,
 	)
 	if not emp or emp.designation != "Technician":
 		return False
 	
-	return bool(emp.allow_material_return_creation_from_app)
+	return bool(emp.custom_allow_material_return_creation_from_apps)
