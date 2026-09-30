@@ -815,6 +815,7 @@ def get_job(job: str) -> dict:
             "make":                  job_doc.make,
             "model":                 job_doc.model,
             "color":                 job_doc.color,
+            "type":                  job_doc.type,
             "vehicle_type":          job_doc.type,
             "date":                  str(job_doc.date or ""),
             "technician_name":       job_doc.technician_name,
@@ -2270,6 +2271,10 @@ def update_job(
     {
         "job": "JOB-CHECKUP-0001",
         "vehicle_number": "GJ05SY0888",
+        "make": "Toyota",
+        "model": "Hilux",
+        "color": "White",
+        "type": "Pickup",
         "is_chargeable": 1,
         "set_items": [
             {
@@ -3235,21 +3240,30 @@ def update_job(
         ] = vehicle_number
 
 
-    if make is not None:
-        job_doc.make = make
-        changed_scalars["make"] = make
+    if make is not None and str(make).strip():
+        job_doc.make = str(make).strip()
+        changed_scalars["make"] = job_doc.make
 
-    if model is not None:
-        job_doc.model = model
-        changed_scalars["model"] = model
+    if model is not None and str(model).strip():
+        job_doc.model = str(model).strip()
+        changed_scalars["model"] = job_doc.model
 
-    if color is not None:
-        job_doc.color = color
-        changed_scalars["color"] = color
+    if color is not None and str(color).strip():
+        job_doc.color = str(color).strip()
+        changed_scalars["color"] = job_doc.color
 
-    if type is not None:
-        job_doc.type = type
-        changed_scalars["type"] = type
+    if type is not None and str(type).strip():
+        clean_type = str(type).strip()
+        if not frappe.db.exists("Vehicle Type", clean_type):
+            try:
+                frappe.get_doc({
+                    "doctype": "Vehicle Type",
+                    "vehicle_type": clean_type
+                }).insert(ignore_permissions=True)
+            except Exception:
+                pass
+        job_doc.type = clean_type
+        changed_scalars["type"] = clean_type
 
 
     # Support asset_mapping as fallback for Removal jobs if passed
@@ -3771,6 +3785,21 @@ def update_job(
 
         "job_status":
             job_doc.status,
+
+        "vehicle_number":
+            job_doc.vehicle_number,
+
+        "make":
+            job_doc.make,
+
+        "model":
+            job_doc.model,
+
+        "color":
+            job_doc.color,
+
+        "type":
+            job_doc.type,
     }
 
     if hasattr(job_doc, "removal_items") and job_doc.removal_items:
