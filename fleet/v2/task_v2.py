@@ -658,7 +658,10 @@ def get_job(job: str) -> dict:
     items = frappe.db.get_all(
         "Job Item",
         filters={"parent": job_doc.name},
-        fields=["name", "item", "item_name", "item_type", "brand", "installed_or_removed"],
+        fields=[
+            "name", "item", "item_name", "item_type", "brand", "installed_or_removed",
+            "replace_against", "is_chargeable", "chargeable_reason", "chargeable_reason_description"
+        ],
         order_by="idx asc",
     )
 
@@ -718,6 +721,10 @@ def get_job(job: str) -> dict:
             "brand":               r.brand,
             "installed_or_removed": r.installed_or_removed,
             "destination":         destination,
+            "replace_against":     r.get("replace_against"),
+            "is_chargeable":       r.get("is_chargeable", 0),
+            "chargeable_reason":   r.get("chargeable_reason"),
+            "chargeable_reason_description": r.get("chargeable_reason_description"),
         }
 
         extra_field = _TYPE_EXTRA.get(key)
@@ -2178,6 +2185,7 @@ def update_job(
     swap_type: str | None = None,
     asset_mapping=None,
     new_assets=None,
+    replaced_items=None,
 ) -> dict:
 
     """
@@ -2289,7 +2297,30 @@ def update_job(
         ]
     }
 
-    set_items, asset_mapping and new_assets can be sent as JSON arrays or JSON-encoded strings.
+    Replaced Items (Checkup / Replacement):
+    {
+        "job": "JOB-CHECKUP-0001",
+        "replaced_items": [
+            {
+                "old_asset": "GPS-OLD-0001",
+                "new_asset": "GPS-NEW-0002",
+                "item_type": "GPS Device",
+                "ischargeable": 1,
+                "chargeable_reason": "Damaged",
+                "reason_description": "Damaged during operation"
+            },
+            {
+                "old_asset": "SIM-OLD-0001",
+                "new_asset": "SIM-NEW-0002",
+                "item_type": "SIM",
+                "ischargeable": 1,
+                "chargeable_reason": "Damaged",
+                "reason_description": "Network issue"
+            }
+        ]
+    }
+
+    set_items, asset_mapping, new_assets, and replaced_items can be sent as JSON arrays or JSON-encoded strings.
 
     is_chargeable is accepted and returned only for Checkup and Re-Installation.
     """
@@ -3453,6 +3484,143 @@ def update_job(
             job_doc.status = (
                 "In Progress"
             )
+
+    if replaced_items is not None:
+        if isinstance(replaced_items, str):
+            try:
+                replaced_items = json.loads(replaced_items)
+            except Exception:
+                return _error(
+                    400,
+                    "INVALID_PARAMS",
+                    "replaced_items must be a valid JSON array."
+                )
+
+        if not isinstance(replaced_items, list):
+            return _error(
+                400,
+                "INVALID_PARAMS",
+                "replaced_items must be an array."
+            )
+
+        if not hasattr(job_doc, "item_installed_removed") or job_doc.item_installed_removed is None:
+            job_doc.item_installed_removed = []
+
+        for r_item in replaced_items:
+            if not isinstance(r_item, dict):
+                continue
+
+            new_asset = str(r_item.get("new_asset") or "").strip()
+            # If the new_asset key is missing then ignore that row of the request
+            if not new_asset:
+                continue
+
+            old_asset = str(r_item.get("old_asset") or "").strip() or None
+
+            new_item_data = frappe.db.get_value(
+                "Item",
+                new_asset,
+                ["name", "item_name", "custom_item_type", "brand"],
+                as_dict=True,
+            )
+            if not new_item_data:
+                return _error(
+                    404,
+                    "NEW_ASSET_NOT_FOUND",
+                    f"New asset '{new_asset}' not found."
+                )
+
+            is_ch_raw = r_item.get("ischargeable") if "ischargeable" in r_item else r_item.get("is_chargeable")
+            is_ch = 1 if str(is_ch_raw or "").strip().lower() in ("1", "true", "yes", "on") else 0
+            ch_reason = r_item.get("chargeable_reason") or None
+            ch_desc = (r_item.get("reason_description") or r_item.get("chargeable_reason_description") or "").strip() or None
+            item_type_val = r_item.get("item_type") or new_item_data.get("custom_item_type")
+
+            # 1. Add/Update new_asset as Installed, set replace_against = old_asset, set is_chargeable
+            existing_new = next((r for r in job_doc.item_installed_removed if r.item == new_asset), None)
+            if existing_new:
+                existing_new.installed_or_removed = "Installed"
+                existing_new.replace_against = old_asset
+                existing_new.is_chargeable = is_ch
+                existing_new.chargeable_reason = ch_reason
+                existing_new.chargeable_reason_description = ch_desc
+                if not existing_new.item_name:
+                    existing_new.item_name = new_item_data.item_name
+                if not existing_new.item_type:
+                    existing_new.item_type = item_type_val
+                if not existing_new.brand:
+                    existing_new.brand = new_item_data.brand
+            else:
+                job_doc.append(
+                    "item_installed_removed",
+                    {
+                        "item": new_asset,
+                        "item_name": new_item_data.item_name,
+                        "item_type": item_type_val,
+                        "brand": new_item_data.brand,
+                        "installed_or_removed": "Installed",
+                        "replace_against": old_asset,
+                        "is_chargeable": is_ch,
+                        "chargeable_reason": ch_reason,
+                        "chargeable_reason_description": ch_desc,
+                    }
+                )
+
+            # 2. Mark old_asset as Removed
+            if old_asset:
+                existing_old = next((r for r in job_doc.item_installed_removed if r.item == old_asset), None)
+                if existing_old:
+                    existing_old.installed_or_removed = "Removed"
+                else:
+                    old_item_data = frappe.db.get_value(
+                        "Item",
+                        old_asset,
+                        ["name", "item_name", "custom_item_type", "brand"],
+                        as_dict=True,
+                    ) or {}
+                    job_doc.append(
+                        "item_installed_removed",
+                        {
+                            "item": old_asset,
+                            "item_name": old_item_data.get("item_name"),
+                            "item_type": old_item_data.get("custom_item_type") or r_item.get("item_type"),
+                            "brand": old_item_data.get("brand"),
+                            "installed_or_removed": "Removed",
+                        }
+                    )
+
+                if (
+                    job_doc.task_type != "Re-Installation"
+                    and hasattr(job_doc, "removal_items")
+                ):
+                    existing_rem = next((r for r in (job_doc.removal_items or []) if r.item == old_asset), None)
+                    if not existing_rem:
+                        old_item_data = frappe.db.get_value(
+                            "Item",
+                            old_asset,
+                            ["name", "item_name", "custom_item_type", "brand"],
+                            as_dict=True,
+                        ) or {}
+                        job_doc.append(
+                            "removal_items",
+                            {
+                                "item": old_asset,
+                                "item_name": old_item_data.get("item_name"),
+                                "item_type": old_item_data.get("custom_item_type") or r_item.get("item_type"),
+                                "brand": old_item_data.get("brand"),
+                                "destination": "Technician",
+                                "warehouse": job_doc.technician_warehouse,
+                            }
+                        )
+
+            if is_ch:
+                job_doc.is_chargeable = 1
+
+        if (
+            job_doc.status == "Pending"
+            and (job_doc.item_installed_removed or [])
+        ):
+            job_doc.status = "In Progress"
 
 
     try:
