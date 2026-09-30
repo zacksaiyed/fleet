@@ -3423,16 +3423,16 @@ def update_job(
                         inst_or_rem,
 
                     "replace_against":
-                        row.get("replace_against") or row.get("replace_agaist") or row.get("replace_item") or None,
+                        (row.get("replace_against") or row.get("replace_agaist") or row.get("replace_item") or None) if job_doc.task_type == "Checkup" else None,
 
                     "is_chargeable":
-                        1 if str(row.get("is_chargeable", "")).strip().lower() in ("1", "true", "yes", "on") else 0,
+                        (1 if str(row.get("is_chargeable", "")).strip().lower() in ("1", "true", "yes", "on") else 0) if job_doc.task_type == "Checkup" else 0,
 
                     "chargeable_reason":
-                        row.get("chargeable_reason") or None,
+                        (row.get("chargeable_reason") or None) if job_doc.task_type == "Checkup" else None,
 
                     "chargeable_reason_description":
-                        (row.get("chargeable_reason_description") or "").strip() or None,
+                        ((row.get("chargeable_reason_description") or "").strip() or None) if job_doc.task_type == "Checkup" else None,
                 }
             )
 
@@ -3537,13 +3537,14 @@ def update_job(
             item_type_val = r_item.get("item_type") or new_item_data.get("custom_item_type")
 
             # 1. Add/Update new_asset as Installed, set replace_against = old_asset, set is_chargeable
+            is_checkup = job_doc.task_type == "Checkup"
             existing_new = next((r for r in job_doc.item_installed_removed if r.item == new_asset), None)
             if existing_new:
                 existing_new.installed_or_removed = "Installed"
-                existing_new.replace_against = old_asset
-                existing_new.is_chargeable = is_ch
-                existing_new.chargeable_reason = ch_reason
-                existing_new.chargeable_reason_description = ch_desc
+                existing_new.replace_against = old_asset if is_checkup else None
+                existing_new.is_chargeable = is_ch if is_checkup else 0
+                existing_new.chargeable_reason = ch_reason if is_checkup else None
+                existing_new.chargeable_reason_description = ch_desc if is_checkup else None
                 if not existing_new.item_name:
                     existing_new.item_name = new_item_data.item_name
                 if not existing_new.item_type:
@@ -3559,10 +3560,10 @@ def update_job(
                         "item_type": item_type_val,
                         "brand": new_item_data.brand,
                         "installed_or_removed": "Installed",
-                        "replace_against": old_asset,
-                        "is_chargeable": is_ch,
-                        "chargeable_reason": ch_reason,
-                        "chargeable_reason_description": ch_desc,
+                        "replace_against": old_asset if is_checkup else None,
+                        "is_chargeable": is_ch if is_checkup else 0,
+                        "chargeable_reason": ch_reason if is_checkup else None,
+                        "chargeable_reason_description": ch_desc if is_checkup else None,
                     }
                 )
 
