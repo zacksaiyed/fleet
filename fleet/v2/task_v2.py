@@ -655,13 +655,19 @@ def get_job(job: str) -> dict:
     if not job_doc:
         return _error(404, "NOT_FOUND", "Job not found or you are not assigned to it.")
 
+    item_fields = ["name", "item", "item_name", "item_type", "brand", "installed_or_removed"]
+    try:
+        physical_cols = {col[0] for col in frappe.db.sql("DESCRIBE `tabJob Item`")}
+    except Exception:
+        physical_cols = set()
+    for col in ["replace_against", "replaced_item", "is_chargeable", "chargeable_reason", "chargeable_reason_description"]:
+        if col in physical_cols and col not in item_fields:
+            item_fields.append(col)
+
     items = frappe.db.get_all(
         "Job Item",
         filters={"parent": job_doc.name},
-        fields=[
-            "name", "item", "item_name", "item_type", "brand", "installed_or_removed",
-            "replace_against", "is_chargeable", "chargeable_reason", "chargeable_reason_description"
-        ],
+        fields=item_fields,
         order_by="idx asc",
     )
 
@@ -721,9 +727,9 @@ def get_job(job: str) -> dict:
             "brand":               r.brand,
             "installed_or_removed": r.installed_or_removed,
             "destination":         destination,
-            "replace_against":     r.get("replace_against"),
-            "replace_item":        r.get("replace_against"),
-            "is_chargeable":       r.get("is_chargeable", 0),
+            "replace_against":     r.get("replace_against") or r.get("replaced_item"),
+            "replace_item":        r.get("replace_against") or r.get("replaced_item"),
+            "is_chargeable":       r.get("is_chargeable", 0) or 0,
             "chargeable_reason":   r.get("chargeable_reason"),
             "chargeable_reason_description": r.get("chargeable_reason_description"),
         }
@@ -750,6 +756,51 @@ def get_job(job: str) -> dict:
         fields=["name", "item", "item_name", "item_type", "brand", "destination", "warehouse"],
         order_by="idx asc",
     )
+
+    replaced_items_list = []
+    old_asset_list = []
+
+    if job_doc.task_type == "Checkup":
+        # A. replaced_items:
+        # Take all data from the installed rows where replace_against is present
+        for r in items:
+            rep_against = r.get("replace_against") or r.get("replaced_item")
+            if r.installed_or_removed == "Installed" and rep_against:
+                replaced_items_list.append({
+                    "old_asset": rep_against or "",
+                    "new_asset": r.item or "",
+                    "item_type": r.item_type or "",
+                    "ischargeable": 1 if r.get("is_chargeable") else 0,
+                    "chargeable_reason": r.get("chargeable_reason") or "",
+                    "reason_description": r.get("chargeable_reason_description") or "",
+                })
+
+        # B. old_asset:
+        # Get all items installed on the vehicle and not found in the installed_removed_items table
+        # (available to replace and not replaced in the current job)
+        vehicle_num = (job_doc.vehicle_number or "").replace(" ", "").upper().strip()
+        if vehicle_num:
+            vehicle_items = frappe.db.get_all(
+                "Vehicle Item",
+                filters={
+                    "parent": vehicle_num,
+                    "status": "Installed",
+                },
+                fields=["item", "item_type"],
+            )
+
+            job_item_codes = {r.item for r in items if r.item}
+            job_replaced_against = {r.get("replace_against") or r.get("replaced_item") for r in items if (r.get("replace_against") or r.get("replaced_item"))}
+            touched_items = job_item_codes | job_replaced_against
+
+            for vi in vehicle_items:
+                if not vi.item or vi.item in touched_items:
+                    continue
+                item_type = vi.item_type or frappe.db.get_value("Item", vi.item, "custom_item_type") or ""
+                old_asset_list.append({
+                    "item": vi.item,
+                    "item_type": item_type,
+                })
 
     response = {
         "status": "success",
@@ -782,9 +833,12 @@ def get_job(job: str) -> dict:
             "swap_model":                 job_doc.swap_model,
             "swap_color":                 job_doc.swap_color,
             "swap_type":                  job_doc.swap_type,
-            "swap_items":                 swap_items
+            "swap_items":                 swap_items,
+            "replaced_items":             replaced_items_list,
+            "old_asset":                  old_asset_list,
         },
-
+        "replaced_items":             replaced_items_list,
+        "old_asset":                  old_asset_list,
     }
 
     if job_doc.task_type in ("Checkup", "Re-Installation"):
@@ -3451,6 +3505,17 @@ def update_job(
                 }
             )
 
+            raw_ch_reason = (row.get("chargeable_reason") or None) if job_doc.task_type == "Checkup" else None
+            if raw_ch_reason and not frappe.db.exists("Job Chargeable Reason", raw_ch_reason):
+                try:
+                    frappe.get_doc({
+                        "doctype": "Job Chargeable Reason",
+                        "reason": raw_ch_reason,
+                        "job_type": job_doc.task_type if frappe.db.exists("Task Type", job_doc.task_type) else None,
+                    }).insert(ignore_permissions=True)
+                except Exception:
+                    pass
+
             # Populate removal_items child table when destination is given or for Removal task type
             if (
                 job_doc.task_type != "Re-Installation"
@@ -3548,6 +3613,15 @@ def update_job(
             is_ch_raw = r_item.get("ischargeable") if "ischargeable" in r_item else r_item.get("is_chargeable")
             is_ch = 1 if str(is_ch_raw or "").strip().lower() in ("1", "true", "yes", "on") else 0
             ch_reason = r_item.get("chargeable_reason") or None
+            if ch_reason and not frappe.db.exists("Job Chargeable Reason", ch_reason):
+                try:
+                    frappe.get_doc({
+                        "doctype": "Job Chargeable Reason",
+                        "reason": ch_reason,
+                        "job_type": job_doc.task_type if frappe.db.exists("Task Type", job_doc.task_type) else None,
+                    }).insert(ignore_permissions=True)
+                except Exception:
+                    pass
             ch_desc = (r_item.get("reason_description") or r_item.get("chargeable_reason_description") or "").strip() or None
             item_type_val = r_item.get("item_type") or new_item_data.get("custom_item_type")
 
@@ -3733,6 +3807,38 @@ def update_job(
         response["is_chargeable"] = 1 if job_doc.is_chargeable else 0
         response["chargeable_reason"] = job_doc.chargeable_reason or ""
         response["chargeable_reason_description"] = job_doc.chargeable_reason_description or ""
+
+    if job_doc.task_type == "Checkup":
+        rep_items = []
+        for r in (job_doc.item_installed_removed or []):
+            if r.installed_or_removed == "Installed" and getattr(r, "replace_against", None):
+                rep_items.append({
+                    "old_asset": getattr(r, "replace_against", "") or "",
+                    "new_asset": r.item or "",
+                    "item_type": r.item_type or "",
+                    "ischargeable": 1 if getattr(r, "is_chargeable", 0) else 0,
+                    "chargeable_reason": getattr(r, "chargeable_reason", "") or "",
+                    "reason_description": getattr(r, "chargeable_reason_description", "") or "",
+                })
+        response["replaced_items"] = rep_items
+
+        old_assets = []
+        vehicle_num = (job_doc.vehicle_number or "").replace(" ", "").upper().strip()
+        if vehicle_num:
+            vehicle_items = frappe.db.get_all(
+                "Vehicle Item",
+                filters={"parent": vehicle_num, "status": "Installed"},
+                fields=["item", "item_type"],
+            )
+            job_item_codes = {r.item for r in (job_doc.item_installed_removed or []) if r.item}
+            job_replaced = {getattr(r, "replace_against", None) for r in (job_doc.item_installed_removed or []) if getattr(r, "replace_against", None)}
+            touched = job_item_codes | job_replaced
+            for vi in vehicle_items:
+                if not vi.item or vi.item in touched:
+                    continue
+                itype = vi.item_type or frappe.db.get_value("Item", vi.item, "custom_item_type") or ""
+                old_assets.append({"item": vi.item, "item_type": itype})
+        response["old_asset"] = old_assets
 
     return response
 
