@@ -3409,12 +3409,6 @@ def update_job(
             raw_replace = row.get("replace_against") or row.get("replace_agaist") or row.get("replace_item") or None
             if raw_replace:
                 raw_replace = str(raw_replace).strip() or None
-                if raw_replace and job_doc.task_type != "Checkup":
-                    return _error(
-                        400,
-                        "INVALID_PARAM",
-                        "replace_item / replace_against is only allowed for Checkup jobs."
-                    )
                 if raw_replace and job_doc.task_type == "Checkup":
                     if not frappe.db.exists("Item", raw_replace):
                         return _error(
@@ -3422,6 +3416,8 @@ def update_job(
                             "REPLACE_ITEM_NOT_FOUND",
                             f"Replace item '{raw_replace}' not found."
                         )
+                else:
+                    raw_replace = None
 
             job_doc.append(
                 "item_installed_removed",
@@ -3504,14 +3500,7 @@ def update_job(
                 "In Progress"
             )
 
-    if replaced_items is not None:
-        if job_doc.task_type != "Checkup":
-            return _error(
-                400,
-                "INVALID_TASK_TYPE",
-                "replaced_items is only allowed for Checkup jobs."
-            )
-
+    if replaced_items is not None and job_doc.task_type == "Checkup":
         if isinstance(replaced_items, str):
             try:
                 replaced_items = json.loads(replaced_items)
