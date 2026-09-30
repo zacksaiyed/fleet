@@ -3486,6 +3486,13 @@ def update_job(
             )
 
     if replaced_items is not None:
+        if job_doc.task_type != "Checkup":
+            return _error(
+                400,
+                "INVALID_TASK_TYPE",
+                "replaced_items is only allowed for Checkup jobs."
+            )
+
         if isinstance(replaced_items, str):
             try:
                 replaced_items = json.loads(replaced_items)
