@@ -2324,6 +2324,7 @@ def update_job(
     set_items, asset_mapping, new_assets, and replaced_items can be sent as JSON arrays or JSON-encoded strings.
 
     is_chargeable is accepted and returned only for Checkup and Re-Installation.
+    replaced_items is accepted only for Checkup.
     """
     if not job:
         return _error(
