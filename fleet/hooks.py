@@ -342,6 +342,7 @@ on_session_creation = "fleet.mobile_api.auth.enforce_simultaneous_sessions"
 # }
 
 fixtures = [
+    {"dt": "Warehouse Type"},
     {"dt": "Workflow State", "filters": [
         ["name", "in", [
             "Completed", "Open", "Cancelled", "In Review", "On Hold",
