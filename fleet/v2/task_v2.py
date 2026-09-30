@@ -3390,6 +3390,18 @@ def update_job(
 
                     "installed_or_removed":
                         inst_or_rem,
+
+                    "replace_against":
+                        row.get("replace_against") or row.get("replace_agaist") or row.get("replace_item") or None,
+
+                    "is_chargeable":
+                        1 if str(row.get("is_chargeable", "")).strip().lower() in ("1", "true", "yes", "on") else 0,
+
+                    "chargeable_reason":
+                        row.get("chargeable_reason") or None,
+
+                    "chargeable_reason_description":
+                        (row.get("chargeable_reason_description") or "").strip() or None,
                 }
             )
 
@@ -3524,6 +3536,10 @@ def update_job(
                 "item_type": r.item_type,
                 "brand": r.brand,
                 "installed_or_removed": r.installed_or_removed,
+                "replace_against": getattr(r, "replace_against", None),
+                "is_chargeable": getattr(r, "is_chargeable", 0),
+                "chargeable_reason": getattr(r, "chargeable_reason", None),
+                "chargeable_reason_description": getattr(r, "chargeable_reason_description", None),
             }
             for r in job_doc.item_installed_removed
         ]

@@ -258,6 +258,29 @@ frappe.ui.form.on("Job", {
 			return {};
 		});
 
+		frm.set_query("replace_against", "item_installed_removed", function (doc, cdt, cdn) {
+			if (doc.task_type === "Checkup") {
+				if (!doc.customer_warehouse) return {};
+				return {
+					query: "fleet.fleet.doctype.job.job.get_removable_items",
+					filters: {
+						warehouse: doc.customer_warehouse,
+						vehicle_number: doc.vehicle_number || "",
+						customer: doc.customer || "",
+					},
+				};
+			}
+			return {};
+		});
+
+		frm.set_query("chargeable_reason", "item_installed_removed", function (doc, cdt, cdn) {
+			return {
+				filters: {
+					job_type: doc.task_type
+				}
+			};
+		});
+
 		frm.set_query("items", "items", function (doc, cdt, cdn) {
 			const row = locals[cdt][cdn];
 			if (row.source === "Technician") {
