@@ -722,6 +722,7 @@ def get_job(job: str) -> dict:
             "installed_or_removed": r.installed_or_removed,
             "destination":         destination,
             "replace_against":     r.get("replace_against"),
+            "replace_item":        r.get("replace_against"),
             "is_chargeable":       r.get("is_chargeable", 0),
             "chargeable_reason":   r.get("chargeable_reason"),
             "chargeable_reason_description": r.get("chargeable_reason_description"),
@@ -3404,6 +3405,23 @@ def update_job(
                 else:
                     inst_or_rem = "Installed"
 
+            raw_replace = row.get("replace_against") or row.get("replace_agaist") or row.get("replace_item") or None
+            if raw_replace:
+                raw_replace = str(raw_replace).strip() or None
+                if raw_replace and job_doc.task_type != "Checkup":
+                    return _error(
+                        400,
+                        "INVALID_PARAM",
+                        "replace_item / replace_against is only allowed for Checkup jobs."
+                    )
+                if raw_replace and job_doc.task_type == "Checkup":
+                    if not frappe.db.exists("Item", raw_replace):
+                        return _error(
+                            404,
+                            "REPLACE_ITEM_NOT_FOUND",
+                            f"Replace item '{raw_replace}' not found."
+                        )
+
             job_doc.append(
                 "item_installed_removed",
                 {
@@ -3423,7 +3441,7 @@ def update_job(
                         inst_or_rem,
 
                     "replace_against":
-                        (row.get("replace_against") or row.get("replace_agaist") or row.get("replace_item") or None) if job_doc.task_type == "Checkup" else None,
+                        raw_replace if job_doc.task_type == "Checkup" else None,
 
                     "is_chargeable":
                         (1 if str(row.get("is_chargeable", "")).strip().lower() in ("1", "true", "yes", "on") else 0) if job_doc.task_type == "Checkup" else 0,
@@ -3713,6 +3731,7 @@ def update_job(
                 "brand": r.brand,
                 "installed_or_removed": r.installed_or_removed,
                 "replace_against": getattr(r, "replace_against", None),
+                "replace_item": getattr(r, "replace_against", None),
                 "is_chargeable": getattr(r, "is_chargeable", 0),
                 "chargeable_reason": getattr(r, "chargeable_reason", None),
                 "chargeable_reason_description": getattr(r, "chargeable_reason_description", None),
