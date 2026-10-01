@@ -85,9 +85,45 @@ frappe.ui.form.on("Job Item", {
 				return;
 			}
 		}
-		// Checkup, Swapping, etc. → both values allowed
+		if (val !== "Installed" && row.replace_against) {
+			frappe.model.set_value(cdt, cdn, "replace_against", null);
+		}
 
 		frappe.model.set_value(cdt, cdn, "item", null);
+	},
+
+	replace_against(frm, cdt, cdn) {
+		const row = locals[cdt][cdn];
+		if (!row) return;
+
+		if (row.installed_or_removed !== "Installed" && row.replace_against) {
+			frappe.model.set_value(cdt, cdn, "replace_against", null);
+			frappe.show_alert({
+				message: __("Replace Against is only allowed for Installed items."),
+				indicator: "orange"
+			}, 4);
+			return;
+		}
+
+		if (row.replace_against && row.installed_or_removed === "Installed") {
+			const old_item = row.replace_against;
+			const already_removed = (frm.doc.item_installed_removed || []).some(
+				r => r.item === old_item && r.installed_or_removed === "Removed"
+			);
+			if (!already_removed) {
+				frappe.db.get_value("Item", old_item, ["name", "item_name", "custom_item_type", "brand"], (item_data) => {
+					if (item_data) {
+						const rem = frm.add_child("item_installed_removed");
+						rem.item = old_item;
+						rem.item_name = item_data.item_name || "";
+						rem.item_type = item_data.custom_item_type || "";
+						rem.brand = item_data.brand || "";
+						rem.installed_or_removed = "Removed";
+						frm.refresh_field("item_installed_removed");
+					}
+				});
+			}
+		}
 	},
 });
 
@@ -259,7 +295,8 @@ frappe.ui.form.on("Job", {
 		});
 
 		frm.set_query("replace_against", "item_installed_removed", function (doc, cdt, cdn) {
-			if (doc.task_type === "Checkup") {
+			const row = locals[cdt][cdn];
+			if (doc.task_type === "Checkup" && (!row || row.installed_or_removed === "Installed")) {
 				if (!doc.customer_warehouse) return {};
 				return {
 					query: "fleet.fleet.doctype.job.job.get_removable_items",
@@ -270,7 +307,7 @@ frappe.ui.form.on("Job", {
 					},
 				};
 			}
-			return {};
+			return { filters: { name: ["in", [""]] } };
 		});
 
 		frm.set_query("chargeable_reason", "item_installed_removed", function (doc, cdt, cdn) {

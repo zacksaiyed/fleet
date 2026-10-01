@@ -29,6 +29,9 @@ class Job(Document):
 		# --- નવો કોડ અહિંથી ચાલુ થશે ---
 		if self.item_installed_removed:
 			for row in self.item_installed_removed:
+				if self.task_type != "Checkup" or row.installed_or_removed != "Installed":
+					row.replace_against = None
+
 				if row.item:
 					item_data = frappe.db.get_value("Item", row.item, ["custom_mac_id", "custom_mobile_number", "custom_item_type"], as_dict=True)
 					if item_data:
