@@ -26,7 +26,6 @@ class Job(Document):
 		self._set_vehicle_number()
 		self._fetch_vehicle_details()
 
-		# --- નવો કોડ અહિંથી ચાલુ થશે ---
 		if self.item_installed_removed:
 			for row in self.item_installed_removed:
 				if self.task_type != "Checkup" or row.installed_or_removed != "Installed":
@@ -40,7 +39,6 @@ class Job(Document):
 							row.custom_device_id = item_data.get("custom_mobile_number")
 						else:
 							row.custom_device_id = item_data.get("custom_mac_id")
-		# --- નવો કોડ અહિંયા પૂરો થશે ---
 
 		# if self.status == "Pending" and self.item_installed_removed:
 		# 	self.status = "In Progress"
