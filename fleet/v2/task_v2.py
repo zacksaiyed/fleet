@@ -3504,16 +3504,16 @@ def update_job(
                         inst_or_rem,
 
                     "replace_against":
-                        raw_replace if job_doc.task_type == "Checkup" else None,
+                        raw_replace if (job_doc.task_type == "Checkup" and inst_or_rem == "Installed") else None,
 
                     "is_chargeable":
-                        (1 if str(row.get("is_chargeable", "")).strip().lower() in ("1", "true", "yes", "on") else 0) if job_doc.task_type == "Checkup" else 0,
+                        (1 if str(row.get("is_chargeable", "")).strip().lower() in ("1", "true", "yes", "on") else 0) if (job_doc.task_type == "Checkup" and inst_or_rem == "Installed") else 0,
 
                     "chargeable_reason":
-                        (row.get("chargeable_reason") or None) if job_doc.task_type == "Checkup" else None,
+                        (row.get("chargeable_reason") or None) if (job_doc.task_type == "Checkup" and inst_or_rem == "Installed") else None,
 
                     "chargeable_reason_description":
-                        ((row.get("chargeable_reason_description") or "").strip() or None) if job_doc.task_type == "Checkup" else None,
+                        ((row.get("chargeable_reason_description") or "").strip() or None) if (job_doc.task_type == "Checkup" and inst_or_rem == "Installed") else None,
                 }
             )
 
@@ -3673,6 +3673,10 @@ def update_job(
                 existing_old = next((r for r in job_doc.item_installed_removed if r.item == old_asset), None)
                 if existing_old:
                     existing_old.installed_or_removed = "Removed"
+                    existing_old.replace_against = None
+                    existing_old.is_chargeable = 0
+                    existing_old.chargeable_reason = None
+                    existing_old.chargeable_reason_description = None
                 else:
                     old_item_data = frappe.db.get_value(
                         "Item",
@@ -3688,6 +3692,10 @@ def update_job(
                             "item_type": old_item_data.get("custom_item_type") or r_item.get("item_type"),
                             "brand": old_item_data.get("brand"),
                             "installed_or_removed": "Removed",
+                            "replace_against": None,
+                            "is_chargeable": 0,
+                            "chargeable_reason": None,
+                            "chargeable_reason_description": None,
                         }
                     )
 
@@ -3723,6 +3731,14 @@ def update_job(
             and (job_doc.item_installed_removed or [])
         ):
             job_doc.status = "In Progress"
+
+    if job_doc.task_type == "Checkup":
+        for r in (job_doc.item_installed_removed or []):
+            if r.installed_or_removed == "Removed":
+                r.replace_against = None
+                r.is_chargeable = 0
+                r.chargeable_reason = None
+                r.chargeable_reason_description = None
 
 
     try:
