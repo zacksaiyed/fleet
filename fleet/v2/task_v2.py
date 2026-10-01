@@ -3829,62 +3829,27 @@ def update_job(
             for r in job_doc.removal_items
         ]
 
-    if hasattr(job_doc, "item_installed_removed"):
-        if job_doc.task_type == "Checkup":
-            response["item_installed_removed"] = []
-        elif job_doc.item_installed_removed:
-            response["item_installed_removed"] = [
-                {
-                    "item": r.item,
-                    "item_name": r.item_name,
-                    "item_type": r.item_type,
-                    "brand": r.brand,
-                    "installed_or_removed": r.installed_or_removed,
-                    "replace_against": getattr(r, "replace_against", None),
-                    "replace_item": getattr(r, "replace_against", None),
-                    "is_chargeable": getattr(r, "is_chargeable", 0),
-                    "chargeable_reason": getattr(r, "chargeable_reason", None),
-                    "chargeable_reason_description": getattr(r, "chargeable_reason_description", None),
-                }
-                for r in job_doc.item_installed_removed
-            ]
+    if hasattr(job_doc, "item_installed_removed") and job_doc.item_installed_removed:
+        response["item_installed_removed"] = [
+            {
+                "item": r.item,
+                "item_name": r.item_name,
+                "item_type": r.item_type,
+                "brand": r.brand,
+                "installed_or_removed": r.installed_or_removed,
+                "replace_against": getattr(r, "replace_against", None),
+                "replace_item": getattr(r, "replace_against", None),
+                "is_chargeable": getattr(r, "is_chargeable", 0),
+                "chargeable_reason": getattr(r, "chargeable_reason", None),
+                "chargeable_reason_description": getattr(r, "chargeable_reason_description", None),
+            }
+            for r in job_doc.item_installed_removed
+        ]
 
     if job_doc.task_type == "Re-Installation":
         response["is_chargeable"] = 1 if job_doc.is_chargeable else 0
         response["chargeable_reason"] = job_doc.chargeable_reason or ""
         response["chargeable_reason_description"] = job_doc.chargeable_reason_description or ""
-
-    if job_doc.task_type == "Checkup":
-        rep_items = []
-        for r in (job_doc.item_installed_removed or []):
-            if r.installed_or_removed == "Installed" and getattr(r, "replace_against", None):
-                rep_items.append({
-                    "old_asset": getattr(r, "replace_against", "") or "",
-                    "new_asset": r.item or "",
-                    "item_type": r.item_type or "",
-                    "ischargeable": 1 if getattr(r, "is_chargeable", 0) else 0,
-                    "chargeable_reason": getattr(r, "chargeable_reason", "") or "",
-                    "reason_description": getattr(r, "chargeable_reason_description", "") or "",
-                })
-        response["replaced_items"] = rep_items
-
-        old_assets = []
-        vehicle_num = (job_doc.vehicle_number or "").replace(" ", "").upper().strip()
-        if vehicle_num:
-            vehicle_items = frappe.db.get_all(
-                "Vehicle Item",
-                filters={"parent": vehicle_num, "status": "Installed"},
-                fields=["item", "item_type"],
-            )
-            job_item_codes = {r.item for r in (job_doc.item_installed_removed or []) if r.item}
-            job_replaced = {getattr(r, "replace_against", None) for r in (job_doc.item_installed_removed or []) if getattr(r, "replace_against", None)}
-            touched = job_item_codes | job_replaced
-            for vi in vehicle_items:
-                if not vi.item or vi.item in touched:
-                    continue
-                itype = vi.item_type or frappe.db.get_value("Item", vi.item, "custom_item_type") or ""
-                old_assets.append({"item": vi.item, "item_type": itype})
-        response["old_asset"] = old_assets
 
     return response
 
