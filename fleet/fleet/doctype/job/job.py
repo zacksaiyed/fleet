@@ -26,9 +26,11 @@ class Job(Document):
 		self._set_vehicle_number()
 		self._fetch_vehicle_details()
 
-		# --- નવો કોડ અહિંથી ચાલુ થશે ---
 		if self.item_installed_removed:
 			for row in self.item_installed_removed:
+				if self.task_type != "Checkup" or row.installed_or_removed != "Installed":
+					row.replace_against = None
+
 				if row.item:
 					item_data = frappe.db.get_value("Item", row.item, ["custom_mac_id", "custom_mobile_number", "custom_item_type"], as_dict=True)
 					if item_data:
@@ -37,7 +39,6 @@ class Job(Document):
 							row.custom_device_id = item_data.get("custom_mobile_number")
 						else:
 							row.custom_device_id = item_data.get("custom_mac_id")
-		# --- નવો કોડ અહિંયા પૂરો થશે ---
 
 		# if self.status == "Pending" and self.item_installed_removed:
 		# 	self.status = "In Progress"
@@ -599,10 +600,14 @@ class Job(Document):
 			as_dict=True
 		)
 		if vehicle:
-			self.make  = vehicle.make
-			self.model = vehicle.model
-			self.color = vehicle.color
-			self.type  = vehicle.custom_vehicle_type
+			if not self.make:
+				self.make  = vehicle.make
+			if not self.model:
+				self.model = vehicle.model
+			if not self.color:
+				self.color = vehicle.color
+			if not self.type:
+				self.type  = vehicle.custom_vehicle_type
 
 	def _set_date_from_task(self):
 		if not self.date and self.task:
@@ -955,6 +960,15 @@ class Job(Document):
 					})
 
 		self._set_chargeable_on_matched_vehicle_items(vehicle)
+
+		if self.make:
+			vehicle.make = self.make
+		if self.model:
+			vehicle.model = self.model
+		if self.color:
+			vehicle.color = self.color
+		if self.type:
+			vehicle.custom_vehicle_type = self.type
 
 		vehicle.flags.updated_from_job_document = 1
 		vehicle.save(ignore_permissions=True)
