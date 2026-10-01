@@ -826,7 +826,7 @@ def get_job(job: str) -> dict:
             "allowed_directions":     _JOB_TYPE_DIRECTIONS.get(job_doc.task_type, ["Installed", "Removed"]),
             "unread_count_tech":      job_doc.unread_count_tech or 0,
             "unread_count_support":   job_doc.unread_count_support or 0,
-            "item_installed_removed": item_groups,
+            "item_installed_removed": [] if job_doc.task_type == "Checkup" else item_groups,
             "removal_items":          removal_items,
             "job_images":             images,
             "swap_vehicle_number":        job_doc.new_vehicle_number,
@@ -838,11 +838,9 @@ def get_job(job: str) -> dict:
             "replaced_items":             replaced_items_list,
             "old_asset":                  old_asset_list,
         },
-        "replaced_items":             replaced_items_list,
-        "old_asset":                  old_asset_list,
     }
 
-    if job_doc.task_type in ("Checkup", "Re-Installation"):
+    if job_doc.task_type == "Re-Installation":
         response["job"]["is_chargeable"] = 1 if job_doc.is_chargeable else 0
         response["job"]["chargeable_reason"] = job_doc.chargeable_reason or ""
         response["job"]["chargeable_reason_description"] = job_doc.chargeable_reason_description or ""
@@ -3815,24 +3813,27 @@ def update_job(
             for r in job_doc.removal_items
         ]
 
-    if hasattr(job_doc, "item_installed_removed") and job_doc.item_installed_removed:
-        response["item_installed_removed"] = [
-            {
-                "item": r.item,
-                "item_name": r.item_name,
-                "item_type": r.item_type,
-                "brand": r.brand,
-                "installed_or_removed": r.installed_or_removed,
-                "replace_against": getattr(r, "replace_against", None),
-                "replace_item": getattr(r, "replace_against", None),
-                "is_chargeable": getattr(r, "is_chargeable", 0),
-                "chargeable_reason": getattr(r, "chargeable_reason", None),
-                "chargeable_reason_description": getattr(r, "chargeable_reason_description", None),
-            }
-            for r in job_doc.item_installed_removed
-        ]
+    if hasattr(job_doc, "item_installed_removed"):
+        if job_doc.task_type == "Checkup":
+            response["item_installed_removed"] = []
+        elif job_doc.item_installed_removed:
+            response["item_installed_removed"] = [
+                {
+                    "item": r.item,
+                    "item_name": r.item_name,
+                    "item_type": r.item_type,
+                    "brand": r.brand,
+                    "installed_or_removed": r.installed_or_removed,
+                    "replace_against": getattr(r, "replace_against", None),
+                    "replace_item": getattr(r, "replace_against", None),
+                    "is_chargeable": getattr(r, "is_chargeable", 0),
+                    "chargeable_reason": getattr(r, "chargeable_reason", None),
+                    "chargeable_reason_description": getattr(r, "chargeable_reason_description", None),
+                }
+                for r in job_doc.item_installed_removed
+            ]
 
-    if job_doc.task_type in ("Checkup", "Re-Installation"):
+    if job_doc.task_type == "Re-Installation":
         response["is_chargeable"] = 1 if job_doc.is_chargeable else 0
         response["chargeable_reason"] = job_doc.chargeable_reason or ""
         response["chargeable_reason_description"] = job_doc.chargeable_reason_description or ""
