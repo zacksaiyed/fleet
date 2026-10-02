@@ -1,10 +1,6 @@
 import frappe
-import time
 
 def execute():
-    # Yahan se time count shuru hoga
-    start_time = time.time()  
-
     # 1. Update Vehicle Item table (Vehicle Doctype)
     frappe.db.sql("""
         UPDATE `tabVehicle Item` cvi
@@ -32,7 +28,3 @@ def execute():
     """)
 
     frappe.db.commit()
-
-    end_time = time.time()  
-    total_time = end_time - start_time
-    print(f"Patch execution completed in: {total_time} seconds")
