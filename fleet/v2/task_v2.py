@@ -3595,8 +3595,9 @@ def update_job(
                 "replaced_items must be an array."
             )
 
-        if not hasattr(job_doc, "item_installed_removed") or job_doc.item_installed_removed is None:
-            job_doc.item_installed_removed = []
+        #if not hasattr(job_doc, "item_installed_removed") or job_doc.item_installed_removed is None:
+        #    job_doc.item_installed_removed = []
+		job_doc.item_installed_removed = []
 
         for r_item in replaced_items:
             if not isinstance(r_item, dict):
