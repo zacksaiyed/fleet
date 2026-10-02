@@ -1188,7 +1188,8 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 	function get_task_card(
 		task,
 		index,
-		completed = false
+		completed = false,
+		total = 0
 	) {
 		const status =
 			task.status ||
@@ -1207,7 +1208,7 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 				? index + 1
 				: (
 					task.custom_sequence ||
-					index + 1
+					(total ? (total - index) : (index + 1))
 				);
 
 		return `
@@ -1305,7 +1306,8 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 							get_task_card(
 								task,
 								task_index,
-								false
+								false,
+								tasks.length
 							)
 					)
 					.join("")
@@ -1521,21 +1523,25 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 	// =========================================================
 
 	function update_sequence_labels($row) {
-		$row
-			.children(
+		const $cards =
+			$row.children(
 				".tsb-task-card"
-			)
-			.each(
-				function (index) {
-					$(this)
-						.find(
-							".tsb-sequence"
-						)
-						.text(
-							index + 1
-						);
-				}
 			);
+
+		const total =
+			$cards.length;
+
+		$cards.each(
+			function (index) {
+				$(this)
+					.find(
+						".tsb-sequence"
+					)
+					.text(
+						total - index
+					);
+			}
+		);
 	}
 
 

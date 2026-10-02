@@ -655,10 +655,19 @@ def get_job(job: str) -> dict:
     if not job_doc:
         return _error(404, "NOT_FOUND", "Job not found or you are not assigned to it.")
 
+    item_fields = ["name", "item", "item_name", "item_type", "brand", "installed_or_removed"]
+    try:
+        physical_cols = {col[0] for col in frappe.db.sql("DESCRIBE `tabJob Item`")}
+    except Exception:
+        physical_cols = set()
+    for col in ["replace_against", "replaced_item", "is_chargeable", "chargeable_reason", "chargeable_reason_description"]:
+        if col in physical_cols and col not in item_fields:
+            item_fields.append(col)
+
     items = frappe.db.get_all(
         "Job Item",
         filters={"parent": job_doc.name},
-        fields=["name", "item", "item_name", "item_type", "brand", "installed_or_removed"],
+        fields=item_fields,
         order_by="idx asc",
     )
 
@@ -718,6 +727,11 @@ def get_job(job: str) -> dict:
             "brand":               r.brand,
             "installed_or_removed": r.installed_or_removed,
             "destination":         destination,
+            "replace_against":     r.get("replace_against") or r.get("replaced_item"),
+            "replace_item":        r.get("replace_against") or r.get("replaced_item"),
+            "is_chargeable":       r.get("is_chargeable", 0) or 0,
+            "chargeable_reason":   r.get("chargeable_reason"),
+            "chargeable_reason_description": r.get("chargeable_reason_description"),
         }
 
         extra_field = _TYPE_EXTRA.get(key)
@@ -743,6 +757,51 @@ def get_job(job: str) -> dict:
         order_by="idx asc",
     )
 
+    replaced_items_list = []
+    old_asset_list = []
+
+    if job_doc.task_type == "Checkup":
+        # A. replaced_items:
+        # Take all data from the installed rows where replace_against is present
+        for r in items:
+            rep_against = r.get("replace_against") or r.get("replaced_item")
+            if r.installed_or_removed == "Installed" and rep_against:
+                replaced_items_list.append({
+                    "old_asset": rep_against or "",
+                    "new_asset": r.item or "",
+                    "item_type": r.item_type or "",
+                    "ischargeable": 1 if r.get("is_chargeable") else 0,
+                    "chargeable_reason": r.get("chargeable_reason") or "",
+                    "reason_description": r.get("chargeable_reason_description") or "",
+                })
+
+        # B. old_asset:
+        # Get all items installed on the vehicle and not found in the installed_removed_items table
+        # (available to replace and not replaced in the current job)
+        vehicle_num = (job_doc.vehicle_number or "").replace(" ", "").upper().strip()
+        if vehicle_num:
+            vehicle_items = frappe.db.get_all(
+                "Vehicle Item",
+                filters={
+                    "parent": vehicle_num,
+                    "status": "Installed",
+                },
+                fields=["item", "item_type"],
+            )
+
+            job_item_codes = {r.item for r in items if r.item}
+            job_replaced_against = {r.get("replace_against") or r.get("replaced_item") for r in items if (r.get("replace_against") or r.get("replaced_item"))}
+            touched_items = job_item_codes | job_replaced_against
+
+            for vi in vehicle_items:
+                if not vi.item or vi.item in touched_items:
+                    continue
+                item_type = vi.item_type or frappe.db.get_value("Item", vi.item, "custom_item_type") or ""
+                old_asset_list.append({
+                    "item": vi.item,
+                    "item_type": item_type,
+                })
+
     response = {
         "status": "success",
         "job": {
@@ -756,6 +815,7 @@ def get_job(job: str) -> dict:
             "make":                  job_doc.make,
             "model":                 job_doc.model,
             "color":                 job_doc.color,
+            "type":                  job_doc.type,
             "vehicle_type":          job_doc.type,
             "date":                  str(job_doc.date or ""),
             "technician_name":       job_doc.technician_name,
@@ -766,7 +826,7 @@ def get_job(job: str) -> dict:
             "allowed_directions":     _JOB_TYPE_DIRECTIONS.get(job_doc.task_type, ["Installed", "Removed"]),
             "unread_count_tech":      job_doc.unread_count_tech or 0,
             "unread_count_support":   job_doc.unread_count_support or 0,
-            "item_installed_removed": item_groups,
+            "item_installed_removed": [] if job_doc.task_type == "Checkup" else item_groups,
             "removal_items":          removal_items,
             "job_images":             images,
             "swap_vehicle_number":        job_doc.new_vehicle_number,
@@ -774,12 +834,13 @@ def get_job(job: str) -> dict:
             "swap_model":                 job_doc.swap_model,
             "swap_color":                 job_doc.swap_color,
             "swap_type":                  job_doc.swap_type,
-            "swap_items":                 swap_items
+            "swap_items":                 swap_items,
+            "replaced_items":             replaced_items_list,
+            "old_asset":                  old_asset_list,
         },
-
     }
 
-    if job_doc.task_type in ("Checkup", "Re-Installation"):
+    if job_doc.task_type == "Re-Installation":
         response["job"]["is_chargeable"] = 1 if job_doc.is_chargeable else 0
         response["job"]["chargeable_reason"] = job_doc.chargeable_reason or ""
         response["job"]["chargeable_reason_description"] = job_doc.chargeable_reason_description or ""
@@ -2178,6 +2239,7 @@ def update_job(
     swap_type: str | None = None,
     asset_mapping=None,
     new_assets=None,
+    replaced_items=None,
 ) -> dict:
 
     """
@@ -2207,6 +2269,10 @@ def update_job(
     {
         "job": "JOB-CHECKUP-0001",
         "vehicle_number": "GJ05SY0888",
+        "make": "Toyota",
+        "model": "Hilux",
+        "color": "White",
+        "type": "Pickup",
         "is_chargeable": 1,
         "set_items": [
             {
@@ -2289,9 +2355,33 @@ def update_job(
         ]
     }
 
-    set_items, asset_mapping and new_assets can be sent as JSON arrays or JSON-encoded strings.
+    Replaced Items (Checkup / Replacement):
+    {
+        "job": "JOB-CHECKUP-0001",
+        "replaced_items": [
+            {
+                "old_asset": "GPS-OLD-0001",
+                "new_asset": "GPS-NEW-0002",
+                "item_type": "GPS Device",
+                "ischargeable": 1,
+                "chargeable_reason": "Damaged",
+                "reason_description": "Damaged during operation"
+            },
+            {
+                "old_asset": "SIM-OLD-0001",
+                "new_asset": "SIM-NEW-0002",
+                "item_type": "SIM",
+                "ischargeable": 1,
+                "chargeable_reason": "Damaged",
+                "reason_description": "Network issue"
+            }
+        ]
+    }
+
+    set_items, asset_mapping, new_assets, and replaced_items can be sent as JSON arrays or JSON-encoded strings.
 
     is_chargeable is accepted and returned only for Checkup and Re-Installation.
+    replaced_items is accepted only for Checkup.
     """
     if not job:
         return _error(
@@ -3148,21 +3238,30 @@ def update_job(
         ] = vehicle_number
 
 
-    if make is not None:
-        job_doc.make = make
-        changed_scalars["make"] = make
+    if make is not None and str(make).strip():
+        job_doc.make = str(make).strip()
+        changed_scalars["make"] = job_doc.make
 
-    if model is not None:
-        job_doc.model = model
-        changed_scalars["model"] = model
+    if model is not None and str(model).strip():
+        job_doc.model = str(model).strip()
+        changed_scalars["model"] = job_doc.model
 
-    if color is not None:
-        job_doc.color = color
-        changed_scalars["color"] = color
+    if color is not None and str(color).strip():
+        job_doc.color = str(color).strip()
+        changed_scalars["color"] = job_doc.color
 
-    if type is not None:
-        job_doc.type = type
-        changed_scalars["type"] = type
+    if type is not None and str(type).strip():
+        clean_type = str(type).strip()
+        if not frappe.db.exists("Vehicle Type", clean_type):
+            try:
+                frappe.get_doc({
+                    "doctype": "Vehicle Type",
+                    "vehicle_type": clean_type
+                }).insert(ignore_permissions=True)
+            except Exception:
+                pass
+        job_doc.type = clean_type
+        changed_scalars["type"] = clean_type
 
 
     # Support asset_mapping as fallback for Removal jobs if passed
@@ -3373,6 +3472,19 @@ def update_job(
                 else:
                     inst_or_rem = "Installed"
 
+            raw_replace = row.get("replace_against") or row.get("replace_agaist") or row.get("replace_item") or None
+            if raw_replace:
+                raw_replace = str(raw_replace).strip() or None
+                if raw_replace and job_doc.task_type == "Checkup":
+                    if not frappe.db.exists("Item", raw_replace):
+                        return _error(
+                            404,
+                            "REPLACE_ITEM_NOT_FOUND",
+                            f"Replace item '{raw_replace}' not found."
+                        )
+                else:
+                    raw_replace = None
+
             job_doc.append(
                 "item_installed_removed",
                 {
@@ -3390,8 +3502,31 @@ def update_job(
 
                     "installed_or_removed":
                         inst_or_rem,
+
+                    "replace_against":
+                        raw_replace if (job_doc.task_type == "Checkup" and inst_or_rem == "Installed") else None,
+
+                    "is_chargeable":
+                        (1 if str(row.get("is_chargeable", "")).strip().lower() in ("1", "true", "yes", "on") else 0) if (job_doc.task_type == "Checkup" and inst_or_rem == "Installed") else 0,
+
+                    "chargeable_reason":
+                        (row.get("chargeable_reason") or None) if (job_doc.task_type == "Checkup" and inst_or_rem == "Installed") else None,
+
+                    "chargeable_reason_description":
+                        ((row.get("chargeable_reason_description") or "").strip() or None) if (job_doc.task_type == "Checkup" and inst_or_rem == "Installed") else None,
                 }
             )
+
+            raw_ch_reason = (row.get("chargeable_reason") or None) if job_doc.task_type == "Checkup" else None
+            if raw_ch_reason and not frappe.db.exists("Job Chargeable Reason", raw_ch_reason):
+                try:
+                    frappe.get_doc({
+                        "doctype": "Job Chargeable Reason",
+                        "reason": raw_ch_reason,
+                        "job_type": job_doc.task_type if frappe.db.exists("Task Type", job_doc.task_type) else None,
+                    }).insert(ignore_permissions=True)
+                except Exception:
+                    pass
 
             # Populate removal_items child table when destination is given or for Removal task type
             if (
@@ -3441,6 +3576,169 @@ def update_job(
             job_doc.status = (
                 "In Progress"
             )
+
+    if replaced_items is not None and job_doc.task_type == "Checkup":
+        if isinstance(replaced_items, str):
+            try:
+                replaced_items = json.loads(replaced_items)
+            except Exception:
+                return _error(
+                    400,
+                    "INVALID_PARAMS",
+                    "replaced_items must be a valid JSON array."
+                )
+
+        if not isinstance(replaced_items, list):
+            return _error(
+                400,
+                "INVALID_PARAMS",
+                "replaced_items must be an array."
+            )
+
+        if not hasattr(job_doc, "item_installed_removed") or job_doc.item_installed_removed is None:
+            job_doc.item_installed_removed = []
+
+        for r_item in replaced_items:
+            if not isinstance(r_item, dict):
+                continue
+
+            new_asset = str(r_item.get("new_asset") or "").strip()
+            # If the new_asset key is missing then ignore that row of the request
+            if not new_asset:
+                continue
+
+            old_asset = str(r_item.get("old_asset") or "").strip() or None
+
+            new_item_data = frappe.db.get_value(
+                "Item",
+                new_asset,
+                ["name", "item_name", "custom_item_type", "brand"],
+                as_dict=True,
+            )
+            if not new_item_data:
+                return _error(
+                    404,
+                    "NEW_ASSET_NOT_FOUND",
+                    f"New asset '{new_asset}' not found."
+                )
+
+            is_ch_raw = r_item.get("ischargeable") if "ischargeable" in r_item else r_item.get("is_chargeable")
+            is_ch = 1 if str(is_ch_raw or "").strip().lower() in ("1", "true", "yes", "on") else 0
+            ch_reason = r_item.get("chargeable_reason") or None
+            if ch_reason and not frappe.db.exists("Job Chargeable Reason", ch_reason):
+                try:
+                    frappe.get_doc({
+                        "doctype": "Job Chargeable Reason",
+                        "reason": ch_reason,
+                        "job_type": job_doc.task_type if frappe.db.exists("Task Type", job_doc.task_type) else None,
+                    }).insert(ignore_permissions=True)
+                except Exception:
+                    pass
+            ch_desc = (r_item.get("reason_description") or r_item.get("chargeable_reason_description") or "").strip() or None
+            item_type_val = r_item.get("item_type") or new_item_data.get("custom_item_type")
+
+            # 1. Add/Update new_asset as Installed, set replace_against = old_asset, set is_chargeable
+            is_checkup = job_doc.task_type == "Checkup"
+            existing_new = next((r for r in job_doc.item_installed_removed if r.item == new_asset), None)
+            if existing_new:
+                existing_new.installed_or_removed = "Installed"
+                existing_new.replace_against = old_asset if is_checkup else None
+                existing_new.is_chargeable = is_ch if is_checkup else 0
+                existing_new.chargeable_reason = ch_reason if is_checkup else None
+                existing_new.chargeable_reason_description = ch_desc if is_checkup else None
+                if not existing_new.item_name:
+                    existing_new.item_name = new_item_data.item_name
+                if not existing_new.item_type:
+                    existing_new.item_type = item_type_val
+                if not existing_new.brand:
+                    existing_new.brand = new_item_data.brand
+            else:
+                job_doc.append(
+                    "item_installed_removed",
+                    {
+                        "item": new_asset,
+                        "item_name": new_item_data.item_name,
+                        "item_type": item_type_val,
+                        "brand": new_item_data.brand,
+                        "installed_or_removed": "Installed",
+                        "replace_against": old_asset if is_checkup else None,
+                        "is_chargeable": is_ch if is_checkup else 0,
+                        "chargeable_reason": ch_reason if is_checkup else None,
+                        "chargeable_reason_description": ch_desc if is_checkup else None,
+                    }
+                )
+
+            # 2. Mark old_asset as Removed
+            if old_asset:
+                existing_old = next((r for r in job_doc.item_installed_removed if r.item == old_asset), None)
+                if existing_old:
+                    existing_old.installed_or_removed = "Removed"
+                    existing_old.replace_against = None
+                    existing_old.is_chargeable = 0
+                    existing_old.chargeable_reason = None
+                    existing_old.chargeable_reason_description = None
+                else:
+                    old_item_data = frappe.db.get_value(
+                        "Item",
+                        old_asset,
+                        ["name", "item_name", "custom_item_type", "brand"],
+                        as_dict=True,
+                    ) or {}
+                    job_doc.append(
+                        "item_installed_removed",
+                        {
+                            "item": old_asset,
+                            "item_name": old_item_data.get("item_name"),
+                            "item_type": old_item_data.get("custom_item_type") or r_item.get("item_type"),
+                            "brand": old_item_data.get("brand"),
+                            "installed_or_removed": "Removed",
+                            "replace_against": None,
+                            "is_chargeable": 0,
+                            "chargeable_reason": None,
+                            "chargeable_reason_description": None,
+                        }
+                    )
+
+                if (
+                    job_doc.task_type != "Re-Installation"
+                    and hasattr(job_doc, "removal_items")
+                ):
+                    existing_rem = next((r for r in (job_doc.removal_items or []) if r.item == old_asset), None)
+                    if not existing_rem:
+                        old_item_data = frappe.db.get_value(
+                            "Item",
+                            old_asset,
+                            ["name", "item_name", "custom_item_type", "brand"],
+                            as_dict=True,
+                        ) or {}
+                        job_doc.append(
+                            "removal_items",
+                            {
+                                "item": old_asset,
+                                "item_name": old_item_data.get("item_name"),
+                                "item_type": old_item_data.get("custom_item_type") or r_item.get("item_type"),
+                                "brand": old_item_data.get("brand"),
+                                "destination": "Technician",
+                                "warehouse": job_doc.technician_warehouse,
+                            }
+                        )
+
+            if is_ch:
+                job_doc.is_chargeable = 1
+
+        if (
+            job_doc.status == "Pending"
+            and (job_doc.item_installed_removed or [])
+        ):
+            job_doc.status = "In Progress"
+
+    if job_doc.task_type == "Checkup":
+        for r in (job_doc.item_installed_removed or []):
+            if r.installed_or_removed == "Removed":
+                r.replace_against = None
+                r.is_chargeable = 0
+                r.chargeable_reason = None
+                r.chargeable_reason_description = None
 
 
     try:
@@ -3501,6 +3799,21 @@ def update_job(
 
         "job_status":
             job_doc.status,
+
+        "vehicle_number":
+            job_doc.vehicle_number,
+
+        "make":
+            job_doc.make,
+
+        "model":
+            job_doc.model,
+
+        "color":
+            job_doc.color,
+
+        "type":
+            job_doc.type,
     }
 
     if hasattr(job_doc, "removal_items") and job_doc.removal_items:
@@ -3524,11 +3837,16 @@ def update_job(
                 "item_type": r.item_type,
                 "brand": r.brand,
                 "installed_or_removed": r.installed_or_removed,
+                "replace_against": getattr(r, "replace_against", None),
+                "replace_item": getattr(r, "replace_against", None),
+                "is_chargeable": getattr(r, "is_chargeable", 0),
+                "chargeable_reason": getattr(r, "chargeable_reason", None),
+                "chargeable_reason_description": getattr(r, "chargeable_reason_description", None),
             }
             for r in job_doc.item_installed_removed
         ]
 
-    if job_doc.task_type in ("Checkup", "Re-Installation"):
+    if job_doc.task_type == "Re-Installation":
         response["is_chargeable"] = 1 if job_doc.is_chargeable else 0
         response["chargeable_reason"] = job_doc.chargeable_reason or ""
         response["chargeable_reason_description"] = job_doc.chargeable_reason_description or ""
