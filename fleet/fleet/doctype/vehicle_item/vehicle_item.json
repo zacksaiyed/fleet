@@ -47,12 +47,12 @@
   {
    "fieldname": "date",
    "fieldtype": "Date",
-   "in_list_view": 1,
    "label": "Date"
   },
   {
    "fieldname": "date_of_installation",
    "fieldtype": "Date",
+   "in_list_view": 1,
    "label": "Date of Installation"
   },
   {
@@ -75,6 +75,7 @@
   {
    "fieldname": "custom_device_id",
    "fieldtype": "Data",
+   "in_list_view": 1,
    "label": "Device ID"
   }
  ],
