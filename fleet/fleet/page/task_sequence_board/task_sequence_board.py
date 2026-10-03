@@ -4,508 +4,493 @@ import frappe
 from frappe import _
 
 
-# ============================================================
-# CONSTANTS
-# ============================================================
-
-ACTIVE_EXCLUDED_STATUSES = ["Completed", "Cancelled"]
-
+ACTIVE_EXCLUDED_STATUSES = ["Completed", "Cancelled", "Rejected"]
 TECHNICIAN_DESIGNATION = "Technician"
 
 
-# ============================================================
-# TASK SEQUENCE BOARD
-# ============================================================
-
 @frappe.whitelist()
 def get_task_sequence_board(technicians=None):
-	"""
-	Return Task Sequence Board technician-wise.
+    technicians = parse_technicians(technicians)
 
-	technicians:
-		JSON list of Employee names.
+    employees = get_technicians(technicians)
 
-	Examples:
-		[]
-		["HR-EMP-00001"]
-		["HR-EMP-00001", "HR-EMP-00002"]
+    board = []
 
-	If nothing is selected:
-		Show all active Employees whose designation = Technician.
+    for employee in employees:
+        employee_id = employee.get("name")
 
-	Active tasks:
-		- custom_assign_to = Employee
-		- status NOT IN Completed, Cancelled
-		- ordered by custom_sequence DESC (reverse order)
-		- tasks without sequence are initialized automatically
+        if not employee_id:
+            continue
 
-	Completed tasks:
-		- status = Completed
-		- latest 5 only
-	"""
+        initialize_task_sequence(employee_id)
 
-	technicians = parse_technicians(technicians)
+        active_tasks = get_active_tasks(employee_id)
+        completed_tasks = get_completed_tasks(employee_id)
 
-	employees = get_technicians(technicians)
+        if not active_tasks and not completed_tasks:
+            continue
 
-	board = []
+        board.append({
+            "employee": employee_id,
+            "employee_name": (
+                employee.get("employee_name")
+                or employee_id
+            ),
+            "image": employee.get("image"),
+            "tasks": active_tasks,
+            "completed_tasks": completed_tasks,
+        })
 
-	for employee in employees:
-		employee_id = employee.get("name")
+    return board
 
-		if not employee_id:
-			continue
-
-		# Initialize missing sequences before fetching board.
-		initialize_task_sequence(employee_id)
-
-		active_tasks = get_active_tasks(employee_id)
-		completed_tasks = get_completed_tasks(employee_id)
-
-		# Don't show empty technician sections.
-		if not active_tasks and not completed_tasks:
-			continue
-
-		board.append({
-			"employee": employee_id,
-			"employee_name": (
-				employee.get("employee_name")
-				or employee_id
-			),
-			"tasks": active_tasks,
-			"completed_tasks": completed_tasks,
-		})
-
-	return board
-
-
-# ============================================================
-# PARSE TECHNICIANS
-# ============================================================
 
 def parse_technicians(technicians):
-	if not technicians:
-		return []
+    if not technicians:
+        return []
 
-	if isinstance(technicians, str):
-		try:
-			technicians = frappe.parse_json(technicians)
-		except Exception:
-			try:
-				technicians = json.loads(technicians)
-			except Exception:
-				technicians = [technicians]
+    if isinstance(technicians, str):
+        try:
+            technicians = frappe.parse_json(technicians)
 
-	if not isinstance(technicians, (list, tuple)):
-		technicians = [technicians]
+        except Exception:
+            try:
+                technicians = json.loads(technicians)
 
-	cleaned = []
+            except Exception:
+                technicians = [technicians]
 
-	for technician in technicians:
-		if not technician:
-			continue
+    if not isinstance(technicians, (list, tuple)):
+        technicians = [technicians]
 
-		# MultiSelectList may occasionally return dict-style values.
-		if isinstance(technician, dict):
-			technician = (
-				technician.get("value")
-				or technician.get("name")
-			)
+    cleaned = []
 
-		if not technician:
-			continue
+    for technician in technicians:
+        if not technician:
+            continue
 
-		technician = str(technician).strip()
+        if isinstance(technician, dict):
+            technician = (
+                technician.get("value")
+                or technician.get("name")
+            )
 
-		if technician and technician not in cleaned:
-			cleaned.append(technician)
+        if not technician:
+            continue
 
-	return cleaned
+        technician = str(technician).strip()
 
+        if technician and technician not in cleaned:
+            cleaned.append(technician)
 
-# ============================================================
-# GET TECHNICIANS
-# ============================================================
+    return cleaned
+
 
 def get_technicians(technicians=None):
-	"""
-	Only Active Employees having designation = Technician.
+    filters = {
+        "status": "Active",
+        "designation": TECHNICIAN_DESIGNATION,
+    }
 
-	If technician list is supplied, apply it too.
-	"""
+    if technicians:
+        filters["name"] = ["in", technicians]
 
-	filters = {
-		"status": "Active",
-		"designation": TECHNICIAN_DESIGNATION,
-	}
+    return frappe.get_all(
+        "Employee",
+        filters=filters,
+        fields=[
+            "name",
+            "employee_name",
+            "image",
+        ],
+        order_by="employee_name asc",
+        limit_page_length=0,
+    )
 
-	if technicians:
-		filters["name"] = ["in", technicians]
-
-	return frappe.get_all(
-		"Employee",
-		filters=filters,
-		fields=[
-			"name",
-			"employee_name",
-		],
-		order_by="employee_name asc",
-		limit_page_length=0,
-	)
-
-
-# ============================================================
-# INITIALIZE TASK SEQUENCE
-# ============================================================
 
 def initialize_task_sequence(employee):
-	"""
-	Initialize sequence for active tasks.
+    if not employee:
+        return
 
-	Requirement:
-	- Existing tasks with valid custom_sequence keep their order.
-	- Tasks having no sequence are appended at the end.
-	- Missing-sequence tasks are ordered by creation ASC.
-	  Therefore recently created task goes last.
-	- Finally sequence becomes continuous:
-		  1, 2, 3, 4...
-	"""
+    tasks = frappe.get_all(
+        "Task",
+        filters={
+            "custom_assign_to": employee,
+            "status": [
+                "not in",
+                ACTIVE_EXCLUDED_STATUSES,
+            ],
+        },
+        fields=[
+            "name",
+            "custom_sequence",
+            "creation",
+        ],
+        order_by="creation asc, name asc",
+        limit_page_length=0,
+    )
 
-	if not employee:
-		return
+    current_max = 0
+    missing = []
 
-	tasks = frappe.get_all(
-		"Task",
-		filters={
-			"custom_assign_to": employee,
-			"status": ["not in", ACTIVE_EXCLUDED_STATUSES],
-		},
-		fields=[
-			"name",
-			"custom_sequence",
-			"creation",
-		],
-		order_by="creation asc",
-		limit_page_length=0,
-	)
+    for task in tasks:
+        try:
+            sequence = int(
+                task.get("custom_sequence")
+                or 0
+            )
 
-	if not tasks:
-		return
+        except (ValueError, TypeError):
+            sequence = 0
 
-	with_sequence = []
-	without_sequence = []
+        if sequence > 0:
+            current_max = max(
+                current_max,
+                sequence,
+            )
 
-	for task in tasks:
-		sequence = task.get("custom_sequence")
+        else:
+            missing.append(task)
 
-		if sequence is not None and sequence != "":
-			try:
-				sequence_number = int(sequence)
+    for task in missing:
+        current_max += 1
 
-				if sequence_number > 0:
-					task["_sequence_number"] = sequence_number
-					with_sequence.append(task)
-					continue
-
-			except (TypeError, ValueError):
-				pass
-
-		without_sequence.append(task)
-
-	# Existing sequenced tasks first.
-	with_sequence.sort(
-		key=lambda row: (
-			row.get("_sequence_number", 999999999),
-			row.get("creation"),
-			row.get("name"),
-		)
-	)
-
-	# Unsequenced tasks oldest -> newest.
-	# Therefore newest task naturally becomes the last task.
-	without_sequence.sort(
-		key=lambda row: (
-			row.get("creation"),
-			row.get("name"),
-		)
-	)
-
-	ordered_tasks = with_sequence + without_sequence
-
-	changed = False
-
-	for index, task in enumerate(ordered_tasks, start=1):
-		current_sequence = task.get("custom_sequence")
-
-		try:
-			current_sequence = int(current_sequence)
-		except (TypeError, ValueError):
-			current_sequence = None
-
-		if current_sequence != index:
-			frappe.db.set_value(
-				"Task",
-				task.get("name"),
-				"custom_sequence",
-				index,
-				update_modified=False,
-			)
-
-			changed = True
-
-	if changed:
-		frappe.db.commit()
+        frappe.db.set_value(
+            "Task",
+            task.name,
+            "custom_sequence",
+            current_max,
+            update_modified=False,
+        )
 
 
-# ============================================================
-# GET ACTIVE TASKS
-# ============================================================
+def set_task_job_counts(tasks):
+    if not tasks:
+        return tasks
+
+    task_names = [
+        task.get("name")
+        for task in tasks
+        if task.get("name")
+    ]
+
+    if not task_names:
+        return tasks
+
+    field = frappe.get_meta(
+        "Task"
+    ).get_field(
+        "custom_task_jobs"
+    )
+
+    if not field or not field.options:
+        for task in tasks:
+            task["job_count"] = 0
+
+        return tasks
+
+    child_doctype = field.options
+
+    job_rows = frappe.get_all(
+        child_doctype,
+        filters={
+            "parent": [
+                "in",
+                task_names,
+            ],
+            "parenttype": "Task",
+            "parentfield": "custom_task_jobs",
+        },
+        fields=[
+            "parent",
+        ],
+        limit_page_length=0,
+    )
+
+    job_counts = {}
+
+    for row in job_rows:
+        parent = row.get("parent")
+
+        if not parent:
+            continue
+
+        job_counts[parent] = (
+            job_counts.get(parent, 0)
+            + 1
+        )
+
+    for task in tasks:
+        task["job_count"] = (
+            job_counts.get(
+                task.get("name"),
+                0,
+            )
+        )
+
+    return tasks
+
 
 def get_active_tasks(employee):
-	"""
-	Get active tasks for technician.
+    if not employee:
+        return []
 
-	Completed and Cancelled are excluded.
-	"""
+    tasks = frappe.get_all(
+        "Task",
+        filters={
+            "custom_assign_to": employee,
+            "status": [
+                "not in",
+                ACTIVE_EXCLUDED_STATUSES,
+            ],
+        },
+        fields=[
+            "name",
+            "subject",
+            "status",
+            "custom_assign_to",
+            "custom_sequence",
+            "creation",
+            "modified",
+        ],
+        order_by=(
+            "custom_sequence desc, "
+            "creation desc"
+        ),
+        limit_page_length=0,
+    )
 
-	if not employee:
-		return []
+    return set_task_job_counts(tasks)
 
-	tasks = frappe.get_all(
-		"Task",
-		filters={
-			"custom_assign_to": employee,
-			"status": ["not in", ACTIVE_EXCLUDED_STATUSES],
-		},
-		fields=[
-			"name",
-			"subject",
-			"status",
-			"custom_assign_to",
-			"custom_sequence",
-			"creation",
-			"modified",
-		],
-		order_by="custom_sequence desc, creation desc",
-		limit_page_length=0,
-	)
-
-	return tasks
-
-
-# ============================================================
-# GET COMPLETED TASKS
-# ============================================================
 
 def get_completed_tasks(employee):
-	"""
-	Only the 5 most recently completed tasks.
+    if not employee:
+        return []
 
-	Completed tasks are NOT part of active sequence.
-	"""
+    tasks = frappe.get_all(
+        "Task",
+        filters={
+            "custom_assign_to": employee,
+            "status": "Completed",
+        },
+        fields=[
+            "name",
+            "subject",
+            "status",
+            "custom_assign_to",
+            "custom_sequence",
+            "creation",
+            "modified",
+        ],
+        order_by="modified desc",
+        limit_page_length=10,
+    )
 
-	if not employee:
-		return []
+    return set_task_job_counts(tasks)
 
-	return frappe.get_all(
-		"Task",
-		filters={
-			"custom_assign_to": employee,
-			"status": "Completed",
-		},
-		fields=[
-			"name",
-			"subject",
-			"status",
-			"custom_assign_to",
-			"custom_sequence",
-			"creation",
-			"modified",
-		],
-		order_by="modified desc",
-		limit_page_length=5,
-	)
-
-
-# ============================================================
-# UPDATE TASK SEQUENCE
-# ============================================================
 
 @frappe.whitelist()
-def update_task_sequence(employee=None, tasks=None):
-	"""
-	Save task order after drag/drop.
+def update_task_sequence(
+    employee=None,
+    tasks=None,
+    source_employee=None,
+):
+    if not employee:
+        frappe.throw(
+            _("Technician is required.")
+        )
 
-	JS sends:
-		employee = HR-EMP-00001
+    if isinstance(tasks, str):
+        tasks = frappe.parse_json(tasks)
 
-		tasks = [
-			"TASK-0005",
-			"TASK-0001",
-			"TASK-0002"
-		]
+    if not isinstance(tasks, list):
+        frappe.throw(
+            _("Invalid task sequence.")
+        )
 
-	Result:
-		TASK-0005 custom_sequence = 1
-		TASK-0001 custom_sequence = 2
-		TASK-0002 custom_sequence = 3
-	"""
+    names = []
 
-	if not employee:
-		frappe.throw(_("Technician is required."))
+    for value in tasks:
+        if isinstance(value, dict):
+            name = (
+                value.get("name")
+                or value.get("task")
+            )
 
-	if not frappe.db.exists("Employee", employee):
-		frappe.throw(
-			_("Employee {0} does not exist.").format(
-				frappe.bold(employee)
-			)
-		)
+        else:
+            name = value
 
-	# Ensure selected employee really is a Technician.
-	employee_data = frappe.db.get_value(
-		"Employee",
-		employee,
-		[
-			"designation",
-			"status",
-		],
-		as_dict=True,
-	)
+        if name and name not in names:
+            names.append(name)
 
-	if not employee_data:
-		frappe.throw(_("Employee not found."))
+    employees = [employee]
 
-	if employee_data.get("designation") != TECHNICIAN_DESIGNATION:
-		frappe.throw(
-			_(
-				"Employee {0} is not a Technician."
-			).format(
-				frappe.bold(employee)
-			)
-		)
+    if (
+        source_employee
+        and source_employee != employee
+    ):
+        employees.append(
+            source_employee
+        )
 
-	if employee_data.get("status") != "Active":
-		frappe.throw(
-			_(
-				"Employee {0} is not active."
-			).format(
-				frappe.bold(employee)
-			)
-		)
+    for emp in employees:
+        details = frappe.db.get_value(
+            "Employee",
+            emp,
+            [
+                "designation",
+                "status",
+            ],
+            as_dict=True,
+        )
 
-	# Parse task list.
-	if isinstance(tasks, str):
-		try:
-			tasks = frappe.parse_json(tasks)
-		except Exception:
-			tasks = json.loads(tasks)
+        if (
+            not details
+            or details.designation
+            != TECHNICIAN_DESIGNATION
+            or details.status
+            != "Active"
+        ):
+            frappe.throw(
+                _(
+                    "Select an active technician."
+                )
+            )
 
-	if not isinstance(tasks, list):
-		frappe.throw(_("Invalid task sequence."))
+    existing = frappe.get_all(
+        "Task",
+        filters={
+            "custom_assign_to": employee,
+            "status": [
+                "not in",
+                ACTIVE_EXCLUDED_STATUSES,
+            ],
+        },
+        pluck="name",
+        limit_page_length=0,
+    )
 
-	cleaned_tasks = []
+    expected = set(existing)
 
-	for task in tasks:
-		if isinstance(task, dict):
-			task_name = (
-				task.get("name")
-				or task.get("task")
-			)
-		else:
-			task_name = task
+    if (
+        source_employee
+        and source_employee != employee
+    ):
+        source_existing = set(
+            frappe.get_all(
+                "Task",
+                filters={
+                    "custom_assign_to":
+                        source_employee,
 
-		if not task_name:
-			continue
+                    "status": [
+                        "not in",
+                        ACTIVE_EXCLUDED_STATUSES,
+                    ],
+                },
+                pluck="name",
+                limit_page_length=0,
+            )
+        )
 
-		task_name = str(task_name).strip()
+        expected |= source_existing
 
-		if task_name and task_name not in cleaned_tasks:
-			cleaned_tasks.append(task_name)
+    else:
+        source_existing = set()
 
-	if not cleaned_tasks:
-		return {
-			"status": "success",
-			"message": "No tasks to update.",
-		}
+    if (
+        len(names) != len(set(names))
+        or not set(names).issubset(
+            expected
+        )
+    ):
+        frappe.throw(
+            _(
+                "Task list contains invalid or "
+                "unassigned tasks. Refresh the board."
+            )
+        )
 
+    if not set(existing).issubset(
+        set(names)
+    ):
+        frappe.throw(
+            _(
+                "Destination task list is incomplete. "
+                "Refresh the board."
+            )
+        )
 
-	# ========================================================
-	# VALIDATE ALL TASKS
-	# ========================================================
+    if (
+        source_existing
+        and len(
+            set(names)
+            & source_existing
+        ) != 1
+    ):
+        frappe.throw(
+            _(
+                "Move exactly one task "
+                "between technicians."
+            )
+        )
 
-	for task_name in cleaned_tasks:
-		task_data = frappe.db.get_value(
-			"Task",
-			task_name,
-			[
-				"name",
-				"custom_assign_to",
-				"status",
-			],
-			as_dict=True,
-		)
+    for index, name in enumerate(names):
+        frappe.db.set_value(
+            "Task",
+            name,
+            {
+                "custom_assign_to":
+                    employee,
 
-		if not task_data:
-			frappe.throw(
-				_("Task {0} does not exist.").format(
-					frappe.bold(task_name)
-				)
-			)
+                "custom_sequence":
+                    len(names) - index,
+            },
+            update_modified=False,
+        )
 
-		# Very important:
-		# User must not reorder another technician's task.
-		if task_data.get("custom_assign_to") != employee:
-			frappe.throw(
-				_(
-					"Task {0} is not assigned to technician {1}."
-				).format(
-					frappe.bold(task_name),
-					frappe.bold(employee),
-				)
-			)
+    if source_existing:
+        remaining = frappe.get_all(
+            "Task",
+            filters={
+                "custom_assign_to":
+                    source_employee,
 
-		# Completed / Cancelled should never be reordered.
-		if task_data.get("status") in ACTIVE_EXCLUDED_STATUSES:
-			frappe.throw(
-				_(
-					"Task {0} cannot be reordered because its status is {1}."
-				).format(
-					frappe.bold(task_name),
-					frappe.bold(
-						task_data.get("status")
-					),
-				)
-			)
+                "status": [
+                    "not in",
+                    ACTIVE_EXCLUDED_STATUSES,
+                ],
+            },
+            fields=[
+                "name",
+            ],
+            order_by=(
+                "custom_sequence desc, "
+                "creation desc"
+            ),
+            limit_page_length=0,
+        )
 
+        for index, row in enumerate(
+            remaining
+        ):
+            frappe.db.set_value(
+                "Task",
+                row.name,
+                "custom_sequence",
+                len(remaining) - index,
+                update_modified=False,
+            )
 
-	# ========================================================
-	# SAVE EXACT ORDER
-	# ========================================================
-
-	total_tasks = len(cleaned_tasks)
-
-	for index, task_name in enumerate(cleaned_tasks):
-		sequence = total_tasks - index
-
-		frappe.db.set_value(
-			"Task",
-			task_name,
-			"custom_sequence",
-			sequence,
-			update_modified=False,
-		)
-
-	frappe.db.commit()
-
-	return {
-		"status": "success",
-		"message": "Task sequence updated successfully.",
-		"employee": employee,
-		"tasks": [
-			{
-				"name": task_name,
-				"custom_sequence": total_tasks - index,
-			}
-			for index, task_name in enumerate(cleaned_tasks)
-		],
-	}
+    return {
+        "status": "success",
+        "employee": employee,
+        "tasks": [
+            {
+                "name": name,
+                "custom_sequence":
+                    len(names) - index,
+            }
+            for index, name
+            in enumerate(names)
+        ],
+    }
