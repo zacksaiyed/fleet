@@ -208,7 +208,7 @@ def get_my_tasks() -> dict:
     tasks.sort(
         key=lambda task: (
             task.get("custom_sequence") in (None, ""),
-            task.get("custom_sequence")
+            -task.get("custom_sequence")
             if task.get("custom_sequence") not in (None, "")
             else 0
         )
