@@ -47,6 +47,9 @@ class Job(Document):
 		elif self.status == "Pending" and self.items and self.task_type == "Swap":
 			self.status = "In Progress"
 
+		if self.status == "In Progress":
+			self.is_chargeable = 1
+
 	def validate(self):
 		before = self.get_doc_before_save()
 		if before and before.get("status") in ("Completed", "Cancelled"):
