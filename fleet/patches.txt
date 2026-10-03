@@ -7,5 +7,6 @@
 fleet.patches.lock_pending_transfer_items
 fleet.patches.create_default_damage_and_lost_warehouses
 fleet.patches.set_pending_jobs_chargeable
+fleet.patches.update_sim_mobile_number
 
 
