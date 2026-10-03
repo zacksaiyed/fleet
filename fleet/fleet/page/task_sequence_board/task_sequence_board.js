@@ -6,12 +6,31 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 	});
 
 	$(wrapper).find(".page-head").hide();
+	$(wrapper).addClass("tsb-full-width-page");
+
+	$(wrapper)
+		.find(".container, .layout-main-section-wrapper")
+		.css({
+			width: "100%",
+			maxWidth: "100%",
+		});
 
 	const $main = $(wrapper).find(".layout-main-section");
+
+	$main.css({
+		width: "100%",
+		maxWidth: "100%",
+	});
+
 	$main.empty();
 
 	let technician_control = null;
 	let is_saving = false;
+	let load_request_id = 0;
+	let board_data = [];
+
+	const technician_tabs = {};
+
 
 	// =========================================================
 	// HTML
@@ -51,15 +70,13 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 					</div>
 
 					<div>
-
 						<div class="tsb-title">
 							Task Activity
 						</div>
 
 						<div class="tsb-subtitle">
-							Drag and drop tasks to set the sequence for each technician
+							Drag and drop pending tasks to set the sequence for each technician
 						</div>
-
 					</div>
 
 				</div>
@@ -68,12 +85,10 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 				<div class="tsb-actions">
 
 					<div class="tsb-filter-box">
-
 						<div
 							id="tsb-technician-filter"
 							class="tsb-technician-filter"
 						></div>
-
 					</div>
 
 
@@ -99,7 +114,9 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 			</div>
 
 
-			<div class="tsb-board"></div>
+			<div class="tsb-board-wrapper">
+				<div class="tsb-board"></div>
+			</div>
 
 		</div>
 	`);
@@ -114,15 +131,27 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 	$(`
 		<style id="task-sequence-board-custom-style">
 
-			/* =================================================
-			   PAGE
-			================================================= */
+			.tsb-full-width-page .container,
+			.tsb-full-width-page .layout-main-section-wrapper,
+			.tsb-full-width-page .layout-main-section {
+				width: 100% !important;
+				max-width: 100% !important;
+			}
+
+			.tsb-full-width-page .layout-main-section {
+				padding-left: 0 !important;
+				padding-right: 0 !important;
+			}
+
+
+			/* PAGE */
 
 			.tsb-page {
-				width: 100%;
-				max-width: 1500px;
+				width: 95%;
+				max-width: none;
 				margin: 0 auto;
-				padding: 30px 20px 60px;
+				padding: 28px 0 60px;
+
 				font-family:
 					Inter,
 					-apple-system,
@@ -132,9 +161,7 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 			}
 
 
-			/* =================================================
-			   HEADER
-			================================================= */
+			/* HEADER */
 
 			.tsb-header {
 				display: flex;
@@ -190,9 +217,7 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 			}
 
 
-			/* =================================================
-			   ACTIONS
-			================================================= */
+			/* ACTIONS */
 
 			.tsb-actions {
 				display: flex;
@@ -202,9 +227,7 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 			}
 
 
-			/* =================================================
-			   MULTI SELECT
-			================================================= */
+			/* FILTER */
 
 			.tsb-filter-box {
 				width: 320px;
@@ -215,18 +238,12 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 				width: 100%;
 			}
 
-			.tsb-technician-filter .frappe-control {
-				margin: 0 !important;
-			}
-
+			.tsb-technician-filter .frappe-control,
 			.tsb-technician-filter .form-group {
 				margin: 0 !important;
 			}
 
-			.tsb-technician-filter .control-label {
-				display: none !important;
-			}
-
+			.tsb-technician-filter .control-label,
 			.tsb-technician-filter .help-box {
 				display: none !important;
 			}
@@ -237,22 +254,15 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 
 			.tsb-technician-filter .form-control {
 				min-height: 38px !important;
-
-				border:
-					1px solid #dfe5ee !important;
-
+				border: 1px solid #dfe5ee !important;
 				border-radius: 9px !important;
-
 				background: #f8fafc !important;
-
 				box-shadow: none !important;
-
 				font-size: 12px !important;
 			}
 
 			.tsb-technician-filter .form-control:focus {
 				background: #ffffff !important;
-
 				border-color: #6675ff !important;
 
 				box-shadow:
@@ -262,9 +272,7 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 			}
 
 
-			/* =================================================
-			   BUTTONS
-			================================================= */
+			/* BUTTONS */
 
 			.tsb-new-task-btn,
 			.tsb-refresh-btn {
@@ -331,20 +339,58 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 			}
 
 
-			/* =================================================
-			   TECHNICIAN
-			================================================= */
+			/* BOARD */
+
+			.tsb-board-wrapper {
+				width: 100%;
+
+				overflow-x: auto;
+				overflow-y: visible;
+
+				padding: 2px 2px 16px;
+
+				scrollbar-width: thin;
+				scrollbar-color: #cbd5e1 transparent;
+			}
+
+			.tsb-board-wrapper::-webkit-scrollbar {
+				height: 8px;
+			}
+
+			.tsb-board-wrapper::-webkit-scrollbar-track {
+				background: transparent;
+			}
+
+			.tsb-board-wrapper::-webkit-scrollbar-thumb {
+				background: #cbd5e1;
+				border-radius: 20px;
+			}
+
+			.tsb-board {
+				display: flex;
+				flex-direction: row;
+				flex-wrap: nowrap;
+				align-items: flex-start;
+
+				gap: 14px;
+
+				width: max-content;
+				min-width: 100%;
+			}
+
+
+			/* TECHNICIAN */
 
 			.tsb-technician {
-				margin-bottom: 18px;
+				flex: 0 0 320px;
 
-				padding:
-					14px
-					14px
-					12px;
+				width: 320px;
+				min-width: 320px;
+				max-width: 320px;
+
+				padding: 14px 14px 16px;
 
 				border: 1px solid #dce4ee;
-
 				border-radius: 16px;
 
 				background: #ffffff;
@@ -367,9 +413,7 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 			}
 
 
-			/* =================================================
-			   TECHNICIAN HEADER
-			================================================= */
+			/* TECHNICIAN HEADER */
 
 			.tsb-technician-header {
 				display: flex;
@@ -395,6 +439,19 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 
 				font-size: 16px;
 				font-weight: 750;
+
+				overflow: hidden;
+			}
+
+			.tsb-avatar-image {
+				width: 100%;
+				height: 100%;
+
+				display: block;
+
+				object-fit: cover;
+
+				border-radius: 12px;
 			}
 
 			.tsb-avatar-0 {
@@ -430,7 +487,12 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 				font-size: 14px;
 				font-weight: 720;
 				line-height: 1.2;
+
 				color: #111827;
+
+				white-space: nowrap;
+				overflow: hidden;
+				text-overflow: ellipsis;
 			}
 
 			.tsb-tech-id {
@@ -439,71 +501,112 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 				font-size: 11px;
 
 				color: #718096;
+
+				white-space: nowrap;
+				overflow: hidden;
+				text-overflow: ellipsis;
 			}
 
 
-			/* =================================================
-			   TASK ROW
-			================================================= */
+			/* TABS */
 
-			.tsb-task-row,
-			.tsb-completed-row {
+			.tsb-tech-tabs {
 				display: flex;
-				align-items: stretch;
+				align-items: center;
+
+				gap: 5px;
+
+				margin: 4px 0 13px;
+
+				padding: 4px;
+
+				border: 1px solid #e2e8f0;
+				border-radius: 10px;
+
+				background: #f8fafc;
+			}
+
+			.tsb-tech-tab {
+				flex: 1;
+
+				height: 34px;
+
+				display: flex;
+				align-items: center;
+				justify-content: center;
+
+				padding: 0 8px;
+
+				border: none;
+				border-radius: 7px;
+
+				background: transparent;
+
+				color: #64748b;
+
+				font-size: 11px;
+				font-weight: 700;
+
+				cursor: pointer;
+
+				transition:
+					background 0.15s ease,
+					color 0.15s ease,
+					box-shadow 0.15s ease;
+			}
+
+			.tsb-tech-tab:hover {
+				background: #ffffff;
+				color: #334155;
+			}
+
+			.tsb-tech-tab.active {
+				background: #ffffff;
+
+				box-shadow:
+					0 2px 7px
+					rgba(15, 23, 42, 0.08);
+			}
+
+			.tsb-tech-tab.active[data-tab="pending"] {
+				color: #b56b00;
+			}
+
+			.tsb-tech-tab.active[data-tab="completed"] {
+				color: #078b52;
+			}
+
+
+			/* TASK ROW */
+
+			.tsb-task-row {
+				display: flex;
+				flex-direction: column;
 
 				gap: 10px;
 
-				overflow-x: auto;
-				overflow-y: hidden;
+				min-height: 90px;
 
-				padding:
-					2px
-					2px
-					8px;
+				padding: 3px;
 
-				scrollbar-width: thin;
-				scrollbar-color:
-					#d6deea
-					transparent;
-			}
-
-			.tsb-task-row {
-				min-height: 112px;
-			}
-
-			.tsb-task-row::-webkit-scrollbar,
-			.tsb-completed-row::-webkit-scrollbar {
-				height: 6px;
-			}
-
-			.tsb-task-row::-webkit-scrollbar-thumb,
-			.tsb-completed-row::-webkit-scrollbar-thumb {
-				background: #d6deea;
-				border-radius: 20px;
+				overflow: visible;
 			}
 
 
-			/* =================================================
-			   TASK CARD
-			================================================= */
+			/* TASK CARD */
 
 			.tsb-task-card {
 				position: relative;
 
-				width: 255px;
-				min-width: 255px;
-				height: 108px;
+				width: 100%;
+				min-width: 0;
 
-				padding:
-					13px
-					14px
-					12px
-					15px;
+				min-height: 92px;
+
+				padding: 15px;
 
 				border: 1px solid;
 				border-radius: 13px;
-
-				cursor: grab;
 
 				user-select: none;
 
@@ -515,8 +618,16 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 					filter 0.2s ease;
 			}
 
-			.tsb-task-card:active {
+			.tsb-task-card[data-active-task="1"] {
+				cursor: grab;
+			}
+
+			.tsb-task-card[data-active-task="1"]:active {
 				cursor: grabbing;
+			}
+
+			.tsb-completed-card {
+				cursor: default;
 			}
 
 			.tsb-task-card::before {
@@ -525,16 +636,12 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 				position: absolute;
 
 				left: -1px;
-				top: 21px;
+				top: 22px;
 
 				width: 5px;
 				height: 40px;
 
-				border-radius:
-					0
-					6px
-					6px
-					0;
+				border-radius: 0 6px 6px 0;
 
 				background: var(--accent);
 			}
@@ -553,34 +660,207 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 				border-radius: 50%;
 
 				background:
-					rgba(
-						255,
-						255,
-						255,
-						0.28
-					);
+					rgba(255, 255, 255, 0.28);
 
 				pointer-events: none;
 			}
 
 			.tsb-task-card:hover {
-				transform:
-					translateY(-4px);
+				transform: translateY(-3px);
 
 				box-shadow:
 					0 12px 24px
 					rgba(15, 23, 42, 0.10);
 
-				filter:
-					saturate(1.05);
+				filter: saturate(1.05);
 
 				z-index: 3;
 			}
 
 
-			/* =================================================
-			   DRAG
-			================================================= */
+			/* TASK TOP ROW */
+
+			.tsb-task-top {
+				position: relative;
+				z-index: 2;
+
+				display: flex;
+				align-items: flex-start;
+				justify-content: space-between;
+
+				gap: 10px;
+
+				width: 100%;
+			}
+
+			.tsb-task-title {
+				flex: 1;
+
+				min-width: 0;
+
+				padding-top: 3px;
+
+				font-size: 12px;
+				font-weight: 720;
+				line-height: 1.35;
+
+				color: #111827;
+
+				white-space: nowrap;
+				overflow: hidden;
+				text-overflow: ellipsis;
+			}
+
+
+			/* STATUS */
+
+			.tsb-status {
+				flex: 0 0 auto;
+
+				height: 25px;
+
+				display: inline-flex;
+				align-items: center;
+
+				gap: 6px;
+
+				padding: 0 9px;
+
+				border-radius: 20px;
+
+				font-size: 9px;
+				font-weight: 700;
+
+				white-space: nowrap;
+			}
+
+			.tsb-status-dot {
+				width: 6px;
+				height: 6px;
+
+				border-radius: 50%;
+
+				background: currentColor;
+			}
+
+			.tsb-status-open {
+				color: #7356d9;
+				background: #eee8ff;
+			}
+
+			.tsb-status-in-progress,
+			.tsb-status-working {
+				color: #0875d1;
+				background: #dcecff;
+			}
+
+			.tsb-status-accepted {
+				color: #078d8c;
+				background: #d6f5f2;
+			}
+
+			.tsb-status-pending,
+			.tsb-status-pending-review {
+				color: #b56b00;
+				background: #fff0c7;
+			}
+
+			.tsb-status-on-hold,
+			.tsb-status-overdue {
+				color: #c82045;
+				background: #ffdce4;
+			}
+
+			.tsb-status-completed {
+				color: #078b52;
+				background: #d8f7e8;
+			}
+
+			.tsb-status-rejected,
+			.tsb-status-cancelled,
+			.tsb-status-default {
+				color: #607089;
+				background: #e5ebf3;
+			}
+
+
+			/* TASK BOTTOM ROW */
+
+			.tsb-task-bottom {
+				position: relative;
+				z-index: 5;
+
+				display: flex;
+				align-items: center;
+				justify-content: space-between;
+
+				gap: 10px;
+
+				margin-top: 18px;
+			}
+
+			.tsb-task-id {
+				min-width: 0;
+
+				font-size: 10px;
+				font-weight: 650;
+
+				white-space: nowrap;
+				overflow: hidden;
+				text-overflow: ellipsis;
+			}
+
+			.tsb-task-id-link {
+				color: #5364f5;
+
+				text-decoration: none;
+
+				cursor: pointer;
+			}
+
+			.tsb-task-id-link:hover {
+				color: #3f51dc;
+
+				text-decoration: underline;
+			}
+
+
+			/* JOB COUNT */
+
+			.tsb-job-count {
+				flex: 0 0 auto;
+
+				display: inline-flex;
+				align-items: center;
+
+				gap: 5px;
+
+				padding: 4px 7px;
+
+				border-radius: 7px;
+
+				background:
+					rgba(255, 255, 255, 0.72);
+
+				border:
+					1px solid
+					rgba(148, 163, 184, 0.20);
+
+				color: #64748b;
+
+				font-size: 9px;
+				font-weight: 700;
+			}
+
+			.tsb-job-count svg {
+				width: 13px;
+				height: 13px;
+
+				stroke-width: 2;
+			}
+
+
+			/* DRAG */
 
 			.tsb-dragging-card {
 				opacity: 0.35;
@@ -597,9 +877,7 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 			}
 
 
-			/* =================================================
-			   CARD COLORS
-			================================================= */
+			/* CARD COLORS */
 
 			.tsb-color-blue {
 				--accent: #4383f5;
@@ -680,274 +958,10 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 			}
 
 
-			/* =================================================
-			   SEQUENCE
-			================================================= */
-
-			.tsb-sequence {
-				position: absolute;
-
-				left: 14px;
-				top: 12px;
-
-				width: 28px;
-				height: 28px;
-
-				display: flex;
-				align-items: center;
-				justify-content: center;
-
-				border-radius: 8px;
-
-				background:
-					rgba(
-						255,
-						255,
-						255,
-						0.88
-					);
-
-				border:
-					1px solid
-					rgba(
-						148,
-						163,
-						184,
-						0.22
-					);
-
-				font-size: 12px;
-				font-weight: 750;
-
-				color: #111827;
-
-				box-shadow:
-					0 3px 8px
-					rgba(15, 23, 42, 0.06);
-			}
-
-
-			/* =================================================
-			   STATUS
-			================================================= */
-
-			.tsb-status {
-				position: absolute;
-
-				right: 12px;
-				top: 12px;
-
-				height: 25px;
-
-				display: inline-flex;
-				align-items: center;
-
-				gap: 6px;
-
-				padding: 0 10px;
-
-				border-radius: 20px;
-
-				font-size: 10px;
-				font-weight: 700;
-
-				white-space: nowrap;
-			}
-
-			.tsb-status-dot {
-				width: 7px;
-				height: 7px;
-
-				border-radius: 50%;
-
-				background: currentColor;
-			}
-
-			.tsb-status-open {
-				color: #7356d9;
-				background: #eee8ff;
-			}
-
-			.tsb-status-in-progress,
-			.tsb-status-working {
-				color: #0875d1;
-				background: #dcecff;
-			}
-
-			.tsb-status-accepted {
-				color: #078d8c;
-				background: #d6f5f2;
-			}
-
-			.tsb-status-pending,
-			.tsb-status-pending-review {
-				color: #b56b00;
-				background: #fff0c7;
-			}
-
-			.tsb-status-on-hold,
-			.tsb-status-overdue {
-				color: #c82045;
-				background: #ffdce4;
-			}
-
-			.tsb-status-completed {
-				color: #078b52;
-				background: #d8f7e8;
-			}
-
-			.tsb-status-rejected,
-			.tsb-status-cancelled,
-			.tsb-status-default {
-				color: #607089;
-				background: #e5ebf3;
-			}
-
-
-			/* =================================================
-			   TASK TEXT
-			================================================= */
-
-			.tsb-task-title {
-				position: relative;
-				z-index: 2;
-
-				margin-top: 42px;
-
-				font-size: 13px;
-				font-weight: 720;
-				line-height: 1.25;
-
-				color: #111827;
-
-				white-space: nowrap;
-				overflow: hidden;
-				text-overflow: ellipsis;
-			}
-
-			.tsb-task-id {
-				position: relative;
-				z-index: 2;
-
-				margin-top: 6px;
-
-				font-size: 10px;
-				font-weight: 500;
-
-				color: #667b9c;
-
-				white-space: nowrap;
-				overflow: hidden;
-				text-overflow: ellipsis;
-			}
-
-
-			/* =================================================
-			   COMPLETED
-			================================================= */
-
-			.tsb-completed-wrapper {
-				margin-top: 2px;
-
-				border-top:
-					1px solid #e7ecf2;
-			}
-
-			.tsb-completed-header {
-				height: 42px;
-
-				display: flex;
-				align-items: center;
-				justify-content: space-between;
-
-				padding: 0 10px;
-
-				border-radius: 10px;
-
-				cursor: pointer;
-
-				transition:
-					background 0.15s ease;
-			}
-
-			.tsb-completed-header:hover {
-				background: #f8fafc;
-			}
-
-			.tsb-completed-left {
-				display: flex;
-				align-items: center;
-
-				gap: 9px;
-
-				font-size: 12px;
-				font-weight: 680;
-
-				color: #1f2937;
-			}
-
-			.tsb-completed-arrow {
-				width: 16px;
-
-				font-size: 19px;
-
-				text-align: center;
-
-				color: #26364d;
-
-				transition:
-					transform 0.2s ease;
-			}
-
-			.tsb-completed-wrapper.open
-			.tsb-completed-arrow {
-				transform: rotate(90deg);
-			}
-
-			.tsb-completed-count {
-				min-width: 28px;
-				height: 28px;
-
-				display: flex;
-				align-items: center;
-				justify-content: center;
-
-				padding: 0 9px;
-
-				border-radius: 20px;
-
-				background: #d8f8e9;
-				color: #078b52;
-
-				font-size: 11px;
-				font-weight: 750;
-			}
-
-			.tsb-completed-content {
-				display: none;
-
-				padding:
-					4px
-					2px
-					8px;
-			}
-
-			.tsb-completed-wrapper.open
-			.tsb-completed-content {
-				display: block;
-			}
-
-			.tsb-completed-card {
-				cursor: pointer;
-			}
-
-
-			/* =================================================
-			   EMPTY
-			================================================= */
+			/* EMPTY */
 
 			.tsb-no-task {
-				min-height: 95px;
+				min-height: 92px;
 
 				display: flex;
 				align-items: center;
@@ -955,9 +969,7 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 
 				width: 100%;
 
-				border:
-					1px dashed #dce4ee;
-
+				border: 1px dashed #dce4ee;
 				border-radius: 12px;
 
 				background: #fafcff;
@@ -968,13 +980,14 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 			}
 
 			.tsb-empty {
+				width: 100%;
+				min-width: 500px;
+
 				padding: 55px 20px;
 
 				text-align: center;
 
-				border:
-					1px dashed #dce4ee;
-
+				border: 1px dashed #dce4ee;
 				border-radius: 14px;
 
 				background: #fafcff;
@@ -985,11 +998,12 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 			}
 
 
-			/* =================================================
-			   LOADING
-			================================================= */
+			/* LOADING */
 
 			.tsb-loading {
+				width: 100%;
+				min-width: 500px;
+
 				padding: 60px 20px;
 
 				display: flex;
@@ -1008,11 +1022,8 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 				width: 25px;
 				height: 25px;
 
-				border:
-					3px solid #e5e7eb;
-
-				border-top-color:
-					#5364f5;
+				border: 3px solid #e5e7eb;
+				border-top-color: #5364f5;
 
 				border-radius: 50%;
 
@@ -1025,17 +1036,31 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 
 			@keyframes tsb-spin {
 				to {
-					transform:
-						rotate(360deg);
+					transform: rotate(360deg);
 				}
 			}
 
 
-			/* =================================================
-			   RESPONSIVE
-			================================================= */
+			/* RESPONSIVE */
+
+			@media (max-width: 1100px) {
+				.tsb-page {
+					width: 94%;
+				}
+
+				.tsb-technician {
+					flex: 0 0 300px;
+
+					width: 300px;
+					min-width: 300px;
+					max-width: 300px;
+				}
+			}
 
 			@media (max-width: 900px) {
+				.tsb-page {
+					width: 92%;
+				}
 
 				.tsb-header {
 					flex-direction: column;
@@ -1052,6 +1077,13 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 					width: 100%;
 				}
 
+				.tsb-technician {
+					flex: 0 0 285px;
+
+					width: 285px;
+					min-width: 285px;
+					max-width: 285px;
+				}
 			}
 
 		</style>
@@ -1059,14 +1091,11 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 
 
 	// =========================================================
-	// ESCAPE HTML
+	// HELPERS
 	// =========================================================
 
 	function escape_html(value) {
-		if (
-			value === null ||
-			value === undefined
-		) {
+		if (value === null || value === undefined) {
 			return "";
 		}
 
@@ -1076,27 +1105,21 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 	}
 
 
-	// =========================================================
-	// INITIAL
-	// =========================================================
+	function escape_attribute(value) {
+		return escape_html(value);
+	}
+
 
 	function get_initial(name) {
-		const value =
-			String(name || "").trim();
+		const value = String(name || "").trim();
 
 		if (!value) {
 			return "?";
 		}
 
-		return value
-			.charAt(0)
-			.toUpperCase();
+		return value.charAt(0).toUpperCase();
 	}
 
-
-	// =========================================================
-	// NORMALIZE STATUS
-	// =========================================================
 
 	function normalize_status(status) {
 		return String(status || "")
@@ -1107,13 +1130,8 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 	}
 
 
-	// =========================================================
-	// STATUS CLASS
-	// =========================================================
-
 	function get_status_class(status) {
-		const value =
-			normalize_status(status);
+		const value = normalize_status(status);
 
 		const supported = [
 			"open",
@@ -1137,13 +1155,8 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 	}
 
 
-	// =========================================================
-	// CARD COLOR
-	// =========================================================
-
 	function get_card_color(status) {
-		const value =
-			normalize_status(status);
+		const value = normalize_status(status);
 
 		if (
 			value === "in-progress" ||
@@ -1181,21 +1194,131 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 	}
 
 
+	function get_job_count(task) {
+		if (
+			task.job_count !== undefined &&
+			task.job_count !== null
+		) {
+			return Number(task.job_count) || 0;
+		}
+
+		if (Array.isArray(task.custom_task_jobs)) {
+			return task.custom_task_jobs.length;
+		}
+
+		return 0;
+	}
+
+
+	function get_employee_image(data) {
+		return (
+			data.image ||
+			data.employee_image ||
+			data.custom_image ||
+			""
+		);
+	}
+
+
+	function get_avatar_html(data, index) {
+		const employee_name =
+			data.employee_name ||
+			data.employee ||
+			"";
+
+		const image =
+			get_employee_image(data);
+
+		if (image) {
+			return `
+				<div
+					class="
+						tsb-avatar
+						tsb-avatar-${index % 5}
+					"
+				>
+					<img
+						src="${escape_attribute(image)}"
+						alt="${escape_attribute(employee_name)}"
+						class="tsb-avatar-image"
+						onerror="
+							this.style.display='none';
+							this.parentElement.querySelector('.tsb-avatar-fallback').style.display='flex';
+						"
+					>
+
+					<span
+						class="tsb-avatar-fallback"
+						style="
+							display:none;
+							width:100%;
+							height:100%;
+							align-items:center;
+							justify-content:center;
+						"
+					>
+						${escape_html(get_initial(employee_name))}
+					</span>
+				</div>
+			`;
+		}
+
+		return `
+			<div
+				class="
+					tsb-avatar
+					tsb-avatar-${index % 5}
+				"
+			>
+				${escape_html(get_initial(employee_name))}
+			</div>
+		`;
+	}
+
+
+	function get_job_icon() {
+		return `
+			<svg
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				stroke-linecap="round"
+				stroke-linejoin="round"
+				aria-hidden="true"
+			>
+				<circle
+					cx="12"
+					cy="7"
+					r="4"
+				></circle>
+
+				<path
+					d="M5.5 21v-2a6.5 6.5 0 0 1 13 0v2"
+				></path>
+
+				<path
+					d="M9 14.2V17l3 2 3-2v-2.8"
+				></path>
+			</svg>
+		`;
+	}
+
+
 	// =========================================================
 	// TASK CARD
 	// =========================================================
 
 	function get_task_card(
 		task,
-		index,
-		completed = false,
-		total = 0
+		completed = false
 	) {
 		const status =
 			task.status ||
-			(completed
-				? "Completed"
-				: "Open");
+			(
+				completed
+					? "Completed"
+					: "Open"
+			);
 
 		const status_class =
 			get_status_class(status);
@@ -1203,66 +1326,77 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 		const card_color =
 			get_card_color(status);
 
-		const sequence =
-			completed
-				? index + 1
-				: (
-					task.custom_sequence ||
-					(total ? (total - index) : (index + 1))
-				);
+		const title =
+			task.subject ||
+			task.name ||
+			"";
+
+		const job_count =
+			get_job_count(task);
 
 		return `
 			<div
 				class="
 					tsb-task-card
 					${card_color}
-					${completed
-				? "tsb-completed-card"
-				: ""
-			}
+					${completed ? "tsb-completed-card" : ""}
 				"
-				data-task="${escape_html(task.name)}"
-				${completed
-				? ""
-				: 'data-active-task="1"'
-			}
+				data-task="${escape_attribute(task.name)}"
+				${completed ? "" : 'data-active-task="1"'}
 			>
 
-				<div class="tsb-sequence">
-					${sequence}
+				<div class="tsb-task-top">
+
+					<div
+						class="tsb-task-title"
+						title="${escape_attribute(title)}"
+					>
+						${escape_html(title)}
+					</div>
+
+
+					<div
+						class="
+							tsb-status
+							${status_class}
+						"
+					>
+						<span class="tsb-status-dot"></span>
+
+						<span>
+							${escape_html(status)}
+						</span>
+					</div>
+
 				</div>
 
 
-				<div
-					class="
-						tsb-status
-						${status_class}
-					"
-				>
-					<span class="tsb-status-dot"></span>
+				<div class="tsb-task-bottom">
 
-					<span>
-						${escape_html(status)}
-					</span>
-				</div>
+					<div class="tsb-task-id">
 
+						<a
+							href="#"
+							class="tsb-task-id-link"
+							data-task="${escape_attribute(task.name)}"
+						>
+							${escape_html(task.name)}
+						</a>
 
-				<div
-					class="tsb-task-title"
-					title="${escape_html(
-				task.subject ||
-				task.name
-			)}"
-				>
-					${escape_html(
-				task.subject ||
-				task.name
-			)}
-				</div>
+					</div>
 
 
-				<div class="tsb-task-id">
-					${escape_html(task.name)}
+					<div
+						class="tsb-job-count"
+						title="${job_count} Job${job_count === 1 ? "" : "s"}"
+					>
+						${get_job_icon()}
+
+						<span>
+							${job_count}
+						</span>
+					</div>
+
 				</div>
 
 			</div>
@@ -1271,13 +1405,48 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 
 
 	// =========================================================
-	// TECHNICIAN SECTION
+	// SORT TASKS
 	// =========================================================
 
-	function render_technician(
-		data,
-		index
-	) {
+	function sort_pending_tasks(tasks) {
+		return [...tasks].sort(
+			(a, b) =>
+				(
+					(Number(b.custom_sequence) || 0) -
+					(Number(a.custom_sequence) || 0)
+				) ||
+				(
+					new Date(b.creation || 0) -
+					new Date(a.creation || 0)
+				)
+		);
+	}
+
+
+	function sort_completed_tasks(tasks) {
+		return [...tasks].sort(
+			(a, b) =>
+				new Date(
+					b.completed_on ||
+					b.modified ||
+					b.creation ||
+					0
+				) -
+				new Date(
+					a.completed_on ||
+					a.modified ||
+					a.creation ||
+					0
+				)
+		);
+	}
+
+
+	// =========================================================
+	// TECHNICIAN
+	// =========================================================
+
+	function render_technician(data, index) {
 		const employee =
 			data.employee || "";
 
@@ -1285,139 +1454,108 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 			data.employee_name ||
 			employee;
 
-		const tasks =
-			Array.isArray(data.tasks)
-				? data.tasks
-				: [];
+		const pending_tasks =
+			sort_pending_tasks(
+				Array.isArray(data.tasks)
+					? data.tasks
+					: []
+			);
 
 		const completed_tasks =
-			Array.isArray(
-				data.completed_tasks
-			)
-				? data.completed_tasks
-				: [];
+			sort_completed_tasks(
+				Array.isArray(data.completed_tasks)
+					? data.completed_tasks
+					: []
+			);
 
+		const selected_tab =
+			technician_tabs[employee] ||
+			"pending";
 
-		const active_html =
-			tasks.length
-				? tasks
-					.map(
-						(task, task_index) =>
-							get_task_card(
-								task,
-								task_index,
-								false,
-								tasks.length
-							)
-					)
-					.join("")
-				: `
-					<div class="tsb-no-task">
-						No active tasks
-					</div>
-				`;
-
-
-		const completed_html =
-			completed_tasks.length
+		const visible_tasks =
+			selected_tab === "completed"
 				? completed_tasks
+				: pending_tasks;
+
+		const tasks_html =
+			visible_tasks.length
+				? visible_tasks
 					.map(
-						(task, task_index) =>
+						(task) =>
 							get_task_card(
 								task,
-								task_index,
-								true
+								selected_tab === "completed"
 							)
 					)
 					.join("")
 				: `
 					<div class="tsb-no-task">
-						No completed tasks
+						${selected_tab === "completed"
+					? "No completed tasks"
+					: "No pending tasks"
+				}
 					</div>
 				`;
-
 
 		return `
 			<div
 				class="tsb-technician"
-				data-employee="${escape_html(employee)}"
+				data-employee="${escape_attribute(employee)}"
 			>
 
 				<div class="tsb-technician-header">
 
-					<div
-						class="
-							tsb-avatar
-							tsb-avatar-${index % 5}
-						"
-					>
-						${escape_html(
-			get_initial(
-				employee_name
-			)
-		)}
-					</div>
-
+					${get_avatar_html(data, index)}
 
 					<div class="tsb-tech-info">
 
-						<div class="tsb-tech-name">
-							${escape_html(
-			employee_name
-		)}
-						</div>
-
-						<div class="tsb-tech-id">
-							${escape_html(
-			employee
-		)}
+						<div
+							class="tsb-tech-name"
+							title="${escape_attribute(employee_name)}"
+						>
+							${escape_html(employee_name)}
 						</div>
 
 					</div>
 
 				</div>
+
+
+				<div class="tsb-tech-tabs">
+
+    <button
+        type="button"
+        class="
+            tsb-tech-tab
+            ${selected_tab === "pending" ? "active" : ""}
+        "
+        data-tab="pending"
+        data-employee="${escape_attribute(employee)}"
+    >
+        Pending (${pending_tasks.length})
+    </button>
+
+    <button
+        type="button"
+        class="
+            tsb-tech-tab
+            ${selected_tab === "completed" ? "active" : ""}
+        "
+        data-tab="completed"
+        data-employee="${escape_attribute(employee)}"
+    >
+        Completed (${completed_tasks.length})
+    </button>
+
+</div>
 
 
 				<div
 					class="tsb-task-row"
-					data-employee="${escape_html(employee)}"
+					data-employee="${escape_attribute(employee)}"
+					data-tab="${escape_attribute(selected_tab)}"
 				>
-					${active_html}
-				</div>
-
-
-				<div class="tsb-completed-wrapper">
-
-					<div class="tsb-completed-header">
-
-						<div class="tsb-completed-left">
-
-							<span class="tsb-completed-arrow">
-								›
-							</span>
-
-							<span>
-								Completed Tasks
-							</span>
-
-						</div>
-
-
-						<div class="tsb-completed-count">
-							${completed_tasks.length}
-						</div>
-
-					</div>
-
-
-					<div class="tsb-completed-content">
-
-						<div class="tsb-completed-row">
-							${completed_html}
-						</div>
-
-					</div>
-
+					${tasks_html}
 				</div>
 
 			</div>
@@ -1433,10 +1571,12 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 		const $board =
 			$main.find(".tsb-board");
 
-		if (
-			!Array.isArray(data) ||
-			!data.length
-		) {
+		board_data =
+			Array.isArray(data)
+				? data
+				: [];
+
+		if (!board_data.length) {
 			$board.html(`
 				<div class="tsb-empty">
 					No tasks found for the selected technician.
@@ -1447,7 +1587,7 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 		}
 
 		const html =
-			data
+			board_data
 				.map(
 					(row, index) =>
 						render_technician(
@@ -1459,30 +1599,98 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 
 		$board.html(html);
 
-		setup_completed_toggle();
-
+		setup_technician_tabs();
 		setup_task_click();
-
 		setup_drag_drop();
 	}
 
 
 	// =========================================================
-	// COMPLETED TOGGLE
+	// RENDER ONE TECHNICIAN
 	// =========================================================
 
-	function setup_completed_toggle() {
+	function rerender_technician(employee) {
+		const index =
+			board_data.findIndex(
+				(row) =>
+					String(row.employee || "") ===
+					String(employee || "")
+			);
+
+		if (index === -1) {
+			return;
+		}
+
+		const data =
+			board_data[index];
+
+		const $old =
+			$main
+				.find(".tsb-technician")
+				.filter(function () {
+					return (
+						String(
+							$(this).attr("data-employee") || ""
+						) ===
+						String(employee || "")
+					);
+				})
+				.first();
+
+		if (!$old.length) {
+			render_board(board_data);
+			return;
+		}
+
+		const html =
+			render_technician(
+				data,
+				index
+			);
+
+		$old.replaceWith(html);
+
+		setup_technician_tabs();
+		setup_task_click();
+		setup_drag_drop();
+	}
+
+
+	// =========================================================
+	// TECHNICIAN TABS
+	// =========================================================
+
+	function setup_technician_tabs() {
 		$main
-			.find(".tsb-completed-header")
-			.off(".tsb")
+			.find(".tsb-tech-tab")
+			.off("click.tsb")
 			.on(
 				"click.tsb",
 				function () {
-					$(this)
-						.closest(
-							".tsb-completed-wrapper"
-						)
-						.toggleClass("open");
+					const employee =
+						$(this).attr("data-employee");
+
+					const tab =
+						$(this).attr("data-tab");
+
+					if (!employee || !tab) {
+						return;
+					}
+
+					const current =
+						technician_tabs[employee] ||
+						"pending";
+
+					if (current === tab) {
+						return;
+					}
+
+					technician_tabs[employee] =
+						tab;
+
+					rerender_technician(
+						employee
+					);
 				}
 			);
 	}
@@ -1494,11 +1702,14 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 
 	function setup_task_click() {
 		$main
-			.find(".tsb-task-card")
-			.off("dblclick.tsb")
+			.find(".tsb-task-id-link")
+			.off("click.tsb")
 			.on(
-				"dblclick.tsb",
-				function () {
+				"click.tsb",
+				function (e) {
+					e.preventDefault();
+					e.stopPropagation();
+
 					const task =
 						$(this).attr(
 							"data-task"
@@ -1508,40 +1719,18 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 						return;
 					}
 
-					frappe.set_route(
-						"Form",
-						"Task",
-						task
+					const url =
+						frappe.utils.get_form_link(
+							"Task",
+							task
+						);
+
+					window.open(
+						url,
+						"_blank"
 					);
 				}
 			);
-	}
-
-
-	// =========================================================
-	// UPDATE VISUAL SEQUENCE
-	// =========================================================
-
-	function update_sequence_labels($row) {
-		const $cards =
-			$row.children(
-				".tsb-task-card"
-			);
-
-		const total =
-			$cards.length;
-
-		$cards.each(
-			function (index) {
-				$(this)
-					.find(
-						".tsb-sequence"
-					)
-					.text(
-						total - index
-					);
-			}
-		);
 	}
 
 
@@ -1553,9 +1742,7 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 		const tasks = [];
 
 		$row
-			.children(
-				".tsb-task-card"
-			)
+			.children(".tsb-task-card")
 			.each(function () {
 				const task =
 					$(this).attr(
@@ -1577,16 +1764,9 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 
 	function save_sequence(
 		employee,
-		task_names
+		task_names,
+		source_employee = null
 	) {
-		if (
-			!employee ||
-			!Array.isArray(task_names) ||
-			!task_names.length
-		) {
-			return;
-		}
-
 		if (is_saving) {
 			return;
 		}
@@ -1598,23 +1778,24 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 				"fleet.fleet.page.task_sequence_board.task_sequence_board.update_task_sequence",
 
 			args: {
-				employee: employee,
+				employee:
+					employee,
 
 				tasks:
 					JSON.stringify(
 						task_names
 					),
-			},
 
-			freeze: false,
+				source_employee:
+					source_employee,
+			},
 
 			callback(r) {
 				is_saving = false;
 
 				if (
 					r.message &&
-					r.message.status ===
-					"success"
+					r.message.status === "success"
 				) {
 					frappe.show_alert({
 						message:
@@ -1625,23 +1806,31 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 						indicator:
 							"green",
 					});
+				} else {
+					frappe.msgprint(
+						__(
+							"Unable to update task sequence"
+						)
+					);
 				}
+
+				load_board(
+					get_selected_technicians()
+				);
 			},
 
 			error() {
 				is_saving = false;
 
-				frappe.show_alert({
-					message:
-						__(
-							"Unable to update task sequence"
-						),
+				frappe.msgprint(
+					__(
+						"Unable to update task sequence"
+					)
+				);
 
-					indicator:
-						"red",
-				});
-
-				refresh_board();
+				load_board(
+					get_selected_technicians()
+				);
 			},
 		});
 	}
@@ -1653,26 +1842,12 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 
 	function setup_drag_drop() {
 		$main
-			.find(".tsb-task-row")
+			.find(
+				'.tsb-task-row[data-tab="pending"]'
+			)
 			.each(function () {
-				const element = this;
-
-				const $row =
-					$(element);
-
-
-				// Don't initialize sortable
-				// if there are no actual task cards.
-				if (
-					!$row
-						.children(
-							".tsb-task-card"
-						)
-						.length
-				) {
-					return;
-				}
-
+				const element =
+					this;
 
 				if (
 					element._task_sequence_sortable
@@ -1682,15 +1857,24 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 						.destroy();
 				}
 
-
 				element._task_sequence_sortable =
 					new Sortable(
 						element,
 						{
-							animation: 180,
+							group:
+								"technician-task-board",
+
+							animation:
+								180,
 
 							draggable:
-								".tsb-task-card",
+								".tsb-task-card[data-active-task='1']",
+
+							filter:
+								".tsb-task-id-link",
+
+							preventOnFilter:
+								false,
 
 							ghostClass:
 								"tsb-dragging-card",
@@ -1701,37 +1885,48 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 							dragClass:
 								"tsb-moving-card",
 
-							forceFallback:
-								false,
-
-							fallbackTolerance:
-								3,
-
 							onEnd(evt) {
+								if (is_saving) {
+									load_board(
+										get_selected_technicians()
+									);
+
+									return;
+								}
+
 								if (
-									evt.oldIndex ===
-									evt.newIndex
+									evt.from === evt.to &&
+									evt.oldIndex === evt.newIndex
 								) {
 									return;
 								}
 
-								update_sequence_labels(
-									$row
-								);
+								const $source =
+									$(evt.from);
 
-								const employee =
-									$row.attr(
-										"data-employee"
-									);
+								const $target =
+									$(evt.to);
 
-								const task_names =
-									get_task_order(
-										$row
-									);
+								$source
+									.children(".tsb-no-task")
+									.remove();
+
+								$target
+									.children(".tsb-no-task")
+									.remove();
 
 								save_sequence(
-									employee,
-									task_names
+									$target.attr(
+										"data-employee"
+									),
+
+									get_task_order(
+										$target
+									),
+
+									$source.attr(
+										"data-employee"
+									)
 								);
 							},
 						}
@@ -1741,7 +1936,7 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 
 
 	// =========================================================
-	// MULTISELECT TECHNICIAN FILTER
+	// TECHNICIAN FILTER
 	// =========================================================
 
 	function setup_technician_filter() {
@@ -1752,10 +1947,10 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 
 		$filter.empty();
 
-
 		technician_control =
 			frappe.ui.form.make_control({
-				parent: $filter,
+				parent:
+					$filter,
 
 				df: {
 					fieldtype:
@@ -1765,25 +1960,20 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 						"technicians",
 
 					label:
-						__("Technician"),
+						__(
+							"Technician"
+						),
 
 					placeholder:
 						__(
 							"Select Technician"
 						),
 
-
-					// =========================================
-					// ONLY TECHNICIANS
-					// =========================================
-
 					get_data(txt) {
 						return frappe.db
 							.get_link_options(
 								"Employee",
-
 								txt || "",
-
 								{
 									designation:
 										"Technician",
@@ -1794,32 +1984,9 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 							);
 					},
 
-
-					// =========================================
-					// APPLY FILTER IMMEDIATELY
-					// =========================================
-
 					change() {
-						let technicians =
-							technician_control
-								.get_value() ||
-							[];
-
-						if (
-							!Array.isArray(
-								technicians
-							)
-						) {
-							technicians =
-								technicians
-									? [
-										technicians
-									]
-									: [];
-						}
-
 						load_board(
-							technicians
+							get_selected_technicians()
 						);
 					},
 				},
@@ -1828,13 +1995,12 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 					true,
 			});
 
-
 		technician_control.refresh();
 	}
 
 
 	// =========================================================
-	// GET SELECTED TECHNICIANS
+	// SELECTED TECHNICIANS
 	// =========================================================
 
 	function get_selected_technicians() {
@@ -1843,21 +2009,17 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 		}
 
 		let technicians =
-			technician_control
-				.get_value() || [];
+			technician_control.get_value() ||
+			[];
 
-		if (
-			!Array.isArray(
-				technicians
-			)
-		) {
+		if (!Array.isArray(technicians)) {
 			technicians =
 				technicians
 					? [technicians]
 					: [];
 		}
 
-		return technicians;
+		return technicians.filter(Boolean);
 	}
 
 
@@ -1873,24 +2035,20 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 				".tsb-board"
 			);
 
-
-		if (
-			!Array.isArray(
-				technicians
-			)
-		) {
+		if (!Array.isArray(technicians)) {
 			technicians =
 				technicians
 					? [technicians]
 					: [];
 		}
 
+		const request_id =
+			++load_request_id;
 
 		$board.html(`
 			<div class="tsb-loading">
 
-				<div class="tsb-spinner">
-				</div>
+				<div class="tsb-spinner"></div>
 
 				<div>
 					Loading tasks...
@@ -1898,7 +2056,6 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 
 			</div>
 		`);
-
 
 		frappe.call({
 			method:
@@ -1912,12 +2069,27 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 			},
 
 			callback(r) {
+				if (
+					request_id !==
+					load_request_id
+				) {
+					return;
+				}
+
 				render_board(
-					r.message || []
+					r.message ||
+					[]
 				);
 			},
 
 			error() {
+				if (
+					request_id !==
+					load_request_id
+				) {
+					return;
+				}
+
 				$board.html(`
 					<div class="tsb-empty">
 						Unable to load Task Sequence Board.
@@ -1929,15 +2101,12 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 
 
 	// =========================================================
-	// REFRESH BOARD
+	// REFRESH
 	// =========================================================
 
 	function refresh_board() {
-		const technicians =
-			get_selected_technicians();
-
 		load_board(
-			technicians
+			get_selected_technicians()
 		);
 	}
 
@@ -1947,29 +2116,34 @@ frappe.pages["task-sequence-board"].on_page_load = function (wrapper) {
 	// =========================================================
 
 	$main
-		.find(
-			".tsb-new-task-btn"
-		)
+		.find(".tsb-new-task-btn")
+		.off("click.tsb")
 		.on(
-			"click",
+			"click.tsb",
 			function () {
-				frappe.new_doc(
-					"Task"
+				const url =
+					frappe.utils.get_form_link(
+						"Task",
+						"new-task-1"
+					);
+
+				window.open(
+					url,
+					"_blank"
 				);
 			}
 		);
 
 
 	// =========================================================
-	// REFRESH
+	// REFRESH BUTTON
 	// =========================================================
 
 	$main
-		.find(
-			".tsb-refresh-btn"
-		)
+		.find(".tsb-refresh-btn")
+		.off("click.tsb")
 		.on(
-			"click",
+			"click.tsb",
 			function () {
 				refresh_board();
 			}
