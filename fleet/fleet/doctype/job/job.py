@@ -33,9 +33,12 @@ class Job(Document):
 					row.is_chargeable = 0
 					row.chargeable_reason = None
 					row.chargeable_reason_description = None
-				elif self.task_type in ["Installation", "Accessory", "Swap"]:
-					if getattr(row, "installed_or_removed", "Installed") == "Installed":
-						row.is_chargeable = 1
+				elif getattr(row, "installed_or_removed", "Installed") == "Installed":
+					if not hasattr(row, "is_chargeable") or row.is_chargeable is None:
+						row.is_chargeable = 1 if self.task_type in ["Installation", "Accessory", "Swap"] else 0
+					if not row.is_chargeable:
+						row.chargeable_reason = None
+						row.chargeable_reason_description = None
 
 		self._vehicle_strip()
 		self._fetch_technician_warehouse()
@@ -858,17 +861,17 @@ class Job(Document):
 			"custom_customer": self.customer or None,
 		})
 		for row in self.item_installed_removed:
-			is_ch = 1 if (getattr(row, "is_chargeable", None) or self.is_chargeable) else 0
-			reason = getattr(row, "chargeable_reason", None) or self.chargeable_reason or None
-			desc = getattr(row, "chargeable_reason_description", None) or self.chargeable_reason_description or None
+			is_ch = 1 if getattr(row, "is_chargeable", 0) else 0
+			reason = getattr(row, "chargeable_reason", None) if is_ch else None
+			desc = getattr(row, "chargeable_reason_description", None) if is_ch else None
 			vehicle.append("custom_vehicle_item", {
 				"item":      row.item,
 				"item_type": row.item_type,
 				"status":    "Installed",
 				"date_of_installation": self.date,
 				"is_chargeable": is_ch,
-				"chargeable_reason": reason if is_ch else None,
-				"chargeable_reason_description": desc if is_ch else None,
+				"chargeable_reason": reason,
+				"chargeable_reason_description": desc,
 			})
 
 		vehicle.flags.updated_from_job_document = 1
@@ -1068,9 +1071,9 @@ class Job(Document):
 		vehicle_items = {r.item: r for r in vehicle.get("custom_vehicle_item", [])}
 
 		for row in self.item_installed_removed:
-			is_ch = 1 if (getattr(row, "is_chargeable", None) or self.is_chargeable) else 0
-			reason = getattr(row, "chargeable_reason", None) or self.chargeable_reason or None
-			desc = getattr(row, "chargeable_reason_description", None) or self.chargeable_reason_description or None
+			is_ch = 1 if getattr(row, "is_chargeable", 0) else 0
+			reason = getattr(row, "chargeable_reason", None) if is_ch else None
+			desc = getattr(row, "chargeable_reason_description", None) if is_ch else None
 			if row.item in vehicle_items:
 				vi        = vehicle_items[row.item]
 				vi.status = "Installed"
@@ -1156,9 +1159,9 @@ class Job(Document):
 			if not row.item or row.installed_or_removed != "Installed":
 				continue
 
-			is_ch = 1 if (getattr(row, "is_chargeable", None) or self.is_chargeable) else 0
-			reason = getattr(row, "chargeable_reason", None) or self.chargeable_reason or None
-			desc = getattr(row, "chargeable_reason_description", None) or self.chargeable_reason_description or None
+			is_ch = 1 if getattr(row, "is_chargeable", 0) else (1 if self.is_chargeable else 0)
+			reason = (getattr(row, "chargeable_reason", None) or self.chargeable_reason or None) if is_ch else None
+			desc = (getattr(row, "chargeable_reason_description", None) or self.chargeable_reason_description or None) if is_ch else None
 			if row.item in vehicle_items_map:
 				# Update status of existing item on vehicle
 				vi = vehicle_items_map[row.item]
@@ -1222,12 +1225,10 @@ class Job(Document):
 					vehicle_row.chargeable_reason = None
 					vehicle_row.chargeable_reason_description = None
 				elif getattr(row, "installed_or_removed", "Installed") == "Installed":
-					if self.task_type == "Checkup":
-						is_ch = 1 if getattr(row, "is_chargeable", 0) else 0
-					elif self.task_type == "Re-Installation":
+					if self.task_type == "Re-Installation":
 						is_ch = 1 if getattr(row, "is_chargeable", 0) else (1 if self.is_chargeable else 0)
 					else:
-						is_ch = 1 if (getattr(row, "is_chargeable", None) or self.is_chargeable) else 0
+						is_ch = 1 if getattr(row, "is_chargeable", 0) else 0
 					vehicle_row.is_chargeable = is_ch
 					vehicle_row.chargeable_reason = (getattr(row, "chargeable_reason", None) or self.chargeable_reason) if is_ch else None
 					vehicle_row.chargeable_reason_description = (getattr(row, "chargeable_reason_description", None) or self.chargeable_reason_description) if is_ch else None
