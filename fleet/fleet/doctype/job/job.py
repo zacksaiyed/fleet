@@ -444,9 +444,6 @@ class Job(Document):
 					vehicle_item = old_vehicle_items[row.item]
 					vehicle_item.status = "Removed"
 					vehicle_item.date_of_removal = self.date
-					vehicle_item.is_chargeable = 0
-					vehicle_item.chargeable_reason = None
-					vehicle_item.chargeable_reason_description = None
 
 			for row in removal_rows:
 				frappe.db.set_value(
@@ -463,9 +460,6 @@ class Job(Document):
 				vehicle_item = old_vehicle_items[row.items]
 				vehicle_item.status = "Removed"
 				vehicle_item.date_of_removal = self.date
-				vehicle_item.is_chargeable = 0
-				vehicle_item.chargeable_reason = None
-				vehicle_item.chargeable_reason_description = None
 
 		old_vehicle.flags.updated_from_job_document = 1
 		old_vehicle.save(
