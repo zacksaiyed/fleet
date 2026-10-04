@@ -10,5 +10,6 @@ fleet.patches.set_pending_jobs_chargeable
 fleet.patches.set_default_purpose_in_material_transfer
 fleet.patches.set_vehicle_installed_items_chargeable
 
+fleet.patches.update_sim_mobile_number
 
 

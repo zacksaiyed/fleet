@@ -68,12 +68,6 @@ def get_item(item_code):
 		"name",
 	)
 
-	# ---------------------------------------------------------
-	# GET ITEM
-	#
-	# Only unlocked + enabled items
-	# ---------------------------------------------------------
-
 	item = frappe.db.get_value(
 		"Item",
 		{
