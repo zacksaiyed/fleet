@@ -3,9 +3,22 @@ import frappe
 
 def execute():
 	"""
-	Set is_chargeable = 1 for jobs and child table items whose status is 'In Progress' or 'Pending'.
+	1. Set is_chargeable = 1 for Vehicle items whose status is 'Installed'.
+	2. Set is_chargeable = 1 for jobs and child table items whose status is 'In Progress' or 'Pending'.
 	Removal jobs and Removed items remain is_chargeable = 0.
 	"""
+	# 1. Update all Installed items in Vehicle
+	if frappe.db.table_exists("Vehicle Item") and frappe.db.has_column("Vehicle Item", "is_chargeable"):
+		frappe.db.sql(
+			"""
+			UPDATE `tabVehicle Item`
+			SET is_chargeable = 1
+			WHERE status = 'Installed'
+			  AND parenttype = 'Vehicle'
+			"""
+		)
+
+	# 2. Update Pending and In Progress Jobs (except Removal)
 	if frappe.db.has_column("Job", "is_chargeable"):
 		frappe.db.sql(
 			"""
@@ -16,8 +29,8 @@ def execute():
 			"""
 		)
 
+	# 3. Update Installed items in Pending and In Progress Jobs (except Removal)
 	if frappe.db.table_exists("Job Item") and frappe.db.has_column("Job Item", "is_chargeable"):
-		# Set is_chargeable = 1 for Installed items in Pending and In Progress jobs (except Removal)
 		frappe.db.sql(
 			"""
 			UPDATE `tabJob Item` ji
@@ -40,4 +53,5 @@ def execute():
 		)
 
 	frappe.db.commit()
+
 
