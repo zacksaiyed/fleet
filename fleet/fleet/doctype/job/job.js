@@ -242,6 +242,7 @@ frappe.ui.form.on("Job", {
 		frm.toggle_display("is_chargeable", is_reinstall);
 		frm.toggle_display("chargeable_reason", is_reinstall && !!frm.doc.is_chargeable);
 		frm.toggle_display("chargeable_reason_description", is_reinstall && !!frm.doc.is_chargeable);
+		_toggle_replace_against(frm);
 
 		if (["Installation", "Accessory"].includes(frm.doc.task_type)) {
 			frm.set_value("is_chargeable", 1);
@@ -518,6 +519,7 @@ frappe.ui.form.on("Job", {
 		frm.toggle_display("is_chargeable", is_reinstall);
 		frm.toggle_display("chargeable_reason", is_reinstall && !!frm.doc.is_chargeable);
 		frm.toggle_display("chargeable_reason_description", is_reinstall && !!frm.doc.is_chargeable);
+		_toggle_replace_against(frm);
 
 		if (["Installation", "Accessory"].includes(frm.doc.task_type)) {
 			frm.set_value("is_chargeable", 1);
@@ -1093,3 +1095,11 @@ function render_job_images(frm) {
 		</div>
 	`);
 }
+
+function _toggle_replace_against(frm) {
+	if (frm.fields_dict.item_installed_removed && frm.fields_dict.item_installed_removed.grid) {
+		const is_checkup = frm.doc.task_type === "Checkup";
+		frm.fields_dict.item_installed_removed.grid.toggle_display("replace_against", is_checkup);
+	}
+}
+

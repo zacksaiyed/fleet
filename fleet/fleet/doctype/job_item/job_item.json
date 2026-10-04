@@ -68,7 +68,7 @@
    "label": "Device ID"
   },
   {
-   "depends_on": "eval:parent.task_type==\"Checkup\" && doc.installed_or_removed==\"Installed\"",
+   "depends_on": "eval:parent.task_type==\"Checkup\"",
    "fieldname": "replace_against",
    "fieldtype": "Link",
    "label": "Replace Against",
