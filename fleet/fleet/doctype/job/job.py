@@ -537,7 +537,11 @@ class Job(Document):
 		})
 
 		for row in items_to_install:
-			is_ch = 1
+			is_from_tech = (
+				getattr(row, "source", None) == "Technician"
+				or (getattr(row, "source", None) != "Old Vehicle" and row.items not in old_vehicle_items)
+			)
+			is_ch = 1 if is_from_tech else 0
 			new_vehicle.append(
 				"custom_vehicle_item",
 				{
