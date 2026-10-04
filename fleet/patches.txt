@@ -8,6 +8,7 @@ fleet.patches.lock_pending_transfer_items
 fleet.patches.create_default_damage_and_lost_warehouses
 fleet.patches.set_pending_jobs_chargeable
 fleet.patches.set_default_purpose_in_material_transfer
+fleet.patches.set_vehicle_installed_items_chargeable
 
 
 

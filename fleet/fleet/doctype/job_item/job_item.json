@@ -80,7 +80,8 @@
    "fieldname": "is_chargeable",
    "fieldtype": "Check",
    "in_list_view": 1,
-   "label": "Is Chargeable"
+   "label": "Is Chargeable",
+   "read_only_depends_on": "eval:doc.installed_or_removed!=\"Installed\" || parent.task_type==\"Removal\""
   },
   {
    "depends_on": "eval:doc.is_chargeable==1",

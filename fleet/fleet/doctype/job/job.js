@@ -43,6 +43,22 @@ frappe.ui.form.on("Job Item", {
 				},
 			});
 		}
+		if (frm.doc.task_type === "Removal" || row.installed_or_removed === "Removed") {
+			frappe.model.set_value(cdt, cdn, "is_chargeable", 0);
+			frappe.model.set_value(cdt, cdn, "chargeable_reason", "");
+			frappe.model.set_value(cdt, cdn, "chargeable_reason_description", "");
+		} else if (row.installed_or_removed === "Installed") {
+			frappe.model.set_value(cdt, cdn, "is_chargeable", 1);
+		}
+	},
+	item_installed_removed_add(frm, cdt, cdn) {
+		if (frm.doc.task_type === "Removal") {
+			frappe.model.set_value(cdt, cdn, "installed_or_removed", "Removed");
+			frappe.model.set_value(cdt, cdn, "is_chargeable", 0);
+		} else {
+			frappe.model.set_value(cdt, cdn, "installed_or_removed", "Installed");
+			frappe.model.set_value(cdt, cdn, "is_chargeable", 1);
+		}
 	},
 	item_installed_removed_remove(frm, cdt, cdn) {
 		const row = locals[cdt][cdn];
@@ -85,6 +101,18 @@ frappe.ui.form.on("Job Item", {
 				return;
 			}
 		}
+		if (val === "Installed") {
+			if (task_type !== "Removal") {
+				frappe.model.set_value(cdt, cdn, "is_chargeable", 1);
+			} else {
+				frappe.model.set_value(cdt, cdn, "is_chargeable", 0);
+			}
+		} else if (val === "Removed") {
+			frappe.model.set_value(cdt, cdn, "is_chargeable", 0);
+			frappe.model.set_value(cdt, cdn, "chargeable_reason", "");
+			frappe.model.set_value(cdt, cdn, "chargeable_reason_description", "");
+		}
+
 		if (val !== "Installed" && row.replace_against) {
 			frappe.model.set_value(cdt, cdn, "replace_against", null);
 		}
@@ -203,8 +231,10 @@ frappe.ui.form.on("Job", {
 		const is_tech_only = roles.includes("Technician") && !is_erp_crm;
 
 		if (frm.is_new()) {
-			if (!["Checkup", "Re-Installation"].includes(frm.doc.task_type)) {
+			if (!["Checkup", "Re-Installation", "Removal"].includes(frm.doc.task_type)) {
 				frm.set_value("is_chargeable", 1);
+			} else if (frm.doc.task_type === "Removal") {
+				frm.set_value("is_chargeable", 0);
 			}
 		}
 
@@ -452,7 +482,28 @@ frappe.ui.form.on("Job", {
 		// Re-run the vehicle check when task type changes while a number is already entered
 		fetch_vehicle_details(frm);
 
-		if (!["Checkup", "Re-Installation"].includes(frm.doc.task_type)) {
+		if (frm.doc.task_type === "Removal") {
+			frm.set_value("is_chargeable", 0);
+			frm.set_value("chargeable_reason", "");
+			frm.set_value("chargeable_reason_description", "");
+			(frm.doc.item_installed_removed || []).forEach((row) => {
+				frappe.model.set_value(row.doctype, row.name, "installed_or_removed", "Removed");
+				frappe.model.set_value(row.doctype, row.name, "is_chargeable", 0);
+				frappe.model.set_value(row.doctype, row.name, "chargeable_reason", "");
+				frappe.model.set_value(row.doctype, row.name, "chargeable_reason_description", "");
+			});
+			frm.refresh_field("item_installed_removed");
+		} else if (["Installation", "Accessory", "Swap"].includes(frm.doc.task_type)) {
+			frm.set_value("is_chargeable", 1);
+			(frm.doc.item_installed_removed || []).forEach((row) => {
+				if (row.installed_or_removed === "Installed") {
+					frappe.model.set_value(row.doctype, row.name, "is_chargeable", 1);
+				} else {
+					frappe.model.set_value(row.doctype, row.name, "is_chargeable", 0);
+				}
+			});
+			frm.refresh_field("item_installed_removed");
+		} else if (frm.is_new() && !["Checkup", "Re-Installation"].includes(frm.doc.task_type)) {
 			frm.set_value("is_chargeable", 1);
 		}
 
@@ -460,8 +511,7 @@ frappe.ui.form.on("Job", {
 		const is_erp_crm = roles.includes("System Manager") || roles.includes("Administrator") || roles.includes("Fleet Administrator") || roles.includes("Fleet Manager") || roles.includes("Support Team");
 		const is_tech_only = roles.includes("Technician") && !is_erp_crm;
 
-		if (["Installation", "Accessory"].includes(frm.doc.task_type)) {
-			frm.set_value("is_chargeable", 1);
+		if (["Installation", "Accessory", "Swap", "Removal"].includes(frm.doc.task_type)) {
 			frm.set_df_property("is_chargeable", "read_only", 1);
 		} else if (is_erp_crm) {
 			frm.set_df_property("is_chargeable", "read_only", 0);
@@ -471,6 +521,18 @@ frappe.ui.form.on("Job", {
 			} else {
 				frm.set_df_property("is_chargeable", "read_only", 1);
 			}
+		}
+	},
+
+	is_chargeable(frm) {
+		if (["Installation", "Accessory"].includes(frm.doc.task_type)) {
+			const val = frm.doc.is_chargeable ? 1 : 0;
+			(frm.doc.item_installed_removed || []).forEach((row) => {
+				if (row.installed_or_removed === "Installed") {
+					frappe.model.set_value(row.doctype, row.name, "is_chargeable", val);
+				}
+			});
+			frm.refresh_field("item_installed_removed");
 		}
 	},
 

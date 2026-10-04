@@ -3507,7 +3507,7 @@ def update_job(
                         raw_replace if (job_doc.task_type == "Checkup" and inst_or_rem == "Installed") else None,
 
                     "is_chargeable":
-                        (1 if str(row.get("is_chargeable", "")).strip().lower() in ("1", "true", "yes", "on") else 0) if (job_doc.task_type == "Checkup" and inst_or_rem == "Installed") else 0,
+                        (1 if inst_or_rem == "Installed" else 0) if (job_doc.task_type in ("Installation", "Accessory", "Swap")) else ((1 if str(row.get("is_chargeable", "")).strip().lower() in ("1", "true", "yes", "on") else 0) if (job_doc.task_type == "Checkup" and inst_or_rem == "Installed") else 0),
 
                     "chargeable_reason":
                         (row.get("chargeable_reason") or None) if (job_doc.task_type == "Checkup" and inst_or_rem == "Installed") else None,
