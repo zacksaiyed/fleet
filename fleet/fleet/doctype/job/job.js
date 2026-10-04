@@ -238,17 +238,20 @@ frappe.ui.form.on("Job", {
 			}
 		}
 
+		const is_reinstall = frm.doc.task_type === "Re-Installation";
+		frm.toggle_display("is_chargeable", is_reinstall);
+		frm.toggle_display("chargeable_reason", is_reinstall && !!frm.doc.is_chargeable);
+		frm.toggle_display("chargeable_reason_description", is_reinstall && !!frm.doc.is_chargeable);
+
 		if (["Installation", "Accessory"].includes(frm.doc.task_type)) {
 			frm.set_value("is_chargeable", 1);
 			frm.set_df_property("is_chargeable", "read_only", 1);
+		} else if (is_reinstall) {
+			frm.set_df_property("is_chargeable", "read_only", 0);
 		} else if (is_erp_crm) {
 			frm.set_df_property("is_chargeable", "read_only", 0);
 		} else if (is_tech_only) {
-			if (frm.doc.task_type === "Re-Installation") {
-				frm.set_df_property("is_chargeable", "read_only", 0);
-			} else {
-				frm.set_df_property("is_chargeable", "read_only", 1);
-			}
+			frm.set_df_property("is_chargeable", "read_only", 1);
 		}
 
 		if (frm.is_new()) {
@@ -511,21 +514,29 @@ frappe.ui.form.on("Job", {
 		const is_erp_crm = roles.includes("System Manager") || roles.includes("Administrator") || roles.includes("Fleet Administrator") || roles.includes("Fleet Manager") || roles.includes("Support Team");
 		const is_tech_only = roles.includes("Technician") && !is_erp_crm;
 
-		if (["Installation", "Accessory", "Swap", "Removal"].includes(frm.doc.task_type)) {
+		const is_reinstall = frm.doc.task_type === "Re-Installation";
+		frm.toggle_display("is_chargeable", is_reinstall);
+		frm.toggle_display("chargeable_reason", is_reinstall && !!frm.doc.is_chargeable);
+		frm.toggle_display("chargeable_reason_description", is_reinstall && !!frm.doc.is_chargeable);
+
+		if (["Installation", "Accessory"].includes(frm.doc.task_type)) {
+			frm.set_value("is_chargeable", 1);
 			frm.set_df_property("is_chargeable", "read_only", 1);
+		} else if (is_reinstall) {
+			frm.set_df_property("is_chargeable", "read_only", 0);
 		} else if (is_erp_crm) {
 			frm.set_df_property("is_chargeable", "read_only", 0);
 		} else if (is_tech_only) {
-			if (frm.doc.task_type === "Re-Installation") {
-				frm.set_df_property("is_chargeable", "read_only", 0);
-			} else {
-				frm.set_df_property("is_chargeable", "read_only", 1);
-			}
+			frm.set_df_property("is_chargeable", "read_only", 1);
 		}
 	},
 
 	is_chargeable(frm) {
-		if (["Installation", "Accessory"].includes(frm.doc.task_type)) {
+		const is_reinstall = frm.doc.task_type === "Re-Installation";
+		frm.toggle_display("chargeable_reason", is_reinstall && !!frm.doc.is_chargeable);
+		frm.toggle_display("chargeable_reason_description", is_reinstall && !!frm.doc.is_chargeable);
+
+		if (["Installation", "Accessory", "Re-Installation"].includes(frm.doc.task_type)) {
 			const val = frm.doc.is_chargeable ? 1 : 0;
 			(frm.doc.item_installed_removed || []).forEach((row) => {
 				if (row.installed_or_removed === "Installed") {

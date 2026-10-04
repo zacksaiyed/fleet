@@ -16,7 +16,7 @@ class Job(Document):
 			self.is_chargeable = 1
 		elif self.task_type == "Removal":
 			self.is_chargeable = 0
-		elif (getattr(self, "status", None) in ["In Progress", "Pending"] or not getattr(self, "status", None)) and self.task_type != "Removal":
+		elif (getattr(self, "status", None) in ["In Progress", "Pending"] or not getattr(self, "status", None)) and self.task_type not in ["Removal", "Re-Installation"]:
 			self.is_chargeable = 1
 
 	def before_save(self):
@@ -65,7 +65,7 @@ class Job(Document):
 		elif self.status == "Pending" and self.items and self.task_type == "Swap":
 			self.status = "In Progress"
 
-		if self.status in ["In Progress", "Pending"] and self.task_type != "Removal":
+		if self.status in ["In Progress", "Pending"] and self.task_type not in ["Removal", "Re-Installation"]:
 			self.is_chargeable = 1
 
 	def validate(self):
@@ -1224,6 +1224,8 @@ class Job(Document):
 				elif getattr(row, "installed_or_removed", "Installed") == "Installed":
 					if self.task_type == "Checkup":
 						is_ch = 1 if getattr(row, "is_chargeable", 0) else 0
+					elif self.task_type == "Re-Installation":
+						is_ch = 1 if getattr(row, "is_chargeable", 0) else (1 if self.is_chargeable else 0)
 					else:
 						is_ch = 1 if (getattr(row, "is_chargeable", None) or self.is_chargeable) else 0
 					vehicle_row.is_chargeable = is_ch
