@@ -244,7 +244,7 @@ frappe.ui.form.on("Job", {
 		} else if (is_erp_crm) {
 			frm.set_df_property("is_chargeable", "read_only", 0);
 		} else if (is_tech_only) {
-			if (["Checkup", "Re-Installation"].includes(frm.doc.task_type)) {
+			if (frm.doc.task_type === "Re-Installation") {
 				frm.set_df_property("is_chargeable", "read_only", 0);
 			} else {
 				frm.set_df_property("is_chargeable", "read_only", 1);
@@ -516,7 +516,7 @@ frappe.ui.form.on("Job", {
 		} else if (is_erp_crm) {
 			frm.set_df_property("is_chargeable", "read_only", 0);
 		} else if (is_tech_only) {
-			if (["Checkup", "Re-Installation"].includes(frm.doc.task_type)) {
+			if (frm.doc.task_type === "Re-Installation") {
 				frm.set_df_property("is_chargeable", "read_only", 0);
 			} else {
 				frm.set_df_property("is_chargeable", "read_only", 1);
