@@ -16,6 +16,8 @@ class Job(Document):
 			self.is_chargeable = 1
 		elif self.task_type == "Removal":
 			self.is_chargeable = 0
+		elif (getattr(self, "status", None) in ["In Progress", "Pending"] or not getattr(self, "status", None)) and self.task_type != "Removal":
+			self.is_chargeable = 1
 
 	def before_save(self):
 		if self.task_type in ["Installation", "Accessory", "Swap"]:
@@ -31,7 +33,7 @@ class Job(Document):
 					row.is_chargeable = 0
 					row.chargeable_reason = None
 					row.chargeable_reason_description = None
-				elif self.task_type in ["Installation", "Accessory"]:
+				elif self.task_type in ["Installation", "Accessory", "Swap"]:
 					if getattr(row, "installed_or_removed", "Installed") == "Installed":
 						row.is_chargeable = 1
 
@@ -63,7 +65,7 @@ class Job(Document):
 		elif self.status == "Pending" and self.items and self.task_type == "Swap":
 			self.status = "In Progress"
 
-		if self.status == "In Progress" and self.task_type != "Removal":
+		if self.status in ["In Progress", "Pending"] and self.task_type != "Removal":
 			self.is_chargeable = 1
 
 	def validate(self):
