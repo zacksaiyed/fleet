@@ -3507,7 +3507,7 @@ def update_job(
                         raw_replace if (job_doc.task_type == "Checkup" and inst_or_rem == "Installed") else None,
 
                     "is_chargeable":
-                        (1 if str(row.get("is_chargeable", "")).strip().lower() in ("1", "true", "yes", "on") else 0) if ("is_chargeable" in row and str(row.get("is_chargeable", "")).strip() != "") else ((1 if inst_or_rem == "Installed" else 0) if (job_doc.task_type in ("Installation", "Accessory", "Swap")) else ((1 if getattr(job_doc, "is_chargeable", 0) else 0) if (job_doc.task_type == "Re-Installation" and inst_or_rem == "Installed") else 0)),
+                        (1 if inst_or_rem == "Installed" else 0) if (job_doc.task_type in ("Installation", "Accessory", "Swap")) else ((1 if str(row.get("is_chargeable", "")).strip().lower() in ("1", "true", "yes", "on") else 0) if ("is_chargeable" in row and str(row.get("is_chargeable", "")).strip() != "") else ((1 if getattr(job_doc, "is_chargeable", 0) else 0) if (job_doc.task_type == "Re-Installation" and inst_or_rem == "Installed") else 0)),
 
                     "chargeable_reason":
                         (row.get("chargeable_reason") or None) if (inst_or_rem == "Installed" and job_doc.task_type != "Removal" and (str(row.get("is_chargeable", "")).strip().lower() in ("1", "true", "yes", "on") or ("is_chargeable" not in row and job_doc.task_type in ("Installation", "Accessory", "Swap")))) else None,
