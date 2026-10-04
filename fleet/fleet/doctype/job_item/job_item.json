@@ -71,16 +71,19 @@
    "depends_on": "eval:parent.task_type==\"Checkup\" && doc.installed_or_removed==\"Installed\"",
    "fieldname": "replace_against",
    "fieldtype": "Link",
+   "hidden": 1,
+   "in_list_view": 0,
    "label": "Replace Against",
    "options": "Item",
-   "read_only_depends_on": "eval:doc.installed_or_removed!=\"Installed\""
+   "read_only_depends_on": "eval:doc.installed_or_removed!=\"Installed\" || parent.task_type!=\"Checkup\""
   },
   {
    "default": "0",
    "fieldname": "is_chargeable",
    "fieldtype": "Check",
    "in_list_view": 1,
-   "label": "Is Chargeable"
+   "label": "Is Chargeable",
+   "read_only_depends_on": "eval:doc.installed_or_removed!=\"Installed\" || ['Removal', 'Installation', 'Accessory'].includes(parent.task_type)"
   },
   {
    "depends_on": "eval:doc.is_chargeable==1",

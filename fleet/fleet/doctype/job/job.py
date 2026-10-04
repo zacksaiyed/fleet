@@ -12,12 +12,36 @@ from frappe.utils import add_to_date, get_datetime, getdate, now_datetime, now
 class Job(Document):
 
 	def before_insert(self):
-		if self.task_type not in ["Checkup", "Re-Installation"]:
+		if self.task_type in ["Installation", "Accessory", "Swap"]:
+			self.is_chargeable = 1
+		elif self.task_type == "Removal":
+			self.is_chargeable = 0
+		elif (getattr(self, "status", None) in ["In Progress", "Pending"] or not getattr(self, "status", None)) and self.task_type not in ["Removal", "Re-Installation"]:
 			self.is_chargeable = 1
 
 	def before_save(self):
-		if self.task_type in ["Installation", "Accessory"]:
+		if self.task_type in ["Installation", "Accessory", "Swap"]:
 			self.is_chargeable = 1
+		elif self.task_type == "Removal":
+			self.is_chargeable = 0
+			self.chargeable_reason = None
+			self.chargeable_reason_description = None
+
+		if self.item_installed_removed:
+			for row in self.item_installed_removed:
+				if self.task_type == "Removal" or getattr(row, "installed_or_removed", "Installed") == "Removed":
+					row.is_chargeable = 0
+					row.chargeable_reason = None
+					row.chargeable_reason_description = None
+				elif self.task_type in ["Installation", "Accessory"]:
+					if getattr(row, "installed_or_removed", "Installed") == "Installed":
+						row.is_chargeable = 1
+				elif getattr(row, "installed_or_removed", "Installed") == "Installed":
+					if not hasattr(row, "is_chargeable") or row.is_chargeable is None:
+						row.is_chargeable = 1 if self.task_type == "Swap" else 0
+					if not row.is_chargeable:
+						row.chargeable_reason = None
+						row.chargeable_reason_description = None
 
 		self._vehicle_strip()
 		self._fetch_technician_warehouse()
@@ -47,7 +71,7 @@ class Job(Document):
 		elif self.status == "Pending" and self.items and self.task_type == "Swap":
 			self.status = "In Progress"
 
-		if self.status == "In Progress":
+		if self.status in ["In Progress", "Pending"] and self.task_type not in ["Removal", "Re-Installation"]:
 			self.is_chargeable = 1
 
 	def validate(self):
@@ -513,6 +537,11 @@ class Job(Document):
 		})
 
 		for row in items_to_install:
+			is_from_tech = (
+				getattr(row, "source", None) == "Technician"
+				or (getattr(row, "source", None) != "Old Vehicle" and row.items not in old_vehicle_items)
+			)
+			is_ch = 1 if is_from_tech else 0
 			new_vehicle.append(
 				"custom_vehicle_item",
 				{
@@ -520,7 +549,9 @@ class Job(Document):
 					"item_type": row.item_type,
 					"status": "Installed",
 					"date_of_installation": self.date,
-					"is_chargeable": 1 if self.is_chargeable else 0,
+					"is_chargeable": is_ch,
+					"chargeable_reason": self.chargeable_reason if is_ch else None,
+					"chargeable_reason_description": self.chargeable_reason_description if is_ch else None,
 				},
 			)
 
@@ -678,12 +709,6 @@ class Job(Document):
 		if not self.item_installed_removed:
 			return
 
-		# Re-Installation reuses the SAME item already installed on the vehicle.
-		# There is no Technician -> Customer or Customer -> Technician stock movement.
-		if self.task_type == "Re-Installation":
-			self._handle_reinstallation_vehicle()
-			return
-
 		# Guard against duplicate stock entries on re-saving Completed jobs
 		if frappe.db.exists("Stock Entry", {"custom_job": self.name, "docstatus": 1}):
 			return
@@ -753,9 +778,23 @@ class Job(Document):
 				)
 
 		# Installed: technician warehouse → customer warehouse
+		installed_to_transfer = []
+		for r in installed:
+			qty = frappe.db.get_value(
+				"Bin",
+				{"item_code": r.item, "warehouse": self.technician_warehouse},
+				"actual_qty"
+			) or 0
+			if qty > 0:
+				installed_to_transfer.append(r)
+			else:
+				from fleet.custom_py.item_warehouse import update_item_warehouse
+				update_item_warehouse(r.item, self.customer_warehouse)
+
+		# Installed: technician warehouse → customer warehouse
 		# Removed:   customer warehouse  → technician warehouse (only items destined for technician)
 		for items, src, tgt in [
-			(installed, self.technician_warehouse, self.customer_warehouse),
+			(installed_to_transfer, self.technician_warehouse, self.customer_warehouse),
 			(removed_to_tech, self.customer_warehouse, self.technician_warehouse),
 		]:
 			if not items:
@@ -823,12 +862,17 @@ class Job(Document):
 			"custom_customer": self.customer or None,
 		})
 		for row in self.item_installed_removed:
+			is_ch = 1
+			reason = getattr(row, "chargeable_reason", None) or self.chargeable_reason or None
+			desc = getattr(row, "chargeable_reason_description", None) or self.chargeable_reason_description or None
 			vehicle.append("custom_vehicle_item", {
 				"item":      row.item,
 				"item_type": row.item_type,
 				"status":    "Installed",
 				"date_of_installation": self.date,
-				"is_chargeable": 1 if self.is_chargeable else 0,
+				"is_chargeable": 1,
+				"chargeable_reason": reason,
+				"chargeable_reason_description": desc,
 			})
 
 		vehicle.flags.updated_from_job_document = 1
@@ -947,11 +991,17 @@ class Job(Document):
 				vi.date_of_removal   = self.date
 
 			elif row.installed_or_removed == "Installed":
+				is_ch = 1 if getattr(row, "is_chargeable", 0) else 0
+				reason = (getattr(row, "chargeable_reason", None) or self.chargeable_reason) if is_ch else None
+				desc = (getattr(row, "chargeable_reason_description", None) or self.chargeable_reason_description) if is_ch else None
 				if row.item in vehicle_items:
 					# Update status to Installed + date regardless of previous status
 					vi        = vehicle_items[row.item]
 					vi.status = "Installed"
 					vi.date_of_installation   = self.date
+					vi.is_chargeable = is_ch
+					vi.chargeable_reason = reason
+					vi.chargeable_reason_description = desc
 				else:
 					# Not on vehicle yet — add fresh
 					vehicle.append("custom_vehicle_item", {
@@ -959,7 +1009,9 @@ class Job(Document):
 						"item_type": row.item_type,
 						"status":    "Installed",
 						"date_of_installation":      self.date,
-						"is_chargeable": 1 if self.is_chargeable else 0,
+						"is_chargeable": is_ch,
+						"chargeable_reason": reason,
+						"chargeable_reason_description": desc,
 					})
 
 		self._set_chargeable_on_matched_vehicle_items(vehicle)
@@ -1020,17 +1072,25 @@ class Job(Document):
 		vehicle_items = {r.item: r for r in vehicle.get("custom_vehicle_item", [])}
 
 		for row in self.item_installed_removed:
+			is_ch = 1
+			reason = getattr(row, "chargeable_reason", None) or self.chargeable_reason or None
+			desc = getattr(row, "chargeable_reason_description", None) or self.chargeable_reason_description or None
 			if row.item in vehicle_items:
 				vi        = vehicle_items[row.item]
 				vi.status = "Installed"
 				vi.date_of_installation   = self.date
+				vi.is_chargeable = 1
+				vi.chargeable_reason = reason if is_ch else None
+				vi.chargeable_reason_description = desc if is_ch else None
 			else:
 				vehicle.append("custom_vehicle_item", {
 					"item":      row.item,
 					"item_type": row.item_type,
 					"status":    "Installed",
 					"date_of_installation":      self.date,
-					"is_chargeable": 1 if self.is_chargeable else 0,
+					"is_chargeable": 1,
+					"chargeable_reason": reason if is_ch else None,
+					"chargeable_reason_description": desc if is_ch else None,
 				})
 
 		self._set_chargeable_on_matched_vehicle_items(vehicle)
@@ -1100,13 +1160,18 @@ class Job(Document):
 			if not row.item or row.installed_or_removed != "Installed":
 				continue
 
+			is_ch = 1 if getattr(row, "is_chargeable", 0) else (1 if self.is_chargeable else 0)
+			reason = (getattr(row, "chargeable_reason", None) or self.chargeable_reason or None) if is_ch else None
+			desc = (getattr(row, "chargeable_reason_description", None) or self.chargeable_reason_description or None) if is_ch else None
 			if row.item in vehicle_items_map:
 				# Update status of existing item on vehicle
 				vi = vehicle_items_map[row.item]
 				vi.status = "Installed"
 				vi.date_of_installation = self.date
 				vi.date_of_removal = None
-				vi.is_chargeable = 1 if self.is_chargeable else 0
+				vi.is_chargeable = is_ch
+				vi.chargeable_reason = reason if is_ch else None
+				vi.chargeable_reason_description = desc if is_ch else None
 			else:
 				# Add new item to vehicle
 				vehicle.append("custom_vehicle_item", {
@@ -1116,7 +1181,9 @@ class Job(Document):
 					"brand": row.brand,
 					"status": "Installed",
 					"date_of_installation": self.date,
-					"is_chargeable": 1 if self.is_chargeable else 0,
+					"is_chargeable": is_ch,
+					"chargeable_reason": reason if is_ch else None,
+					"chargeable_reason_description": desc if is_ch else None,
 				})
 
 		self._set_chargeable_on_matched_vehicle_items(vehicle)
@@ -1145,21 +1212,29 @@ class Job(Document):
 		Also, installed items should be considered chargeable only when their corresponding
 		Vehicle Master item is marked Chargeable.
 		"""
-		job_items = {
-			row.item
+		job_items_map = {
+			row.item: row
 			for row in (self.item_installed_removed or [])
 			if row.item
 		}
 
 		for vehicle_row in vehicle.get("custom_vehicle_item", []):
-			if vehicle_row.item in job_items:
-				# Installed items should be considered chargeable only when their corresponding
-				# Vehicle Master item is marked Chargeable.
-				vehicle_row.is_chargeable = (
-					1
-					if self.is_chargeable and vehicle_row.is_chargeable
-					else 0
-				)
+			if vehicle_row.item in job_items_map:
+				row = job_items_map[vehicle_row.item]
+				if self.task_type == "Removal" or getattr(row, "installed_or_removed", "Installed") == "Removed":
+					vehicle_row.is_chargeable = 0
+					vehicle_row.chargeable_reason = None
+					vehicle_row.chargeable_reason_description = None
+				elif getattr(row, "installed_or_removed", "Installed") == "Installed":
+					if self.task_type in ["Installation", "Accessory"]:
+						is_ch = 1
+					elif self.task_type == "Re-Installation":
+						is_ch = 1 if getattr(row, "is_chargeable", 0) else (1 if self.is_chargeable else 0)
+					else:
+						is_ch = 1 if getattr(row, "is_chargeable", 0) else 0
+					vehicle_row.is_chargeable = is_ch
+					vehicle_row.chargeable_reason = (getattr(row, "chargeable_reason", None) or self.chargeable_reason) if is_ch else None
+					vehicle_row.chargeable_reason_description = (getattr(row, "chargeable_reason_description", None) or self.chargeable_reason_description) if is_ch else None
 
 	def _attach_job_images_to_vehicle(self, vehicle_number):
 		for row in self.job_images:
