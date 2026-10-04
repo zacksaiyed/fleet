@@ -68,12 +68,14 @@
    "label": "Device ID"
   },
   {
-   "depends_on": "eval:parent.task_type==\"Checkup\"",
+   "depends_on": "eval:parent.task_type==\"Checkup\" && doc.installed_or_removed==\"Installed\"",
    "fieldname": "replace_against",
    "fieldtype": "Link",
+   "hidden": 1,
+   "in_list_view": 0,
    "label": "Replace Against",
    "options": "Item",
-   "read_only_depends_on": "eval:doc.installed_or_removed!=\"Installed\""
+   "read_only_depends_on": "eval:doc.installed_or_removed!=\"Installed\" || parent.task_type!=\"Checkup\""
   },
   {
    "default": "0",
