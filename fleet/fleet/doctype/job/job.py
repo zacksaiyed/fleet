@@ -168,6 +168,50 @@ class Job(Document):
 				self._handle_warehouse_movement()
 
 			self._unlock_completed_job_items()
+
+		self._post_chat_message_on_update()
+
+	def _post_chat_message_on_update(self):
+		if getattr(self.flags, "from_mobile_api", False) or getattr(self.flags, "skip_chat_message", False):
+			return
+
+		doc_before = self.get_doc_before_save()
+		if not doc_before:
+			return
+
+		# Check if items changed
+		before_items = [
+			(r.item, r.installed_or_removed, getattr(r, "replace_against", None))
+			for r in (doc_before.item_installed_removed or [])
+		]
+		after_items = [
+			(r.item, r.installed_or_removed, getattr(r, "replace_against", None))
+			for r in (self.item_installed_removed or [])
+		]
+		items_changed = (before_items != after_items) and bool(self.item_installed_removed)
+
+		# Check if scalars changed
+		changed_scalars = {}
+		for f in ["vehicle_number", "make", "model", "color", "type"]:
+			b_val = getattr(doc_before, f, None) or ""
+			a_val = getattr(self, f, None) or ""
+			if str(b_val).strip() != str(a_val).strip() and a_val:
+				changed_scalars[f] = a_val
+
+		if not items_changed and not changed_scalars:
+			return
+
+		try:
+			from fleet.v2.task_v2 import _post_job_update_message
+			_post_job_update_message(
+				self,
+				employee=self.assigned_technician,
+				changed_scalars=changed_scalars,
+				set_items=True if items_changed else None,
+			)
+		except Exception as e:
+			frappe.log_error(title="Auto Chat Message Error", message=frappe.get_traceback())
+
 	def on_trash(self):
 		if self.task:
 			frappe.db.delete("Task Job", {"job": self.name, "parent": self.task})

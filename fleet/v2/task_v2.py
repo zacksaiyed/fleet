@@ -3743,6 +3743,7 @@ def update_job(
 
 
     try:
+        job_doc.flags.from_mobile_api = True
         job_doc.save(
             ignore_permissions=True
         )
@@ -4256,7 +4257,7 @@ def _post_job_update_message(job_doc, employee, changed_scalars: dict, set_items
 
     message = "\n".join(lines)
 
-    tech_user   = frappe.db.get_value("Employee", employee, "user_id")
+    tech_user   = frappe.db.get_value("Employee", employee, "user_id") if employee else None
     sender_name = frappe.db.get_value("User", tech_user, "full_name") if tech_user else "Technician"
 
     msg = frappe.get_doc({
