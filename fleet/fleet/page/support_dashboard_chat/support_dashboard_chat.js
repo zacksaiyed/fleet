@@ -717,11 +717,12 @@ class SupportDashboardChat {
 		const _NO_COPY = new Set(['Make', 'Model', 'Color', 'Type']);
 		const _COPY_ICON = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 3H14.6C16.84 3 17.96 3 18.816 3.436C19.569 3.819 20.18 4.431 20.564 5.184C21 6.04 21 7.16 21 9.4V16.5M6.2 21H14.3C15.42 21 15.98 21 16.408 20.782C16.784 20.59 17.09 20.284 17.282 19.908C17.5 19.48 17.5 18.92 17.5 17.8V9.7C17.5 8.58 17.5 8.02 17.282 7.592C17.09 7.216 16.784 6.91 16.408 6.718C15.98 6.5 15.42 6.5 14.3 6.5H6.2C5.08 6.5 4.52 6.5 4.092 6.718C3.716 6.91 3.41 7.216 3.218 7.592C3 8.02 3 8.58 3 9.7V17.8C3 18.92 3 19.48 3.218 19.908C3.41 20.284 3.716 20.59 4.092 20.782C4.52 21 5.08 21 6.2 21Z"/></svg>`;
 		const renderLine = (line) => {
-			const escaped = frappe.utils.escape_html(line).replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
-			const m = line.match(/^([^:]+): (.+)$/);
+			const trimmed = line.trim();
+			const escaped = frappe.utils.escape_html(trimmed).replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
+			const m = trimmed.match(/^([^:]+): (.+)$/);
 			if (m) {
-				const rawKey  = m[1];
-				const rawVal  = m[2];
+				const rawKey  = m[1].trim();
+				const rawVal  = m[2].trim();
 				const safeKey = frappe.utils.escape_html(rawKey);
 				const safeVal = frappe.utils.escape_html(rawVal);
 
@@ -731,7 +732,13 @@ class SupportDashboardChat {
 				const dashIdx = rawVal.indexOf(' - ');
 				const copyVal = dashIdx !== -1 ? rawVal.slice(0, dashIdx) : rawVal;
 
-				return `${safeKey}: <span class="sd-copy-wrap">${safeVal}<button class="sd-copy-btn" data-copy="${frappe.utils.escape_html(copyVal)}" title="Copy">${_COPY_ICON}</button></span>`;
+				const copyBtn = `<span class="sd-copy-wrap">${safeVal}<button class="sd-copy-btn" data-copy="${frappe.utils.escape_html(copyVal)}" title="Copy">${_COPY_ICON}</button></span>`;
+
+				if (rawKey === 'Replace Against') {
+					return `<div class="sd-replace-against-tag"><span class="sd-replace-icon">🔄</span> <b>${safeKey}:</b> ${copyBtn}</div>`;
+				}
+
+				return `${safeKey}: ${copyBtn}`;
 			}
 			return escaped;
 		};
@@ -757,19 +764,27 @@ class SupportDashboardChat {
 		let activeSection = null;
 		const flushSection = () => {
 			if (!activeSection) return;
-			const className = activeSection.type === 'installed' ? 'sd-update-installed' : 'sd-update-removed';
+			let className = 'sd-update-item';
+			if (activeSection.type === 'installed') className = 'sd-update-installed';
+			else if (activeSection.type === 'removed') className = 'sd-update-removed';
+
 			appendPart(`<div class="sd-update-section ${className}">${activeSection.lines.join('')}</div>`, 'section');
 			activeSection = null;
 		};
 
 		content.split('\n').forEach((line) => {
-			if (!line.trim()) return;
+			const trimmed = line.trim();
+			if (!trimmed) return;
 
-			if (line === 'Installed:' || line === 'Removed:') {
+			if (trimmed === 'Installed:' || trimmed === 'Removed:' || trimmed === 'Item:' || trimmed === 'Replaced:') {
 				flushSection();
+				let type = 'item';
+				if (trimmed === 'Installed:') type = 'installed';
+				else if (trimmed === 'Removed:') type = 'removed';
+
 				activeSection = {
-					type: line === 'Installed:' ? 'installed' : 'removed',
-					lines: [`<div class="sd-update-section-title">${frappe.utils.escape_html(line)}</div>`],
+					type: type,
+					lines: [`<div class="sd-update-section-title">${frappe.utils.escape_html(trimmed)}</div>`],
 				};
 				return;
 			}
@@ -1224,6 +1239,32 @@ class SupportDashboardChat {
 			background: #fee2e2;
 			border-color: #fca5a5;
 			color: #7f1d1d;
+		}
+		.sd-update-item {
+			background: #f1f5f9;
+			border-color: #cbd5e1;
+			color: #1e293b;
+		}
+		.sd-update-section.sd-update-item .sd-update-section-title {
+			color: #334155;
+		}
+		.sd-replace-against-tag {
+			display: inline-flex;
+			align-items: center;
+			gap: 4px;
+			margin: 3px 0 2px 0;
+			padding: 2px 8px;
+			background: #fef9c3;
+			border: 1px solid #fde047;
+			color: #854d0e;
+			border-radius: 4px;
+			font-size: 11px;
+			font-weight: 500;
+			line-height: 1.4;
+		}
+		.sd-replace-icon {
+			font-size: 11px;
+			vertical-align: middle;
 		}
 		.sd-bubble-time { font-size: 10px; color: var(--text-muted); margin-top: 3px; }
 		.sd-time-right  { text-align: right; }

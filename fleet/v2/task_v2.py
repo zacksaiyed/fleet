@@ -3785,7 +3785,7 @@ def update_job(
         job_doc,
         employee,
         changed_scalars,
-        set_items,
+        set_items if set_items is not None else (replaced_items if replaced_items is not None else None),
     )
 
     response = {
@@ -4174,25 +4174,31 @@ def _post_job_update_message(job_doc, employee, changed_scalars: dict, set_items
             fields=["item", "item_type"]
         )
         if veh_items:
-            lines.append("")
-            lines.append("Item:")
-            for idx, row in enumerate(veh_items):
-                if idx > 0:
-                    lines.append("")
-                item_type = row.item_type or "Item"
-                item_code = row.item or "—"
-                brand     = frappe.db.get_value("Item", item_code, "brand") or "—"
-                if item_type == "SIM":
-                    details = frappe.db.get_value("Item", item_code, ["custom_sim_type", "custom_serial_no", "custom_mobile_number"], as_dict=True) or {}
-                    sim_type = details.get("custom_sim_type") or "—"
-                    serial_no = details.get("custom_serial_no") or "—"
-                    mobile_no = details.get("custom_mobile_number") or "—"
-                    lines.append(f"  {item_type}: {item_code} - {brand}")
-                    # lines.append(f"  SIM Serial No: {serial_no}")
-                    lines.append(f"  SIM Mobile No: {mobile_no}")
-                    lines.append(f"  SIM Type: {sim_type}")
-                else:
-                    lines.append(f"  {item_type}: {item_code} - {brand}")
+            # Exclude items that are being removed or replaced in this job
+            removed_codes = {
+                r.item for r in (job_doc.item_installed_removed or [])
+                if r.installed_or_removed == "Removed" and r.item
+            }
+            display_veh_items = [vi for vi in veh_items if vi.item not in removed_codes]
+            if display_veh_items:
+                lines.append("")
+                lines.append("Item:")
+                for idx, row in enumerate(display_veh_items):
+                    if idx > 0:
+                        lines.append("")
+                    item_type = row.item_type or "Item"
+                    item_code = row.item or "—"
+                    brand     = frappe.db.get_value("Item", item_code, "brand") or "—"
+                    if item_type == "SIM":
+                        details = frappe.db.get_value("Item", item_code, ["custom_sim_type", "custom_serial_no", "custom_mobile_number"], as_dict=True) or {}
+                        sim_type = details.get("custom_sim_type") or "—"
+                        serial_no = details.get("custom_serial_no") or "—"
+                        mobile_no = details.get("custom_mobile_number") or "—"
+                        lines.append(f"  {item_type}: {item_code} - {brand}")
+                        lines.append(f"  SIM Mobile No: {mobile_no}")
+                        lines.append(f"  SIM Type: {sim_type}")
+                    else:
+                        lines.append(f"  {item_type}: {item_code} - {brand}")
 
     if set_items is not None:
         installed_items = [r for r in job_doc.item_installed_removed if r.installed_or_removed == "Installed"]
@@ -4213,11 +4219,15 @@ def _post_job_update_message(job_doc, employee, changed_scalars: dict, set_items
                     serial_no = details.get("custom_serial_no") or "—"
                     mobile_no = details.get("custom_mobile_number") or "—"
                     lines.append(f"  {item_type}: {item_code} - {brand}")
-                    # lines.append(f"  SIM Serial No: {serial_no}")
                     lines.append(f"  SIM Mobile No: {mobile_no}")
                     lines.append(f"  SIM Type: {sim_type}")
                 else:
                     lines.append(f"  {item_type}: {item_code} - {brand}")
+
+                if getattr(row, "replace_against", None):
+                    rep_code = row.replace_against
+                    rep_brand = frappe.db.get_value("Item", rep_code, "brand") or "—"
+                    lines.append(f"  Replace Against: {rep_code} - {rep_brand}")
 
         if hasattr(job_doc, "removal_items") and job_doc.removal_items:
             lines.append("")
