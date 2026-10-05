@@ -54,6 +54,11 @@ class Job(Document):
 			for row in self.item_installed_removed:
 				if self.task_type != "Checkup" or row.installed_or_removed != "Installed":
 					row.replace_against = None
+				if row.installed_or_removed == "Removed":
+					row.replace_against = None
+					row.is_chargeable = 0
+					row.chargeable_reason = None
+					row.chargeable_reason_description = None
 
 				if row.item:
 					item_data = frappe.db.get_value("Item", row.item, ["custom_mac_id", "custom_mobile_number", "custom_item_type"], as_dict=True)
@@ -168,6 +173,66 @@ class Job(Document):
 				self._handle_warehouse_movement()
 
 			self._unlock_completed_job_items()
+
+		self._post_chat_message_on_update()
+
+	def _post_chat_message_on_update(self):
+		if getattr(self.flags, "from_mobile_api", False) or getattr(self.flags, "skip_chat_message", False):
+			return
+
+		doc_before = self.get_doc_before_save()
+		if not doc_before:
+			return
+
+		# Check if items changed
+		before_items = [
+			(r.item, r.installed_or_removed, getattr(r, "replace_against", None))
+			for r in (doc_before.item_installed_removed or [])
+		]
+		after_items = [
+			(r.item, r.installed_or_removed, getattr(r, "replace_against", None))
+			for r in (self.item_installed_removed or [])
+		]
+		items_changed = (before_items != after_items) and bool(self.item_installed_removed)
+
+		before_swap_items = [
+			(r.items, getattr(r, "source", None))
+			for r in (doc_before.get("items") or [])
+		]
+		after_swap_items = [
+			(r.items, getattr(r, "source", None))
+			for r in (self.get("items") or [])
+		]
+		swap_items_changed = (before_swap_items != after_swap_items) and bool(self.get("items"))
+		if self.task_type == "Swap":
+			items_changed = items_changed or swap_items_changed
+
+		# Check if scalars changed
+		scalar_fields = ["vehicle_number", "make", "model", "color", "type"]
+		if self.task_type == "Swap":
+			scalar_fields.extend(["new_vehicle_number", "swap_make", "swap_model", "swap_color", "swap_type"])
+
+		changed_scalars = {}
+		for f in scalar_fields:
+			b_val = getattr(doc_before, f, None) or ""
+			a_val = getattr(self, f, None) or ""
+			if str(b_val).strip() != str(a_val).strip() and a_val:
+				changed_scalars[f] = a_val
+
+		if not items_changed and not changed_scalars:
+			return
+
+		try:
+			from fleet.v2.task_v2 import _post_job_update_message
+			_post_job_update_message(
+				self,
+				employee=self.assigned_technician,
+				changed_scalars=changed_scalars,
+				set_items=True if items_changed else None,
+			)
+		except Exception as e:
+			frappe.log_error(title="Auto Chat Message Error", message=frappe.get_traceback())
+
 	def on_trash(self):
 		if self.task:
 			frappe.db.delete("Task Job", {"job": self.name, "parent": self.task})
@@ -473,9 +538,15 @@ class Job(Document):
 			if row.items
 		]
 
+		tech_items_to_install = [
+			row
+			for row in items_to_install
+			if getattr(row, "source", None) == "Technician"
+			or (getattr(row, "source", None) != "Old Vehicle" and row.items not in old_vehicle_items)
+		]
 
-		if items_to_install:
-			for row in items_to_install:
+		if tech_items_to_install:
+			for row in tech_items_to_install:
 				actual_qty = frappe.db.get_value(
 					"Bin",
 					{
@@ -509,7 +580,7 @@ class Job(Document):
 						"s_warehouse": self.technician_warehouse,
 						"t_warehouse": self.customer_warehouse,
 					}
-					for row in items_to_install
+					for row in tech_items_to_install
 				],
 			})
 
@@ -518,6 +589,7 @@ class Job(Document):
 			)
 			install_stock_entry.submit()
 
+		if items_to_install:
 			from fleet.custom_py.item_warehouse import update_item_warehouse
 
 			for row in items_to_install:

@@ -1565,6 +1565,11 @@ def _post_job_update_message(job_doc, employee, changed_scalars: dict, set_items
                 else:
                     lines.append(f"  {item_type}: {item_code} - {brand}")
 
+                if job_doc.task_type == "Checkup" and getattr(row, "replace_against", None):
+                    rep_code = row.replace_against
+                    rep_brand = frappe.db.get_value("Item", rep_code, "brand") or "—"
+                    lines.append(f"  Replace Against: {rep_code} - {rep_brand}")
+
         if removed_items:
             lines.append("")
             lines.append("Removed:")
