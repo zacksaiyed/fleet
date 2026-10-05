@@ -2240,6 +2240,8 @@ def update_job(
     asset_mapping=None,
     new_assets=None,
     replaced_items=None,
+    swap_vehicle_number: str | None = None,
+    **kwargs
 ) -> dict:
 
     """
@@ -2470,6 +2472,8 @@ def update_job(
             )
 
         # NEW VEHICLE NUMBER
+        if new_vehicle_number is None:
+            new_vehicle_number = swap_vehicle_number or kwargs.get("swap_vehicle_number")
 
         if new_vehicle_number is not None:
 

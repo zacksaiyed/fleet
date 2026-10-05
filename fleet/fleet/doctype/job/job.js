@@ -454,6 +454,8 @@ frappe.ui.form.on("Job", {
 				const editable = new Set([
 					"vehicle_number", "make", "model", "color", "type",
 					"item_installed_removed", "job_images",
+					"new_vehicle_number", "swap_make", "swap_model", "swap_color", "swap_type", "items",
+					"removal_items",
 				]);
 				frm.fields.forEach(f => {
 					if (!editable.has(f.df.fieldname)) {
