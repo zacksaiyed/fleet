@@ -4235,6 +4235,43 @@ def _post_job_update_message(job_doc, employee, changed_scalars: dict, set_items
         if veh_type:
             lines.append(f"Type: {veh_type}")
 
+        # Old Vehicle Installed Items
+        if old_veh and frappe.db.exists("Vehicle", old_veh):
+            veh_items = frappe.db.get_all(
+                "Vehicle Item",
+                filters={"parent": old_veh, "status": "Installed"},
+                fields=["item", "item_type"]
+            )
+            old_veh_codes = {vi.item for vi in veh_items if vi.item}
+            for row in (job_doc.get("items") or []):
+                if getattr(row, "source", None) == "Old Vehicle" and row.items and row.items not in old_veh_codes:
+                    veh_items.append(frappe._dict({"item": row.items, "item_type": row.item_type}))
+                    old_veh_codes.add(row.items)
+            for row in (job_doc.get("item_installed_removed") or []):
+                if row.installed_or_removed == "Removed" and row.item and row.item not in old_veh_codes:
+                    veh_items.append(frappe._dict({"item": row.item, "item_type": row.item_type}))
+                    old_veh_codes.add(row.item)
+
+            if veh_items:
+                lines.append("")
+                lines.append("Item:")
+                for idx, row in enumerate(veh_items):
+                    if idx > 0:
+                        lines.append("")
+                    item_type = row.item_type or "Item"
+                    item_code = row.item or "—"
+                    brand     = frappe.db.get_value("Item", item_code, "brand") or "—"
+                    if item_type == "SIM":
+                        details = frappe.db.get_value("Item", item_code, ["custom_sim_type", "custom_serial_no", "custom_mobile_number"], as_dict=True) or {}
+                        sim_type = details.get("custom_sim_type") or "—"
+                        serial_no = details.get("custom_serial_no") or "—"
+                        mobile_no = details.get("custom_mobile_number") or "—"
+                        lines.append(f"  {item_type}: {item_code} - {brand}")
+                        lines.append(f"  SIM Mobile No: {mobile_no}")
+                        lines.append(f"  SIM Type: {sim_type}")
+                    else:
+                        lines.append(f"  {item_type}: {item_code} - {brand}")
+
         # New Vehicle section
         lines.append("")
         new_veh = job_doc.new_vehicle_number or changed_scalars.get("new_vehicle_number") or ""

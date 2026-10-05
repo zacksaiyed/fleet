@@ -787,7 +787,11 @@ class SupportDashboardChat {
 			const trimmed = line.trim();
 			if (!trimmed) return;
 
-			if (trimmed === 'Installed:' || trimmed === 'Removed:' || trimmed === 'Item:' || trimmed === 'Replaced:') {
+			if (trimmed.startsWith('New Vehicle:') || trimmed.startsWith('Old Vehicle:')) {
+				flushSection();
+			}
+
+			if (trimmed === 'Installed:' || trimmed === 'Removed:' || trimmed === 'Item:' || trimmed === 'Items:' || trimmed === 'Replaced:') {
 				flushSection();
 				let type = 'item';
 				if (trimmed === 'Installed:') type = 'installed';
