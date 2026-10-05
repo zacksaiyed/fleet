@@ -538,9 +538,15 @@ class Job(Document):
 			if row.items
 		]
 
+		tech_items_to_install = [
+			row
+			for row in items_to_install
+			if getattr(row, "source", None) == "Technician"
+			or (getattr(row, "source", None) != "Old Vehicle" and row.items not in old_vehicle_items)
+		]
 
-		if items_to_install:
-			for row in items_to_install:
+		if tech_items_to_install:
+			for row in tech_items_to_install:
 				actual_qty = frappe.db.get_value(
 					"Bin",
 					{
@@ -574,7 +580,7 @@ class Job(Document):
 						"s_warehouse": self.technician_warehouse,
 						"t_warehouse": self.customer_warehouse,
 					}
-					for row in items_to_install
+					for row in tech_items_to_install
 				],
 			})
 
@@ -583,6 +589,7 @@ class Job(Document):
 			)
 			install_stock_entry.submit()
 
+		if items_to_install:
 			from fleet.custom_py.item_warehouse import update_item_warehouse
 
 			for row in items_to_install:

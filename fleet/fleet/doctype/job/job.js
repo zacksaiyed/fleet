@@ -183,6 +183,19 @@ frappe.ui.form.on("Removal Items", {
 	},
 });
 
+frappe.ui.form.on("Job Image", {
+	image(frm, cdt, cdn) {
+		render_job_images(frm);
+		if (!frm.is_new()) {
+			frappe.db.get_value("Job", frm.doc.name, "modified", (r) => {
+				if (r && r.modified) {
+					frm.doc.modified = r.modified;
+				}
+			});
+		}
+	},
+});
+
 function _attachVehicleNumberMask(frm) {
 	const field = frm.get_field("vehicle_number");
 	// if (e.key === " ") { e.preventDefault(); return; }
@@ -237,6 +250,16 @@ function _attachVehicleNumberMask(frm) {
 }
 
 frappe.ui.form.on("Job", {
+	before_save(frm) {
+		if (!frm.is_new()) {
+			return frappe.db.get_value("Job", frm.doc.name, "modified").then((r) => {
+				if (r && r.message && r.message.modified) {
+					frm.doc.modified = r.message.modified;
+				}
+			});
+		}
+	},
+
 	onload_post_render(frm) {
 		_toggle_replace_against(frm);
 	},
