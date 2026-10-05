@@ -724,7 +724,7 @@ class SupportDashboardChat {
 				const rawKey  = m[1].trim();
 				const rawVal  = m[2].trim();
 				const safeKey = frappe.utils.escape_html(rawKey);
-				const safeVal = frappe.utils.escape_html(rawVal);
+				let safeVal   = frappe.utils.escape_html(rawVal);
 
 				if (_NO_COPY.has(rawKey)) return `${safeKey}: ${safeVal}`;
 
@@ -732,10 +732,21 @@ class SupportDashboardChat {
 				const dashIdx = rawVal.indexOf(' - ');
 				const copyVal = dashIdx !== -1 ? rawVal.slice(0, dashIdx) : rawVal;
 
+				// Format source and destination tags like (Old Vehicle), (Technician), (Customer)
+				safeVal = safeVal.replace(/\((Old Vehicle)\)/g, '<span class="sd-source-tag sd-source-old">Old Vehicle</span>')
+				                 .replace(/\((Technician)\)/g, '<span class="sd-source-tag sd-source-tech">Technician</span>')
+				                 .replace(/\((Customer)\)/g, '<span class="sd-source-tag sd-source-customer">Customer</span>');
+
 				const copyBtn = `<span class="sd-copy-wrap">${safeVal}<button class="sd-copy-btn" data-copy="${frappe.utils.escape_html(copyVal)}" title="Copy">${_COPY_ICON}</button></span>`;
 
 				if (rawKey === 'Replace Against') {
 					return `<div class="sd-replace-against-tag"><span class="sd-replace-icon">🔄</span> <b>${safeKey}:</b> ${copyBtn}</div>`;
+				}
+				if (rawKey === 'Old Vehicle') {
+					return `<div class="sd-veh-heading">🚗 <b>${safeKey}:</b> ${copyBtn}</div>`;
+				}
+				if (rawKey === 'New Vehicle') {
+					return `<div class="sd-veh-heading">🚙 <b>${safeKey}:</b> ${copyBtn}</div>`;
 				}
 
 				return `${safeKey}: ${copyBtn}`;
@@ -1265,6 +1276,55 @@ class SupportDashboardChat {
 		.sd-replace-icon {
 			font-size: 11px;
 			vertical-align: middle;
+		}
+		.sd-veh-heading {
+			font-weight: 600;
+			color: #0f172a;
+			margin-top: 5px;
+			margin-bottom: 2px;
+		}
+		.sd-source-tag {
+			display: inline-block;
+			padding: 1px 6px;
+			font-size: 10px;
+			font-weight: 600;
+			border-radius: 4px;
+			margin-left: 6px;
+			vertical-align: middle;
+			letter-spacing: 0.2px;
+		}
+		.sd-source-old {
+			background: #e0f2fe;
+			color: #0369a1;
+			border: 1px solid #bae6fd;
+		}
+		.sd-source-tech {
+			background: #f3e8ff;
+			color: #7e22ce;
+			border: 1px solid #e9d5ff;
+		}
+		.sd-source-customer {
+			background: #fef3c7;
+			color: #b45309;
+			border: 1px solid #fde68a;
+		}
+		[data-theme="dark"] .sd-veh-heading {
+			color: #f1f5f9;
+		}
+		[data-theme="dark"] .sd-source-old {
+			background: #082f49;
+			color: #38bdf8;
+			border-color: #0c4a6e;
+		}
+		[data-theme="dark"] .sd-source-tech {
+			background: #3b0764;
+			color: #c084fc;
+			border-color: #581c87;
+		}
+		[data-theme="dark"] .sd-source-customer {
+			background: #451a03;
+			color: #fcd34d;
+			border-color: #78350f;
 		}
 		.sd-bubble-time { font-size: 10px; color: var(--text-muted); margin-top: 3px; }
 		.sd-time-right  { text-align: right; }
