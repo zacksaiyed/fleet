@@ -187,7 +187,15 @@ frappe.ui.form.on("Removal Items", {
 	destination(frm, cdt, cdn) {
 		const row = locals[cdt][cdn];
 		if (!row) return;
-		frappe.model.set_value(cdt, cdn, "warehouse", frm.doc.technician_warehouse || "");
+		if (frm.doc.task_type === "Removal") {
+			frappe.model.set_value(cdt, cdn, "warehouse", frm.doc.technician_warehouse || "");
+		} else {
+			if (row.destination === "Customer") {
+				frappe.model.set_value(cdt, cdn, "warehouse", frm.doc.customer_warehouse || "");
+			} else {
+				frappe.model.set_value(cdt, cdn, "warehouse", frm.doc.technician_warehouse || "");
+			}
+		}
 		if (row.destination !== "Customer") {
 			frappe.model.set_value(cdt, cdn, "removal_reason", "");
 		}
@@ -224,7 +232,10 @@ frappe.ui.form.on("Job Item", {
 			const rem_row = frm.doc.removal_items.find(r => r.item === row.item);
 			if (rem_row) {
 				frappe.model.set_value(rem_row.doctype, rem_row.name, "destination", row.destination);
-				frappe.model.set_value(rem_row.doctype, rem_row.name, "warehouse", frm.doc.technician_warehouse || "");
+				const wh = frm.doc.task_type === "Removal"
+					? frm.doc.technician_warehouse
+					: (row.destination === "Customer" ? frm.doc.customer_warehouse : frm.doc.technician_warehouse);
+				frappe.model.set_value(rem_row.doctype, rem_row.name, "warehouse", wh || "");
 				if (row.destination !== "Customer") {
 					frappe.model.set_value(rem_row.doctype, rem_row.name, "removal_reason", "");
 				}

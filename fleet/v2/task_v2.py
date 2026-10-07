@@ -3624,7 +3624,14 @@ def update_job(
                 )
             ):
                 final_dest = dest or "Technician"
-                final_wh = job_doc.technician_warehouse
+                if job_doc.task_type == "Removal":
+                    final_wh = job_doc.technician_warehouse
+                else:
+                    final_wh = dest_wh or (
+                        job_doc.customer_warehouse
+                        if final_dest == "Customer"
+                        else job_doc.technician_warehouse
+                    )
                 job_doc.append(
                     "removal_items",
                     {
