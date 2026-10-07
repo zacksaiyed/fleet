@@ -787,7 +787,7 @@ class SupportDashboardChat {
 			const trimmed = line.trim();
 			if (!trimmed) return;
 
-			if (trimmed.startsWith('New Vehicle:') || trimmed.startsWith('Old Vehicle:')) {
+			if (trimmed.startsWith('New Vehicle:') || trimmed.startsWith('Old Vehicle:') || trimmed.startsWith('Vehicle:')) {
 				flushSection();
 			}
 
@@ -1256,12 +1256,12 @@ class SupportDashboardChat {
 			color: #7f1d1d;
 		}
 		.sd-update-item {
-			background: #f1f5f9;
-			border-color: #cbd5e1;
-			color: #1e293b;
+			background: #eff6ff;
+			border-color: #bfdbfe;
+			color: #1e3a8a;
 		}
 		.sd-update-section.sd-update-item .sd-update-section-title {
-			color: #334155;
+			color: #1d4ed8;
 		}
 		.sd-replace-against-tag {
 			display: inline-flex;
