@@ -4272,6 +4272,19 @@ def _post_job_update_message(job_doc, employee, changed_scalars: dict, set_items
                     else:
                         lines.append(f"  {item_type}: {item_code} - {brand}")
 
+        # Items removed from Old Vehicle (from job_doc.item_installed_removed where installed_or_removed == "Removed")
+        removed_items = [r for r in (job_doc.item_installed_removed or []) if r.installed_or_removed == "Removed" and r.item]
+        if removed_items:
+            lines.append("")
+            lines.append("Removed:")
+            for idx, row in enumerate(removed_items):
+                if idx > 0:
+                    lines.append("")
+                item_type = row.item_type or "Item"
+                item_code = row.item or "—"
+                brand     = row.brand or "—"
+                lines.append(f"  {item_type}: {item_code} - {brand}")
+
         # New Vehicle section
         lines.append("")
         new_veh = job_doc.new_vehicle_number or changed_scalars.get("new_vehicle_number") or ""
@@ -4311,19 +4324,6 @@ def _post_job_update_message(job_doc, employee, changed_scalars: dict, set_items
                     lines.append(f"  SIM Type: {sim_type}")
                 else:
                     lines.append(f"  {item_type}: {item_code} - {brand}{source_str}")
-
-        # Items removed from Old Vehicle (from job_doc.item_installed_removed where installed_or_removed == "Removed")
-        removed_items = [r for r in (job_doc.item_installed_removed or []) if r.installed_or_removed == "Removed"]
-        if removed_items:
-            lines.append("")
-            lines.append("Removed:")
-            for idx, row in enumerate(removed_items):
-                if idx > 0:
-                    lines.append("")
-                item_type = row.item_type or "Item"
-                item_code = row.item or "—"
-                brand     = row.brand or "—"
-                lines.append(f"  {item_type}: {item_code} - {brand}")
 
     else:
         for field, label in _SCALAR_LABELS.items():
@@ -4388,11 +4388,6 @@ def _post_job_update_message(job_doc, employee, changed_scalars: dict, set_items
                         lines.append(f"  SIM Type: {sim_type}")
                     else:
                         lines.append(f"  {item_type}: {item_code} - {brand}")
-
-                    if job_doc.task_type == "Checkup" and getattr(row, "replace_against", None):
-                        rep_code = row.replace_against
-                        rep_brand = frappe.db.get_value("Item", rep_code, "brand") or "—"
-                        lines.append(f"  Replace Against: {rep_code} - {rep_brand}")
 
             if hasattr(job_doc, "removal_items") and job_doc.removal_items:
                 lines.append("")
