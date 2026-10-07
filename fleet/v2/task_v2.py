@@ -732,6 +732,7 @@ def get_job(job: str) -> dict:
             "is_chargeable":       r.get("is_chargeable", 0) or 0,
             "chargeable_reason":   r.get("chargeable_reason"),
             "chargeable_reason_description": r.get("chargeable_reason_description"),
+            "removal_reason":      r.get("removal_reason") if job_doc.task_type == "Removal" else None,
         }
 
         extra_field = _TYPE_EXTRA.get(key)
@@ -2297,7 +2298,8 @@ def update_job(
             {
                 "item": "SIM-0001",
                 "installed_or_removed": "Removed",
-                "destination": "Customer"
+                "destination": "Customer",
+				"removal_reason":""
             }
         ]
     }
@@ -3562,6 +3564,9 @@ def update_job(
                     "replace_against":
                         raw_replace if (job_doc.task_type == "Checkup" and inst_or_rem == "Installed") else None,
 
+                    "removal_reason":
+                        ((row.get("removal_reason") or "").strip() or None) if job_doc.task_type == "Removal" else None,
+
                     "is_chargeable":
                         (1 if inst_or_rem == "Installed" else 0) if (job_doc.task_type in ("Installation", "Accessory", "Swap")) else ((1 if str(row.get("is_chargeable", "")).strip().lower() in ("1", "true", "yes", "on") else 0) if ("is_chargeable" in row and str(row.get("is_chargeable", "")).strip() != "") else ((1 if getattr(job_doc, "is_chargeable", 0) else 0) if (job_doc.task_type == "Re-Installation" and inst_or_rem == "Installed") else 0)),
 
@@ -3897,6 +3902,7 @@ def update_job(
                 "installed_or_removed": r.installed_or_removed,
                 "replace_against": getattr(r, "replace_against", None),
                 "replace_item": getattr(r, "replace_against", None),
+                "removal_reason": getattr(r, "removal_reason", None) if job_doc.task_type == "Removal" else None,
                 "is_chargeable": getattr(r, "is_chargeable", 0),
                 "chargeable_reason": getattr(r, "chargeable_reason", None),
                 "chargeable_reason_description": getattr(r, "chargeable_reason_description", None),
@@ -4447,6 +4453,9 @@ def _post_job_update_message(job_doc, employee, changed_scalars: dict, set_items
                     brand     = row.brand or "—"
                     dest_str  = f" ({row.destination})" if row.destination else ""
                     lines.append(f"  {item_type}: {item_code} - {brand}{dest_str}")
+                    reason = next((r.removal_reason for r in (job_doc.item_installed_removed or []) if r.item == row.item and getattr(r, "removal_reason", None)), None)
+                    if reason:
+                        lines.append(f"  Removal Reason: {reason}")
             elif removed_items:
                 lines.append("")
                 lines.append("Removed:")
@@ -4457,6 +4466,8 @@ def _post_job_update_message(job_doc, employee, changed_scalars: dict, set_items
                     item_code = row.item or "—"
                     brand     = row.brand or "—"
                     lines.append(f"  {item_type}: {item_code} - {brand}")
+                    if getattr(row, "removal_reason", None):
+                        lines.append(f"  Removal Reason: {row.removal_reason}")
 
     if len(lines) == 1:   # only "Updated" header, nothing to report
         return

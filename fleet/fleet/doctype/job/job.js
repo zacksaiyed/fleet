@@ -2,6 +2,9 @@ frappe.dom.set_style(`
 	.hide-replace-against [data-fieldname="replace_against"] {
 		display: none !important;
 	}
+	.hide-removal-reason [data-fieldname="removal_reason"] {
+		display: none !important;
+	}
 `);
 
 frappe.ui.form.on("Job Item", {
@@ -61,6 +64,9 @@ frappe.ui.form.on("Job Item", {
 		if (frm.doc.task_type !== "Checkup" || row.installed_or_removed !== "Installed") {
 			frappe.model.set_value(cdt, cdn, "replace_against", null);
 		}
+		if (frm.doc.task_type !== "Removal") {
+			frappe.model.set_value(cdt, cdn, "removal_reason", null);
+		}
 	},
 	item_installed_removed_add(frm, cdt, cdn) {
 		if (frm.doc.task_type === "Removal") {
@@ -72,6 +78,9 @@ frappe.ui.form.on("Job Item", {
 		}
 		if (frm.doc.task_type !== "Checkup") {
 			frappe.model.set_value(cdt, cdn, "replace_against", null);
+		}
+		if (frm.doc.task_type !== "Removal") {
+			frappe.model.set_value(cdt, cdn, "removal_reason", null);
 		}
 	},
 	item_installed_removed_remove(frm, cdt, cdn) {
@@ -129,6 +138,9 @@ frappe.ui.form.on("Job Item", {
 
 		if (val !== "Installed" || frm.doc.task_type !== "Checkup") {
 			frappe.model.set_value(cdt, cdn, "replace_against", null);
+		}
+		if (frm.doc.task_type !== "Removal") {
+			frappe.model.set_value(cdt, cdn, "removal_reason", null);
 		}
 
 		frappe.model.set_value(cdt, cdn, "item", null);
@@ -262,6 +274,7 @@ frappe.ui.form.on("Job", {
 
 	onload_post_render(frm) {
 		_toggle_replace_against(frm);
+		_toggle_removal_reason(frm);
 	},
 
 	refresh(frm) {
@@ -278,6 +291,12 @@ frappe.ui.form.on("Job", {
 			});
 		}
 
+		if (frm.doc.task_type !== "Removal") {
+			(frm.doc.item_installed_removed || []).forEach(row => {
+				row.removal_reason = null;
+			});
+		}
+
 		if (frm.is_new()) {
 			if (!["Checkup", "Re-Installation", "Removal"].includes(frm.doc.task_type)) {
 				frm.set_value("is_chargeable", 1);
@@ -291,6 +310,7 @@ frappe.ui.form.on("Job", {
 		frm.toggle_display("chargeable_reason", is_reinstall && !!frm.doc.is_chargeable);
 		frm.toggle_display("chargeable_reason_description", is_reinstall && !!frm.doc.is_chargeable);
 		_toggle_replace_against(frm);
+		_toggle_removal_reason(frm);
 
 		if (["Installation", "Accessory"].includes(frm.doc.task_type)) {
 			frm.set_value("is_chargeable", 1);
@@ -574,7 +594,14 @@ frappe.ui.form.on("Job", {
 			});
 			frm.refresh_field("item_installed_removed");
 		}
+		if (frm.doc.task_type !== "Removal") {
+			(frm.doc.item_installed_removed || []).forEach(row => {
+				row.removal_reason = null;
+			});
+			frm.refresh_field("item_installed_removed");
+		}
 		_toggle_replace_against(frm);
+		_toggle_removal_reason(frm);
 
 		if (["Installation", "Accessory"].includes(frm.doc.task_type)) {
 			frm.set_value("is_chargeable", 1);
@@ -1221,6 +1248,75 @@ function _toggle_replace_against(frm) {
 		}
 	} finally {
 		frm._toggling_replace_against = false;
+	}
+}
+
+function _toggle_removal_reason(frm) {
+	if (frm._toggling_removal_reason) return;
+	frm._toggling_removal_reason = true;
+	try {
+		const grid = frm.fields_dict.item_installed_removed && frm.fields_dict.item_installed_removed.grid;
+		const $wrapper = frm.fields_dict.item_installed_removed && frm.fields_dict.item_installed_removed.$wrapper;
+		const is_removal = frm.doc.task_type === "Removal";
+
+		if ($wrapper) {
+			$wrapper.toggleClass("hide-removal-reason", !is_removal);
+		}
+
+		if (!grid) return;
+
+		// 1. Update docfield properties on the grid and meta
+		grid.update_docfield_property("removal_reason", "hidden", is_removal ? 0 : 1);
+		grid.update_docfield_property("removal_reason", "in_list_view", is_removal ? 1 : 0);
+
+		const df_meta = frappe.meta.get_docfield("Job Item", "removal_reason", frm.doc.name);
+		if (df_meta) {
+			df_meta.hidden = is_removal ? 0 : 1;
+			df_meta.in_list_view = is_removal ? 1 : 0;
+		}
+
+		// 2. Handle user_defined_columns (from UserSettings GridView)
+		if (!is_removal) {
+			if (grid.user_defined_columns && grid.user_defined_columns.length) {
+				grid.user_defined_columns = grid.user_defined_columns.filter(
+					col => col.fieldname !== "removal_reason"
+				);
+			}
+		} else {
+			if (grid.user_defined_columns && grid.user_defined_columns.length) {
+				const exists = grid.user_defined_columns.some(col => col.fieldname === "removal_reason");
+				if (!exists) {
+					const col_df = (grid.docfields || []).find(d => d.fieldname === "removal_reason")
+						|| frappe.meta.get_docfield("Job Item", "removal_reason");
+					if (col_df) {
+						col_df.hidden = 0;
+						col_df.in_list_view = 1;
+						col_df.columns = 3;
+						grid.user_defined_columns.push(col_df);
+					}
+				}
+			}
+		}
+
+		// 3. Rebuild visible columns if state changed
+		const has_col = (grid.visible_columns || []).some(
+			c => c[0] && c[0].fieldname === "removal_reason"
+		);
+
+		if (is_removal !== has_col) {
+			grid.visible_columns = null;
+			grid.setup_visible_columns();
+			grid.reset_grid();
+		}
+
+		// 4. Force DOM visibility
+		if (!is_removal) {
+			grid.wrapper.find('[data-fieldname="removal_reason"]').hide();
+		} else {
+			grid.wrapper.find('[data-fieldname="removal_reason"]').show();
+		}
+	} finally {
+		frm._toggling_removal_reason = false;
 	}
 }
 

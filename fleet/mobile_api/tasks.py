@@ -1200,6 +1200,7 @@ def update_job(
                 "item_type":            fetched.custom_item_type,
                 "brand":                fetched.brand,
                 "installed_or_removed": r.get("installed_or_removed", "Installed"),
+                "removal_reason":       ((r.get("removal_reason") or "").strip() or None) if job_doc.task_type == "Removal" else None,
             })
 
         # First item update advances job from Pending → In Progress
@@ -1618,6 +1619,8 @@ def _post_job_update_message(job_doc, employee, changed_scalars: dict, set_items
                 item_code = row.item or "—"
                 brand     = row.brand or "—"
                 lines.append(f"  {item_type}: {item_code} - {brand}")
+                if getattr(row, "removal_reason", None):
+                    lines.append(f"  Removal Reason: {row.removal_reason}")
 
     if len(lines) == 1:   # only "Updated" header, nothing to report
         return

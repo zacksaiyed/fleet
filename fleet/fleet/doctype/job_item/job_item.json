@@ -13,6 +13,7 @@
   "brand",
   "custom_device_id",
   "replace_against",
+  "removal_reason",
   "is_chargeable",
   "chargeable_reason",
   "chargeable_reason_description"
@@ -76,6 +77,16 @@
    "label": "Replace Against",
    "options": "Item",
    "read_only_depends_on": "eval:doc.installed_or_removed!=\"Installed\" || parent.task_type!=\"Checkup\""
+  },
+  {
+   "columns": 3,
+   "depends_on": "eval:parent.task_type==\"Removal\"",
+   "fieldname": "removal_reason",
+   "fieldtype": "Small Text",
+   "hidden": 1,
+   "in_list_view": 0,
+   "label": "Removal Reason",
+   "read_only_depends_on": "eval:parent.task_type!=\"Removal\""
   },
   {
    "default": "0",
