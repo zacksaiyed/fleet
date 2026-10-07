@@ -481,10 +481,19 @@ def get_job(job: str) -> dict:
     if not job_doc:
         return _error(404, "NOT_FOUND", "Job not found or you are not assigned to it.")
 
+    item_fields = ["name", "item", "item_name", "item_type", "brand", "installed_or_removed"]
+    try:
+        physical_cols = {col[0] for col in frappe.db.sql("DESCRIBE `tabJob Item`")}
+    except Exception:
+        physical_cols = set()
+    for col in ["removal_reason"]:
+        if col in physical_cols and col not in item_fields:
+            item_fields.append(col)
+
     items = frappe.db.get_all(
         "Job Item",
         filters={"parent": job_doc.name},
-        fields=["name", "item", "item_name", "item_type", "brand", "installed_or_removed"],
+        fields=item_fields,
         order_by="idx asc",
     )
 
@@ -533,6 +542,7 @@ def get_job(job: str) -> dict:
             "item_name":           r.item_name,
             "brand":               r.brand,
             "installed_or_removed": r.installed_or_removed,
+            "removal_reason":      r.get("removal_reason") if job_doc.task_type == "Removal" else None,
         }
 
         extra_field = _TYPE_EXTRA.get(key)

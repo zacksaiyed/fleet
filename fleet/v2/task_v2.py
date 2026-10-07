@@ -633,6 +633,7 @@ def get_job(job: str) -> dict:
     Send as query parameters.
 
     is_chargeable, chargeable_reason, and chargeable_reason_description are returned only for Checkup and Re-Installation.
+    removal_reason is returned for Removal jobs.
     """
     if not job:
         return _error(400, "MISSING_PARAMS", "job is required.")
@@ -660,7 +661,7 @@ def get_job(job: str) -> dict:
         physical_cols = {col[0] for col in frappe.db.sql("DESCRIBE `tabJob Item`")}
     except Exception:
         physical_cols = set()
-    for col in ["replace_against", "replaced_item", "is_chargeable", "chargeable_reason", "chargeable_reason_description"]:
+    for col in ["replace_against", "replaced_item", "removal_reason", "is_chargeable", "chargeable_reason", "chargeable_reason_description"]:
         if col in physical_cols and col not in item_fields:
             item_fields.append(col)
 
@@ -694,6 +695,22 @@ def get_job(job: str) -> dict:
 
     swap_item_codes = {str(s.get("items")).strip() for s in swap_items if s.get("items")}
 
+    removal_items = frappe.db.get_all(
+        "Removal Items",
+        filters={"parent": job_doc.name},
+        fields=["name", "item", "item_name", "item_type", "brand", "destination", "warehouse"],
+        order_by="idx asc",
+    )
+
+    if job_doc.task_type == "Removal":
+        job_item_removal_map = {
+            r.item: r.get("removal_reason")
+            for r in items
+            if r.get("removal_reason")
+        }
+        for ri in removal_items:
+            ri["removal_reason"] = job_item_removal_map.get(ri.get("item"))
+
     item_codes = [r.item for r in items]
     item_master = {}
     if item_codes:
@@ -719,6 +736,13 @@ def get_job(job: str) -> dict:
         groups[key]["total_qty"] += 1
 
         destination = "new vehicle" if (r.item and str(r.item).strip() in swap_item_codes) else "my assets"
+        if job_doc.task_type == "Removal":
+            dest_from_removal = next(
+                (ri.get("destination") for ri in removal_items if ri.get("item") == r.item),
+                None
+            )
+            if dest_from_removal:
+                destination = dest_from_removal
 
         item_row = {
             "name":                r.name,
@@ -748,13 +772,6 @@ def get_job(job: str) -> dict:
         "Job Image",
         filters={"parent": job_doc.name},
         fields=["name", "image"],
-        order_by="idx asc",
-    )
-
-    removal_items = frappe.db.get_all(
-        "Removal Items",
-        filters={"parent": job_doc.name},
-        fields=["name", "item", "item_name", "item_type", "brand", "destination", "warehouse"],
         order_by="idx asc",
     )
 
@@ -3880,6 +3897,11 @@ def update_job(
     }
 
     if hasattr(job_doc, "removal_items") and job_doc.removal_items:
+        job_item_removal_map = {
+            r.item: getattr(r, "removal_reason", None)
+            for r in (job_doc.item_installed_removed or [])
+            if getattr(r, "removal_reason", None)
+        }
         response["removal_items"] = [
             {
                 "item": r.item,
@@ -3888,6 +3910,7 @@ def update_job(
                 "brand": r.brand,
                 "destination": r.destination,
                 "warehouse": r.warehouse,
+                "removal_reason": job_item_removal_map.get(r.item) if job_doc.task_type == "Removal" else None,
             }
             for r in job_doc.removal_items
         ]
