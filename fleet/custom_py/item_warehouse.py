@@ -190,7 +190,6 @@ def get_item_tracking_timeline(item):
 			ON mti.parent = mt.name
 		WHERE mti.item = %(item)s
 		  AND mt.workflow_state = 'Approved'
-		  AND mt.docstatus = 1
 		ORDER BY mt.modified ASC
 		""",
 		{
