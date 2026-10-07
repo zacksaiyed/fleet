@@ -811,25 +811,10 @@ class Job(Document):
 		installed = [r for r in self.item_installed_removed if r.installed_or_removed == "Installed"]
 		removed   = [r for r in self.item_installed_removed if r.installed_or_removed == "Removed"]
 
-		removed_to_tech = []
+		# For Removal jobs: all removed items move to technician warehouse via Stock Entry,
+		# even if destination is Customer.
+		removed_to_tech = removed
 		removed_to_cust = []
-
-		if self.task_type == "Removal" and hasattr(self, "removal_items") and self.removal_items:
-			dest_by_item = {r.item: (r.destination or "").strip() for r in self.removal_items if r.item}
-			for r in removed:
-				dest = dest_by_item.get(r.item, "")
-				if dest in ("Customer", "customer"):
-					removed_to_cust.append(r)
-				else:
-					removed_to_tech.append(r)
-		else:
-			removed_to_tech = removed
-
-		# For items staying with customer, ensure item current warehouse is customer warehouse
-		if removed_to_cust:
-			from fleet.custom_py.item_warehouse import update_item_warehouse
-			for r in removed_to_cust:
-				update_item_warehouse(r.item, self.customer_warehouse)
 
 		# For Removed items moving to technician — verify each exists in customer warehouse before moving
 		if removed_to_tech:

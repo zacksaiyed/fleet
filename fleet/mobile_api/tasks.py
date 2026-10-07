@@ -486,7 +486,7 @@ def get_job(job: str) -> dict:
         physical_cols = {col[0] for col in frappe.db.sql("DESCRIBE `tabJob Item`")}
     except Exception:
         physical_cols = set()
-    for col in ["removal_reason"]:
+    for col in ["destination", "removal_reason"]:
         if col in physical_cols and col not in item_fields:
             item_fields.append(col)
 
@@ -538,11 +538,12 @@ def get_job(job: str) -> dict:
 
         item_row = {
             "name":                r.name,
-            "item_code":                r.item,
+            "item_code":           r.item,
             "item_name":           r.item_name,
             "brand":               r.brand,
             "installed_or_removed": r.installed_or_removed,
-            "removal_reason":      r.get("removal_reason") if job_doc.task_type == "Removal" else None,
+            "destination":         r.get("destination") if job_doc.task_type == "Removal" else None,
+            "removal_reason":      r.get("removal_reason") if (job_doc.task_type == "Removal" and r.get("destination") == "Customer") else None,
         }
 
         extra_field = _TYPE_EXTRA.get(key)
@@ -1204,13 +1205,24 @@ def update_job(
             if not fetched:
                 return _error(404, "NOT_FOUND", f"Item {item_code} not found.")
 
+            dest = None
+            if job_doc.task_type == "Removal":
+                raw_dest = r.get("destination") or r.get("move_to") or r.get("dest")
+                if raw_dest:
+                    raw_dest_str = str(raw_dest).strip()
+                    if raw_dest_str.lower() in ("customer", "customer warehouse", "cust"):
+                        dest = "Customer"
+                    else:
+                        dest = "Technician"
+
             job_doc.append("item_installed_removed", {
                 "item":                 item_code,
                 "item_name":            fetched.item_name,
                 "item_type":            fetched.custom_item_type,
                 "brand":                fetched.brand,
                 "installed_or_removed": r.get("installed_or_removed", "Installed"),
-                "removal_reason":       ((r.get("removal_reason") or "").strip() or None) if job_doc.task_type == "Removal" else None,
+                "destination":          dest if job_doc.task_type == "Removal" else None,
+                "removal_reason":       ((r.get("removal_reason") or "").strip() or None) if (job_doc.task_type == "Removal" and dest == "Customer") else None,
             })
 
         # First item update advances job from Pending → In Progress
@@ -1629,7 +1641,7 @@ def _post_job_update_message(job_doc, employee, changed_scalars: dict, set_items
                 item_code = row.item or "—"
                 brand     = row.brand or "—"
                 lines.append(f"  {item_type}: {item_code} - {brand}")
-                if getattr(row, "removal_reason", None):
+                if getattr(row, "removal_reason", None) and getattr(row, "destination", None) == "Customer":
                     lines.append(f"  Removal Reason: {row.removal_reason}")
 
     if len(lines) == 1:   # only "Updated" header, nothing to report

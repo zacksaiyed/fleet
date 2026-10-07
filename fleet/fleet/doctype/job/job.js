@@ -187,12 +187,60 @@ frappe.ui.form.on("Removal Items", {
 	destination(frm, cdt, cdn) {
 		const row = locals[cdt][cdn];
 		if (!row) return;
-		if (row.destination === "Customer") {
-			frappe.model.set_value(cdt, cdn, "warehouse", frm.doc.customer_warehouse || "");
-		} else {
-			frappe.model.set_value(cdt, cdn, "warehouse", frm.doc.technician_warehouse || "");
+		frappe.model.set_value(cdt, cdn, "warehouse", frm.doc.technician_warehouse || "");
+		if (row.destination !== "Customer") {
+			frappe.model.set_value(cdt, cdn, "removal_reason", "");
+		}
+		if (frm.doc.item_installed_removed) {
+			const item_row = frm.doc.item_installed_removed.find(r => r.item === row.item);
+			if (item_row) {
+				frappe.model.set_value(item_row.doctype, item_row.name, "destination", row.destination);
+				if (row.destination !== "Customer") {
+					frappe.model.set_value(item_row.doctype, item_row.name, "removal_reason", "");
+				}
+			}
 		}
 	},
+	removal_reason(frm, cdt, cdn) {
+		const row = locals[cdt][cdn];
+		if (!row) return;
+		if (frm.doc.item_installed_removed) {
+			const item_row = frm.doc.item_installed_removed.find(r => r.item === row.item);
+			if (item_row) {
+				frappe.model.set_value(item_row.doctype, item_row.name, "removal_reason", row.removal_reason || "");
+			}
+		}
+	}
+});
+
+frappe.ui.form.on("Job Item", {
+	destination(frm, cdt, cdn) {
+		const row = locals[cdt][cdn];
+		if (!row) return;
+		if (row.destination !== "Customer") {
+			frappe.model.set_value(cdt, cdn, "removal_reason", "");
+		}
+		if (frm.doc.removal_items) {
+			const rem_row = frm.doc.removal_items.find(r => r.item === row.item);
+			if (rem_row) {
+				frappe.model.set_value(rem_row.doctype, rem_row.name, "destination", row.destination);
+				frappe.model.set_value(rem_row.doctype, rem_row.name, "warehouse", frm.doc.technician_warehouse || "");
+				if (row.destination !== "Customer") {
+					frappe.model.set_value(rem_row.doctype, rem_row.name, "removal_reason", "");
+				}
+			}
+		}
+	},
+	removal_reason(frm, cdt, cdn) {
+		const row = locals[cdt][cdn];
+		if (!row) return;
+		if (frm.doc.removal_items) {
+			const rem_row = frm.doc.removal_items.find(r => r.item === row.item);
+			if (rem_row) {
+				frappe.model.set_value(rem_row.doctype, rem_row.name, "removal_reason", row.removal_reason || "");
+			}
+		}
+	}
 });
 
 frappe.ui.form.on("Job Image", {
@@ -743,6 +791,8 @@ function _populate_removal_items(frm) {
 								row.item_type = vi.item_type;
 								row.item_name = detail.item_name || "";
 								row.brand = detail.brand || "";
+								row.destination = "Technician";
+								row.removal_reason = "";
 								row.is_chargeable = 0;
 								row.replace_against = null;
 								row.chargeable_reason = "";
@@ -755,6 +805,7 @@ function _populate_removal_items(frm) {
 								rem_row.brand = detail.brand || "";
 								rem_row.destination = "Technician";
 								rem_row.warehouse = frm.doc.technician_warehouse || "";
+								rem_row.removal_reason = "";
 							});
 							frm.refresh_field("item_installed_removed");
 							frm.refresh_field("removal_items");
@@ -1266,41 +1317,45 @@ function _toggle_removal_reason(frm) {
 		if (!grid) return;
 
 		// 1. Update docfield properties on the grid and meta
-		grid.update_docfield_property("removal_reason", "hidden", is_removal ? 0 : 1);
-		grid.update_docfield_property("removal_reason", "in_list_view", is_removal ? 1 : 0);
+		["destination", "removal_reason"].forEach(fn => {
+			grid.update_docfield_property(fn, "hidden", is_removal ? 0 : 1);
+			grid.update_docfield_property(fn, "in_list_view", is_removal ? 1 : 0);
 
-		const df_meta = frappe.meta.get_docfield("Job Item", "removal_reason", frm.doc.name);
-		if (df_meta) {
-			df_meta.hidden = is_removal ? 0 : 1;
-			df_meta.in_list_view = is_removal ? 1 : 0;
-		}
+			const df_meta = frappe.meta.get_docfield("Job Item", fn, frm.doc.name);
+			if (df_meta) {
+				df_meta.hidden = is_removal ? 0 : 1;
+				df_meta.in_list_view = is_removal ? 1 : 0;
+			}
+		});
 
 		// 2. Handle user_defined_columns (from UserSettings GridView)
 		if (!is_removal) {
 			if (grid.user_defined_columns && grid.user_defined_columns.length) {
 				grid.user_defined_columns = grid.user_defined_columns.filter(
-					col => col.fieldname !== "removal_reason"
+					col => !["destination", "removal_reason"].includes(col.fieldname)
 				);
 			}
 		} else {
 			if (grid.user_defined_columns && grid.user_defined_columns.length) {
-				const exists = grid.user_defined_columns.some(col => col.fieldname === "removal_reason");
-				if (!exists) {
-					const col_df = (grid.docfields || []).find(d => d.fieldname === "removal_reason")
-						|| frappe.meta.get_docfield("Job Item", "removal_reason");
-					if (col_df) {
-						col_df.hidden = 0;
-						col_df.in_list_view = 1;
-						col_df.columns = 3;
-						grid.user_defined_columns.push(col_df);
+				["destination", "removal_reason"].forEach(fn => {
+					const exists = grid.user_defined_columns.some(col => col.fieldname === fn);
+					if (!exists) {
+						const col_df = (grid.docfields || []).find(d => d.fieldname === fn)
+							|| frappe.meta.get_docfield("Job Item", fn);
+						if (col_df) {
+							col_df.hidden = 0;
+							col_df.in_list_view = 1;
+							col_df.columns = fn === "destination" ? 2 : 3;
+							grid.user_defined_columns.push(col_df);
+						}
 					}
-				}
+				});
 			}
 		}
 
 		// 3. Rebuild visible columns if state changed
 		const has_col = (grid.visible_columns || []).some(
-			c => c[0] && c[0].fieldname === "removal_reason"
+			c => c[0] && (c[0].fieldname === "removal_reason" || c[0].fieldname === "destination")
 		);
 
 		if (is_removal !== has_col) {
@@ -1311,9 +1366,9 @@ function _toggle_removal_reason(frm) {
 
 		// 4. Force DOM visibility
 		if (!is_removal) {
-			grid.wrapper.find('[data-fieldname="removal_reason"]').hide();
+			grid.wrapper.find('[data-fieldname="removal_reason"], [data-fieldname="destination"]').hide();
 		} else {
-			grid.wrapper.find('[data-fieldname="removal_reason"]').show();
+			grid.wrapper.find('[data-fieldname="removal_reason"], [data-fieldname="destination"]').show();
 		}
 	} finally {
 		frm._toggling_removal_reason = false;
