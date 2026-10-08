@@ -226,6 +226,12 @@ class MaterialTransfer(Document):
 				frappe.throw(_("Stores warehouse is not configured."))
 			require_target(store_warehouse, store_warehouse)
 
+		elif self.purpose == "Customer to Technician":
+			if not self.source or warehouse_type(self.source) != "Customer":
+				frappe.throw(_("Source Warehouse for Customer to Technician must be a Customer warehouse."))
+			if not self.target or warehouse_type(self.target) != "Technician":
+				frappe.throw(_("Target Warehouse for Customer to Technician must be a Technician warehouse."))
+
 		elif self.purpose == "Material Restore":
 			allowed_sources = {w for w in (damage_warehouse, lost_warehouse) if w}
 			if not self.source or self.source not in allowed_sources:
@@ -965,6 +971,9 @@ def _create_stock_entry(doc_name):
 
 	if not is_material_return:
 		se.to_warehouse = doc.target
+
+	if getattr(doc, "job", None):
+		se.custom_job = doc.job
 
 	if is_material_return:
 		se.remarks = (
