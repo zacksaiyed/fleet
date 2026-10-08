@@ -5,221 +5,217 @@ import frappe
 
 
 def execute(filters=None):
-	filters = filters or {}
-	columns = get_columns()
-	data = get_data(filters)
-	return columns, data
+	filters = frappe._dict(filters or {})
+	return get_columns(), get_data(filters)
 
 
-def get_data(filters):
-	employee_map = get_employee_map()
-	warehouse_details = get_warehouse_details(employee_map)
+def get_data(filters=None):
+	filters = frappe._dict(filters or {})
 
-	material_transfer_data = get_material_transfer_data(
-		filters,
-		warehouse_details
+	warehouse_map = get_warehouse_map()
+	stock_entries = get_stock_entries(filters)
+
+	item_type_map = get_item_type_map(
+		list({row.asset for row in stock_entries if row.asset})
 	)
 
-	stock_entry_data = get_stock_entry_data(
-		filters,
-		warehouse_details
-	)
+	data = []
 
-	final_data = material_transfer_data + stock_entry_data
+	for row in stock_entries:
+		source_info = warehouse_map.get(row.source, {})
+		target_info = warehouse_map.get(row.target, {})
 
-	final_data.sort(
+		source_type = get_warehouse_category(source_info)
+		target_type = get_warehouse_category(target_info)
+
+		movements = get_movements(
+			source_type,
+			target_type,
+			row.source,
+			row.target,
+			source_info,
+			target_info
+		)
+
+		for movement in movements:
+			if (
+				filters.get("technician")
+				and movement["employee"] != filters.technician
+			):
+				continue
+
+			if not matches_purpose(
+				movement["purpose"],
+				filters.get("purpose")
+			):
+				continue
+
+			data.append({
+				"date": row.date,
+				"technician_name": movement["technician_name"],
+				"asset_type": item_type_map.get(row.asset),
+				"asset": row.asset,
+				"asset_name": row.asset_name,
+				"source": movement["source"],
+				"purpose": movement["purpose"],
+				"status": movement["status"],
+				"posting_time": row.posting_time,
+				"creation": row.creation,
+				"reference": row.reference,
+				"detail_name": row.detail_name
+			})
+
+	data.sort(
 		key=lambda row: (
-			row.get("date") or "",
-			row.get("creation") or ""
+			str(row.get("date") or ""),
+			str(row.get("posting_time") or ""),
+			str(row.get("creation") or ""),
+			str(row.get("reference") or ""),
+			str(row.get("detail_name") or "")
 		),
 		reverse=True
 	)
 
-	return final_data
+	for row in data:
+		row.pop("posting_time", None)
+		row.pop("creation", None)
+		row.pop("reference", None)
+		row.pop("detail_name", None)
+
+	return data
 
 
-def get_employee_map():
-	return {
-		row.name: row.employee_name
-		for row in frappe.get_all(
-			"Employee",
-			fields=["name", "employee_name"]
-		)
-	}
-
-
-def get_warehouse_details(employee_map):
+def get_warehouse_map():
 	warehouses = frappe.get_all(
 		"Warehouse",
 		fields=[
 			"name",
+			"warehouse_name",
 			"warehouse_type",
 			"custom_employee"
 		]
 	)
 
-	warehouse_details = {}
+	employee_ids = list({
+		row.custom_employee
+		for row in warehouses
+		if row.custom_employee
+	})
 
-	for warehouse in warehouses:
-		warehouse_details[warehouse.name] = {
-			"warehouse_type": warehouse.warehouse_type,
-			"employee": warehouse.custom_employee,
-			"employee_name": employee_map.get(
-				warehouse.custom_employee
-			)
+	employee_map = {}
+
+	if employee_ids:
+		employees = frappe.get_all(
+			"Employee",
+			filters={
+				"name": ["in", employee_ids]
+			},
+			fields=[
+				"name",
+				"employee_name"
+			]
+		)
+
+		employee_map = {
+			row.name: row.employee_name
+			for row in employees
 		}
 
-	return warehouse_details
+	return {
+		row.name: {
+			"name": row.name,
+			"warehouse_name": row.warehouse_name,
+			"warehouse_type": row.warehouse_type,
+			"employee": row.custom_employee,
+			"employee_name": employee_map.get(row.custom_employee)
+		}
+		for row in warehouses
+	}
 
 
-def get_material_transfer_data(filters, warehouse_details):
-	conditions = ""
+def get_warehouse_category(warehouse):
+	if not warehouse:
+		return None
 
-	if filters.get("from_date") and not filters.get("to_date"):
-		conditions += """
-			AND mt.date >= %(from_date)s
-		"""
+	warehouse_type = (
+		warehouse.get("warehouse_type") or ""
+	).strip().lower()
 
-	if filters.get("to_date") and not filters.get("from_date"):
-		conditions += """
-			AND mt.date <= %(to_date)s
-		"""
+	warehouse_name = (
+		warehouse.get("warehouse_name") or ""
+	).strip().lower()
 
-	if filters.get("from_date") and filters.get("to_date"):
-		conditions += """
-			AND mt.date BETWEEN %(from_date)s AND %(to_date)s
-		"""
+	if warehouse_type == "customer":
+		return "Customer"
 
-	if filters.get("purpose"):
-		purposes = filters.get("purpose")
+	if warehouse_type in ("lost", "damage"):
+		return "Lost/Damage"
 
-		if isinstance(purposes, str):
-			purposes = [
-				purpose.strip()
-				for purpose in purposes.split(",")
-				if purpose.strip()
-			]
+	if warehouse.get("employee"):
+		return "Technician"
 
-		filters["purpose_list"] = purposes
+	if warehouse_type in ("store", "stores"):
+		return "Stores"
 
-		conditions += """
-			AND mt.purpose IN %(purpose_list)s
-		"""
+	if warehouse_name in ("store", "stores"):
+		return "Stores"
 
-	data = frappe.db.sql(
-		"""
-		SELECT
-			mt.name AS reference,
-			mt.date AS date,
-			mt.creation AS creation,
-			mt.purpose AS purpose,
-			mt.source AS source,
-			mt.target AS target,
-			mti.item AS asset,
-			mti.item_name AS asset_name,
-			mti.item_type AS asset_type
+	return None
 
-		FROM
-			`tabMaterial Transfer` mt
 
-		INNER JOIN
-			`tabMaterial Transfer Item` mti
-		ON
-			mti.parent = mt.name
+def get_item_type_map(item_codes):
+	if not item_codes:
+		return {}
 
-		WHERE
-			mt.docstatus = 1
-			{conditions}
+	if not frappe.db.has_column("Item", "custom_item_type"):
+		return {}
 
-		ORDER BY
-			mt.date DESC,
-			mt.creation DESC
-		""".format(
-			conditions=conditions
-		),
-		filters,
-		as_dict=True
+	items = frappe.get_all(
+		"Item",
+		filters={
+			"name": ["in", item_codes]
+		},
+		fields=[
+			"name",
+			"custom_item_type"
+		]
 	)
 
-	final_data = []
+	return {
+		row.name: row.custom_item_type
+		for row in items
+	}
 
-	for row in data:
-		source_details = warehouse_details.get(
-			row.source,
-			{}
+
+def get_stock_entries(filters):
+	conditions = []
+	params = {}
+
+	if filters.get("from_date"):
+		conditions.append(
+			"se.posting_date >= %(from_date)s"
 		)
+		params["from_date"] = filters.from_date
 
-		target_details = warehouse_details.get(
-			row.target,
-			{}
+	if filters.get("to_date"):
+		conditions.append(
+			"se.posting_date <= %(to_date)s"
 		)
+		params["to_date"] = filters.to_date
 
-		source_employee = source_details.get("employee")
-		target_employee = target_details.get("employee")
+	where_sql = ""
 
-		if target_employee:
-			if (
-				not filters.get("technician")
-				or target_employee == filters.get("technician")
-			):
-				final_data.append({
-					"date": row.date,
-					"creation": row.creation,
-					"technician_name": target_employee,
-					"asset_type": row.asset_type,
-					"asset": row.asset,
-					"asset_name": row.asset_name,
-					"source": row.source,
-					"purpose": row.purpose,
-					"status": "ISSUED TO TECHNICIAN"
-				})
+	if conditions:
+		where_sql = " AND " + " AND ".join(conditions)
 
-		if source_employee:
-			if (
-				not filters.get("technician")
-				or source_employee == filters.get("technician")
-			):
-				final_data.append({
-					"date": row.date,
-					"creation": row.creation,
-					"technician_name": source_employee,
-					"asset_type": row.asset_type,
-					"asset": row.asset,
-					"asset_name": row.asset_name,
-					"source": row.source,
-					"purpose": row.purpose,
-					"status": "RETURNED"
-				})
-
-	return final_data
-
-
-def get_stock_entry_data(filters, warehouse_details):
-	conditions = ""
-
-	if filters.get("from_date") and not filters.get("to_date"):
-		conditions += """
-			AND se.posting_date >= %(from_date)s
-		"""
-
-	if filters.get("to_date") and not filters.get("from_date"):
-		conditions += """
-			AND se.posting_date <= %(to_date)s
-		"""
-
-	if filters.get("from_date") and filters.get("to_date"):
-		conditions += """
-			AND se.posting_date
-			BETWEEN %(from_date)s AND %(to_date)s
-		"""
-
-	data = frappe.db.sql(
-		"""
+	return frappe.db.sql(
+		f"""
 		SELECT
 			se.name AS reference,
 			se.posting_date AS date,
 			se.posting_time AS posting_time,
 			se.creation AS creation,
+			sed.name AS detail_name,
 			sed.item_code AS asset,
 			sed.item_name AS asset_name,
 			sed.s_warehouse AS source,
@@ -230,128 +226,140 @@ def get_stock_entry_data(filters, warehouse_details):
 
 		INNER JOIN
 			`tabStock Entry Detail` sed
-		ON
-			sed.parent = se.name
+			ON sed.parent = se.name
 
 		WHERE
 			se.docstatus = 1
 
-			AND sed.s_warehouse IS NOT NULL
-			AND sed.s_warehouse != ''
+			AND IFNULL(sed.s_warehouse, '') != ''
+			AND IFNULL(sed.t_warehouse, '') != ''
 
-			AND sed.t_warehouse IS NOT NULL
-			AND sed.t_warehouse != ''
-
-			{conditions}
+			{where_sql}
 
 		ORDER BY
 			se.posting_date DESC,
 			se.posting_time DESC,
-			se.creation DESC
-		""".format(
-			conditions=conditions
-		),
-		filters,
+			se.creation DESC,
+			se.name DESC,
+			sed.idx DESC
+		""",
+		params,
 		as_dict=True
 	)
 
-	if not data:
-		return []
 
-	item_codes = list({
-		row.asset
-		for row in data
-		if row.asset
-	})
+def get_movements(
+	source_type,
+	target_type,
+	source,
+	target,
+	source_info,
+	target_info
+):
+	movements = []
 
-	item_type_map = {}
+	source_employee = source_info.get("employee")
+	target_employee = target_info.get("employee")
 
-	if item_codes:
-		item_type_map = {
-			row.name: row.custom_item_type
-			for row in frappe.get_all(
-				"Item",
-				filters={
-					"name": ["in", item_codes]
-				},
-				fields=[
-					"name",
-					"custom_item_type"
-				]
+	source_employee_name = source_info.get("employee_name")
+	target_employee_name = target_info.get("employee_name")
+
+	def add_movement(employee, employee_name, display_source, purpose, status):
+		movements.append({
+			"employee": employee,
+			"technician_name": employee_name,
+			"source": display_source,
+			"purpose": purpose,
+			"status": status
+		})
+
+	if source_type == "Technician" and target_type == "Technician":
+		if source != target:
+			add_movement(
+				source_employee,
+				source_employee_name,
+				source,
+				"Material Handover",
+				"RETURNED"
 			)
-		}
 
-	final_data = []
+			add_movement(
+				target_employee,
+				target_employee_name,
+				source,
+				"Material Handover",
+				"ISSUED TO TECHNICIAN"
+			)
 
-	for row in data:
-		source_details = warehouse_details.get(
-			row.source,
-			{}
+	elif source_type == "Stores" and target_type == "Technician":
+		add_movement(
+			target_employee,
+			target_employee_name,
+			source,
+			"Material Issue",
+			"ISSUED TO TECHNICIAN"
 		)
 
-		target_details = warehouse_details.get(
-			row.target,
-			{}
+	elif source_type == "Technician" and target_type == "Stores":
+		add_movement(
+			source_employee,
+			source_employee_name,
+			source,
+			"Material Return",
+			"RETURNED"
 		)
 
-		source_type = source_details.get("warehouse_type")
-		target_type = target_details.get("warehouse_type")
+	elif source_type == "Technician" and target_type == "Lost/Damage":
+		add_movement(
+			source_employee,
+			source_employee_name,
+			source,
+			"Material Return",
+			"RETURNED"
+		)
 
-		source_employee = source_details.get("employee")
-		target_employee = target_details.get("employee")
+	elif source_type == "Stores" and target_type == "Lost/Damage":
+		add_movement(
+			None,
+			None,
+			source,
+			"Material Return",
+			"RETURNED"
+		)
 
-		if (
-			source_employee
-			and target_type == "Customer"
-		):
-			if (
-				filters.get("technician")
-				and source_employee != filters.get("technician")
-			):
-				continue
+	elif source_type == "Customer" and target_type == "Technician":
+		add_movement(
+			target_employee,
+			target_employee_name,
+			target,
+			"Material Transfer",
+			"ISSUED TO TECHNICIAN"
+		)
 
-			final_data.append({
-				"date": row.date,
-				"creation": row.creation,
-				"technician_name": source_employee,
-				"asset_type": item_type_map.get(row.asset),
-				"asset": row.asset,
-				"asset_name": row.asset_name,
-				"source": row.source,
-				"purpose": "Material Transfer",
-				"status": "CONSUMED IN"
-			})
+	elif source_type == "Technician" and target_type == "Customer":
+		add_movement(
+			source_employee,
+			source_employee_name,
+			source,
+			"Material Transfer",
+			"CONSUMED IN"
+		)
 
-			continue
+	return movements
 
-		if (
-			source_type == "Customer"
-			and target_employee
-		):
-			if (
-				filters.get("technician")
-				and target_employee != filters.get("technician")
-			):
-				continue
 
-			final_data.append({
-				"date": row.date,
-				"creation": row.creation,
-				"technician_name": target_employee,
-				"asset_type": item_type_map.get(row.asset),
-				"asset": row.asset,
-				"asset_name": row.asset_name,
+def matches_purpose(purpose, selected_purposes):
+	if not selected_purposes:
+		return True
 
-				# Customer warehouse is intentionally
-				# not displayed.
-				# Show technician warehouse instead.
-				"source": row.target,
+	if isinstance(selected_purposes, str):
+		selected_purposes = [
+			value.strip()
+			for value in selected_purposes.split(",")
+			if value.strip()
+		]
 
-				"purpose": "Material Transfer",
-				"status": "ISSUED TO TECHNICIAN"
-			})
-
-	return final_data
+	return purpose in selected_purposes
 
 
 def get_columns():
@@ -365,9 +373,8 @@ def get_columns():
 		{
 			"label": "TECHNICIAN NAME",
 			"fieldname": "technician_name",
-			"fieldtype": "Link",
-			"options": "Employee",
-			"width": 170
+			"fieldtype": "Data",
+			"width": 180
 		},
 		{
 			"label": "ASSET TYPE",
