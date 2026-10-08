@@ -11,6 +11,7 @@
   "column_break_qdkg",
   "accepted_by",
   "stock_entry",
+  "job",
   "section_break_yctw",
   "source",
   "column_break_crbu",
@@ -101,6 +102,14 @@
    "read_only": 1
   },
   {
+   "fieldname": "job",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "label": "Job",
+   "options": "Job",
+   "read_only": 1
+  },
+  {
    "fieldname": "accepted_by",
    "fieldtype": "Link",
    "in_list_view": 1,
@@ -121,7 +130,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Purpose",
-   "options": "\nMaterial Issue\nMaterial Request\nMaterial Return\nMaterial Handover\nCustomer to Store\nMaterial Restore\nStore to Customer\nStore to Damage\nStore to Lost",
+   "options": "\nMaterial Issue\nMaterial Request\nMaterial Return\nMaterial Handover\nCustomer to Store\nCustomer to Technician\nMaterial Restore\nStore to Customer\nStore to Damage\nStore to Lost",
    "reqd": 1
   },
   {

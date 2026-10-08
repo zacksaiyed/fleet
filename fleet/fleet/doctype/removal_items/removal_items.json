@@ -11,6 +11,7 @@
   "item_type",
   "brand",
   "destination",
+  "removal_reason",
   "warehouse"
  ],
  "fields": [
@@ -59,6 +60,15 @@
    "label": "Destination",
    "options": "\nCustomer\nTechnician",
    "reqd": 1
+  },
+  {
+   "columns": 3,
+   "depends_on": "eval:doc.destination==\"Customer\"",
+   "fieldname": "removal_reason",
+   "fieldtype": "Small Text",
+   "in_list_view": 1,
+   "label": "Removal Reason",
+   "read_only_depends_on": "eval:doc.destination!=\"Customer\""
   },
   {
    "fieldname": "warehouse",

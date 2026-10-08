@@ -784,6 +784,8 @@ class Job(Document):
 		# Guard against duplicate stock entries on re-saving Completed jobs
 		if frappe.db.exists("Stock Entry", {"custom_job": self.name, "docstatus": 1}):
 			return
+		if frappe.db.exists("Material Transfer", {"job": self.name, "workflow_state": "Approved"}):
+			return
 
 		# For Removal jobs where all items remained with Customer (so no Stock Entry was created),
 		# check if vehicle items are already marked Removed to avoid repeated execution
@@ -803,6 +805,8 @@ class Job(Document):
 		# Idempotent guard — skip if already submitted for this job
 		if frappe.db.exists("Stock Entry", {"custom_job": self.name, "docstatus": 1}):
 			return False
+		if frappe.db.exists("Material Transfer", {"job": self.name, "workflow_state": "Approved"}):
+			return False
 		if not self.technician_warehouse:
 			frappe.throw("Technician warehouse not set. Cannot create stock movement.")
 		if not self.customer_warehouse:
@@ -814,7 +818,11 @@ class Job(Document):
 		removed_to_tech = []
 		removed_to_cust = []
 
-		if self.task_type == "Removal" and hasattr(self, "removal_items") and self.removal_items:
+		if self.task_type == "Removal":
+			# For Removal jobs: all removed items move to technician warehouse via Material Transfer,
+			# even if destination is Customer.
+			removed_to_tech = removed
+		elif hasattr(self, "removal_items") and self.removal_items:
 			dest_by_item = {r.item: (r.destination or "").strip() for r in self.removal_items if r.item}
 			for r in removed:
 				dest = dest_by_item.get(r.item, "")
@@ -830,6 +838,12 @@ class Job(Document):
 			from fleet.custom_py.item_warehouse import update_item_warehouse
 			for r in removed_to_cust:
 				update_item_warehouse(r.item, self.customer_warehouse)
+
+		# For Removal jobs: use Material Transfer (Customer to Technician) instead of direct Stock Entry
+		if self.task_type == "Removal":
+			if removed_to_tech:
+				self._create_removal_material_transfer(removed_to_tech)
+			return True
 
 		# For Removed items moving to technician — verify each exists in customer warehouse before moving
 		if removed_to_tech:
@@ -891,6 +905,53 @@ class Job(Document):
 				update_item_warehouse(r.item, tgt)
 
 		return True
+
+	def _create_removal_material_transfer(self, items):
+		if not items:
+			return None
+
+		missing_items = []
+		for r in items:
+			qty = frappe.db.get_value(
+				"Bin",
+				{"item_code": r.item, "warehouse": self.customer_warehouse},
+				"actual_qty"
+			) or 0
+			if qty <= 0:
+				missing_items.append(r.item)
+		if missing_items:
+			frappe.throw(
+				f"Cannot complete — the following item(s) are not in customer warehouse "
+				f"<b>{self.customer_warehouse}</b>:<br>"
+				+ "<br>".join(missing_items)
+			)
+
+		mt = frappe.new_doc("Material Transfer")
+		mt.source = self.customer_warehouse
+		mt.target = self.technician_warehouse
+		mt.purpose = "Customer to Technician"
+		mt.job = self.name
+		for r in items:
+			mt.append("items", {
+				"item": r.item,
+				"item_name": getattr(r, "item_name", None) or frappe.db.get_value("Item", r.item, "item_name"),
+				"item_type": getattr(r, "item_type", None) or frappe.db.get_value("Item", r.item, "custom_item_type"),
+				"brand": getattr(r, "brand", None) or frappe.db.get_value("Item", r.item, "brand"),
+			})
+
+		mt.insert(ignore_permissions=True)
+		# mt.workflow_state = "Approved"
+
+		mt.save(ignore_permissions=True)
+		from frappe.model.workflow import apply_workflow
+		apply_workflow(mt, "Transfer Material")
+		apply_workflow(mt, "Approve")
+
+		frappe.msgprint(
+			f"Material Transfer <b>{mt.name}</b> created: {len(items)} item(s) → {self.technician_warehouse}",
+			alert=True
+		)
+		return mt.name
 
 	def _update_vehicle_items(self):
 		if not self.vehicle_number:

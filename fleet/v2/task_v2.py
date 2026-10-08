@@ -633,6 +633,7 @@ def get_job(job: str) -> dict:
     Send as query parameters.
 
     is_chargeable, chargeable_reason, and chargeable_reason_description are returned only for Checkup and Re-Installation.
+    removal_reason is returned for Removal jobs.
     """
     if not job:
         return _error(400, "MISSING_PARAMS", "job is required.")
@@ -660,7 +661,7 @@ def get_job(job: str) -> dict:
         physical_cols = {col[0] for col in frappe.db.sql("DESCRIBE `tabJob Item`")}
     except Exception:
         physical_cols = set()
-    for col in ["replace_against", "replaced_item", "is_chargeable", "chargeable_reason", "chargeable_reason_description"]:
+    for col in ["replace_against", "replaced_item", "destination", "removal_reason", "is_chargeable", "chargeable_reason", "chargeable_reason_description"]:
         if col in physical_cols and col not in item_fields:
             item_fields.append(col)
 
@@ -694,6 +695,22 @@ def get_job(job: str) -> dict:
 
     swap_item_codes = {str(s.get("items")).strip() for s in swap_items if s.get("items")}
 
+    removal_items = frappe.db.get_all(
+        "Removal Items",
+        filters={"parent": job_doc.name},
+        fields=["name", "item", "item_name", "item_type", "brand", "destination", "warehouse", "removal_reason"],
+        order_by="idx asc",
+    )
+
+    if job_doc.task_type == "Removal":
+        job_item_removal_map = {
+            r.item: r.get("removal_reason")
+            for r in items
+            if r.get("removal_reason")
+        }
+        for ri in removal_items:
+            ri["removal_reason"] = (ri.get("removal_reason") or job_item_removal_map.get(ri.get("item"))) if ri.get("destination") == "Customer" else None
+
     item_codes = [r.item for r in items]
     item_master = {}
     if item_codes:
@@ -719,6 +736,15 @@ def get_job(job: str) -> dict:
         groups[key]["total_qty"] += 1
 
         destination = "new vehicle" if (r.item and str(r.item).strip() in swap_item_codes) else "my assets"
+        if job_doc.task_type == "Removal":
+            dest_from_removal = next(
+                (ri.get("destination") for ri in removal_items if ri.get("item") == r.item),
+                None
+            )
+            if dest_from_removal:
+                destination = dest_from_removal
+            elif r.get("destination"):
+                destination = r.get("destination")
 
         item_row = {
             "name":                r.name,
@@ -732,6 +758,7 @@ def get_job(job: str) -> dict:
             "is_chargeable":       r.get("is_chargeable", 0) or 0,
             "chargeable_reason":   r.get("chargeable_reason"),
             "chargeable_reason_description": r.get("chargeable_reason_description"),
+            "removal_reason":      r.get("removal_reason") if (job_doc.task_type == "Removal" and destination == "Customer") else None,
         }
 
         extra_field = _TYPE_EXTRA.get(key)
@@ -747,13 +774,6 @@ def get_job(job: str) -> dict:
         "Job Image",
         filters={"parent": job_doc.name},
         fields=["name", "image"],
-        order_by="idx asc",
-    )
-
-    removal_items = frappe.db.get_all(
-        "Removal Items",
-        filters={"parent": job_doc.name},
-        fields=["name", "item", "item_name", "item_type", "brand", "destination", "warehouse"],
         order_by="idx asc",
     )
 
@@ -2297,7 +2317,8 @@ def update_job(
             {
                 "item": "SIM-0001",
                 "installed_or_removed": "Removed",
-                "destination": "Customer"
+                "destination": "Customer",
+				"removal_reason":""
             }
         ]
     }
@@ -3562,6 +3583,12 @@ def update_job(
                     "replace_against":
                         raw_replace if (job_doc.task_type == "Checkup" and inst_or_rem == "Installed") else None,
 
+                    "destination":
+                        dest if job_doc.task_type == "Removal" else None,
+
+                    "removal_reason":
+                        ((row.get("removal_reason") or "").strip() or None) if (job_doc.task_type == "Removal" and dest == "Customer") else None,
+
                     "is_chargeable":
                         (1 if inst_or_rem == "Installed" else 0) if (job_doc.task_type in ("Installation", "Accessory", "Swap")) else ((1 if str(row.get("is_chargeable", "")).strip().lower() in ("1", "true", "yes", "on") else 0) if ("is_chargeable" in row and str(row.get("is_chargeable", "")).strip() != "") else ((1 if getattr(job_doc, "is_chargeable", 0) else 0) if (job_doc.task_type == "Re-Installation" and inst_or_rem == "Installed") else 0)),
 
@@ -3597,11 +3624,14 @@ def update_job(
                 )
             ):
                 final_dest = dest or "Technician"
-                final_wh = dest_wh or (
-                    job_doc.customer_warehouse
-                    if final_dest == "Customer"
-                    else job_doc.technician_warehouse
-                )
+                if job_doc.task_type == "Removal":
+                    final_wh = job_doc.technician_warehouse
+                else:
+                    final_wh = dest_wh or (
+                        job_doc.customer_warehouse
+                        if final_dest == "Customer"
+                        else job_doc.technician_warehouse
+                    )
                 job_doc.append(
                     "removal_items",
                     {
@@ -3619,6 +3649,9 @@ def update_job(
 
                         "destination":
                             final_dest,
+
+                        "removal_reason":
+                            ((row.get("removal_reason") or "").strip() or None) if (job_doc.task_type == "Removal" and final_dest == "Customer") else None,
 
                         "warehouse":
                             final_wh,
@@ -3875,6 +3908,11 @@ def update_job(
     }
 
     if hasattr(job_doc, "removal_items") and job_doc.removal_items:
+        job_item_removal_map = {
+            r.item: getattr(r, "removal_reason", None)
+            for r in (job_doc.item_installed_removed or [])
+            if getattr(r, "removal_reason", None)
+        }
         response["removal_items"] = [
             {
                 "item": r.item,
@@ -3883,11 +3921,13 @@ def update_job(
                 "brand": r.brand,
                 "destination": r.destination,
                 "warehouse": r.warehouse,
+                "removal_reason": (getattr(r, "removal_reason", None) or job_item_removal_map.get(r.item)) if (job_doc.task_type == "Removal" and r.destination == "Customer") else None,
             }
             for r in job_doc.removal_items
         ]
 
     if hasattr(job_doc, "item_installed_removed") and job_doc.item_installed_removed:
+        rem_dest_map = {r.item: r.destination for r in (job_doc.removal_items or []) if r.item} if job_doc.task_type == "Removal" else {}
         response["item_installed_removed"] = [
             {
                 "item": r.item,
@@ -3895,8 +3935,10 @@ def update_job(
                 "item_type": r.item_type,
                 "brand": r.brand,
                 "installed_or_removed": r.installed_or_removed,
+                "destination": (getattr(r, "destination", None) or rem_dest_map.get(r.item)) if job_doc.task_type == "Removal" else None,
                 "replace_against": getattr(r, "replace_against", None),
                 "replace_item": getattr(r, "replace_against", None),
+                "removal_reason": getattr(r, "removal_reason", None) if (job_doc.task_type == "Removal" and (getattr(r, "destination", None) == "Customer" or rem_dest_map.get(r.item) == "Customer")) else None,
                 "is_chargeable": getattr(r, "is_chargeable", 0),
                 "chargeable_reason": getattr(r, "chargeable_reason", None),
                 "chargeable_reason_description": getattr(r, "chargeable_reason_description", None),
@@ -4447,6 +4489,9 @@ def _post_job_update_message(job_doc, employee, changed_scalars: dict, set_items
                     brand     = row.brand or "—"
                     dest_str  = f" ({row.destination})" if row.destination else ""
                     lines.append(f"  {item_type}: {item_code} - {brand}{dest_str}")
+                    reason = getattr(row, "removal_reason", None) or next((r.removal_reason for r in (job_doc.item_installed_removed or []) if r.item == row.item and getattr(r, "removal_reason", None)), None)
+                    if reason and row.destination == "Customer":
+                        lines.append(f"  Removal Reason: {reason}")
             elif removed_items:
                 lines.append("")
                 lines.append("Removed:")
@@ -4457,6 +4502,8 @@ def _post_job_update_message(job_doc, employee, changed_scalars: dict, set_items
                     item_code = row.item or "—"
                     brand     = row.brand or "—"
                     lines.append(f"  {item_type}: {item_code} - {brand}")
+                    if getattr(row, "removal_reason", None) and getattr(row, "destination", None) == "Customer":
+                        lines.append(f"  Removal Reason: {row.removal_reason}")
 
     if len(lines) == 1:   # only "Updated" header, nothing to report
         return
