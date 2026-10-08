@@ -279,7 +279,7 @@ def get_movements(
 				source_employee_name,
 				source,
 				"Material Handover",
-				"RETURNED"
+				"ISSUED TO TECHNICIAN"
 			)
 
 			add_movement(
