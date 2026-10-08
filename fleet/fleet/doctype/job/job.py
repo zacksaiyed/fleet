@@ -940,8 +940,12 @@ class Job(Document):
 			})
 
 		mt.insert(ignore_permissions=True)
-		mt.workflow_state = "Approved"
+		# mt.workflow_state = "Approved"
+
 		mt.save(ignore_permissions=True)
+		from frappe.model.workflow import apply_workflow
+		apply_workflow(mt, "Transfer Material")
+		apply_workflow(mt, "Approve")
 
 		frappe.msgprint(
 			f"Material Transfer <b>{mt.name}</b> created: {len(items)} item(s) → {self.technician_warehouse}",
