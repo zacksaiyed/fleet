@@ -5,41 +5,54 @@ import frappe
 
 
 def execute(filters=None):
-	columns, data = [], []
+	filters = filters or {}
 	columns = get_columns(filters)
-	data = get_date(filters)
+	data = get_data(filters)
 	return columns, data
 
-def get_date(filters=None):
+
+def get_data(filters=None):
 	conditions = ""
 
 	if filters.get("from_date") and not filters.get("to_date"):
-		conditions+= """ and mt.date >= %(from_date)s """
+		conditions += " and mt.date >= %(from_date)s "
 
 	if filters.get("to_date") and not filters.get("from_date"):
-		conditions+= """ and mt.date <= %(to_date)s """
+		conditions += " and mt.date <= %(to_date)s "
 
 	if filters.get("to_date") and filters.get("from_date"):
-		conditions+= """ and mt.date  BETWEEN %(from_date)s AND %(to_date)s  """
+		conditions += " and mt.date BETWEEN %(from_date)s AND %(to_date)s "
 
-	data  = frappe.db.sql("""
-			SELECT
-				mt.date as date,
-				mt.source as source,
-				mt.target as target,
-				mti.item as asset,
-				mti.item_name as asset_name,
-				mti.item_type as asset_type
-			FROM
-				`tabMaterial Transfer` mt
-			join
-				`tabMaterial Transfer Item` mti
-			on
-				mti.parent = mt.name
-			where 
-				mt.docstatus = 1
-				{0}
-			order by mt.date desc, mt.name
+	if filters.get("purpose"):
+		purposes = filters.get("purpose")
+
+		if isinstance(purposes, str):
+			purposes = [p.strip() for p in purposes.split(",") if p.strip()]
+
+		filters["purpose_list"] = purposes
+		conditions += " and mt.purpose in %(purpose_list)s "
+
+	data = frappe.db.sql(
+		"""
+		SELECT
+			mt.date as date,
+			mt.purpose as purpose,
+			mt.source as source,
+			mt.target as target,
+			mti.item as asset,
+			mti.item_name as asset_name,
+			mti.item_type as asset_type
+		FROM
+			`tabMaterial Transfer` mt
+		JOIN
+			`tabMaterial Transfer Item` mti
+		ON
+			mti.parent = mt.name
+		WHERE
+			mt.docstatus = 1
+			{0}
+		ORDER BY
+			mt.date desc, mt.name
 		""".format(conditions),
 		filters,
 		as_dict=1,
@@ -48,80 +61,96 @@ def get_date(filters=None):
 
 	employee_map = {
 		i.name: i.employee_name
-		for i in frappe.get_all("Employee",["name","employee_name"])
+		for i in frappe.get_all(
+			"Employee",
+			fields=["name", "employee_name"]
+		)
 	}
 
-	technician_name_condition = ["!=",""]
+	technician_name_condition = ["!=", ""]
+
 	if filters.get("technician"):
 		technician_name_condition = filters.get("technician")
 
-	techicial_warehouse_map = {
+	technician_warehouse_map = {
 		i.name: employee_map.get(i.custom_employee)
-		for i in frappe.get_all("Warehouse",{"custom_employee":technician_name_condition},["custom_employee","name"])
+		for i in frappe.get_all(
+			"Warehouse",
+			filters={"custom_employee": technician_name_condition},
+			fields=["custom_employee", "name"]
+		)
 	}
 
-	items = [i.asset for i in data]
-	item_warehouse_detatils = frappe.get_all(
-	    "Bin",
-	    filters={
-	        "item_code": ["in", items],
-	        "actual_qty": [">", 0]
-	    },
-	    fields=[
-	        "item_code",
-	        "warehouse",
-	        "warehouse.warehouse_type as warehouse_type"
-	    ]
-	)
+	items = list(set(i.asset for i in data if i.asset))
+
+	item_warehouse_details = []
+
+	if items:
+		item_warehouse_details = frappe.get_all(
+			"Bin",
+			filters={
+				"item_code": ["in", items],
+				"actual_qty": [">", 0]
+			},
+			fields=[
+				"item_code",
+				"warehouse",
+				"warehouse.warehouse_type as warehouse_type"
+			]
+		)
 
 	item_warehouse_type = {
-	    d.item_code: d.warehouse_type
-	    for d in item_warehouse_detatils
+		d.item_code: d.warehouse_type
+		for d in item_warehouse_details
 	}
-	
+
 	final_data = []
+
 	for i in data:
-		if i.target in techicial_warehouse_map:
-			i.technician_name = techicial_warehouse_map[i.target]
-			if item_warehouse_type.get(i.asset)=="Customer":
+		if i.target in technician_warehouse_map:
+			i.technician_name = technician_warehouse_map[i.target]
+
+			if item_warehouse_type.get(i.asset) == "Customer":
 				i.status = "CONSUMED IN"
 			else:
 				i.status = "ISSUING TO TECHNICIAN"
+
 			final_data.append(i)
 
-		if i.source in techicial_warehouse_map:
-			i.technician_name = techicial_warehouse_map[i.source]
+		if i.source in technician_warehouse_map:
+			i.technician_name = technician_warehouse_map[i.source]
 			i.status = "RETURNED"
 			final_data.append(i)
 
 	return final_data
 
+
 def get_columns(filters=None):
-	return  [
-        {
-            "label": "DATE",
-            "fieldname": "date",
-            "fieldtype": "Date",
-            "width": 180
-        },
-        {
-            "label": "TECHNICIAN NAME",
-            "fieldname": "technician_name",
-            "fieldtype": "Link",
-			"options":"Employee",
-            "width": 120
-        },
-        {
-            "label": "ASSET TYPE",
-            "fieldname": "asset_type",
-            "fieldtype": "Data",
-            "width": 200
-        },
+	return [
+		{
+			"label": "DATE",
+			"fieldname": "date",
+			"fieldtype": "Date",
+			"width": 180
+		},
+		{
+			"label": "TECHNICIAN NAME",
+			"fieldname": "technician_name",
+			"fieldtype": "Link",
+			"options": "Employee",
+			"width": 120
+		},
+		{
+			"label": "ASSET TYPE",
+			"fieldname": "asset_type",
+			"fieldtype": "Data",
+			"width": 200
+		},
 		{
 			"label": "ASSET",
 			"fieldname": "asset",
 			"fieldtype": "Link",
-			"options":"Item",
+			"options": "Item",
 			"width": 200
 		},
 		{
@@ -130,16 +159,22 @@ def get_columns(filters=None):
 			"fieldtype": "Data",
 			"width": 200
 		},
-        {
-            "label": "SOURCE",
-            "fieldname": "source",
-            "fieldtype": "Data",
-            "width": 150
-        },
-        {
-            "label": "Status",
-            "fieldname": "status",
-            "fieldtype": "Data",
-            "width": 150
-        }
-    ]
+		{
+			"label": "SOURCE",
+			"fieldname": "source",
+			"fieldtype": "Data",
+			"width": 150
+		},
+		{
+			"label": "Movement Type",
+			"fieldname": "purpose",
+			"fieldtype": "Data",
+			"width": 150
+		},
+		{
+			"label": "Status",
+			"fieldname": "status",
+			"fieldtype": "Data",
+			"width": 150
+		}
+	]
