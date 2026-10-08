@@ -18,7 +18,6 @@ def get_data(filters=None):
 	item_type_map = get_item_type_map(
 		list({row.asset for row in stock_entries if row.asset})
 	)
-
 	data = []
 
 	for row in stock_entries:
