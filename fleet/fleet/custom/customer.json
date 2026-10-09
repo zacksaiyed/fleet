@@ -1,5 +1,21 @@
 {
- "custom_fields": [],
+ "custom_fields": [
+  {
+   "creation": "2026-10-09 12:00:00.000000",
+   "docstatus": 0,
+   "doctype": "Custom Field",
+   "dt": "Customer",
+   "fieldname": "custom_vehicle_count",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Vehicle Count",
+   "modified": "2026-10-09 12:00:00.000000",
+   "modified_by": "Administrator",
+   "name": "Customer-custom_vehicle_count",
+   "owner": "Administrator",
+   "read_only": 1
+  }
+ ],
  "custom_perms": [
   {
    "_assign": null,
