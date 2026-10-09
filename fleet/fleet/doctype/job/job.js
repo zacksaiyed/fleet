@@ -2,6 +2,9 @@ frappe.dom.set_style(`
 	.hide-replace-against [data-fieldname="replace_against"] {
 		display: none !important;
 	}
+	.hide-removal-reason [data-fieldname="removal_reason"] {
+		display: none !important;
+	}
 `);
 
 frappe.ui.form.on("Job Item", {
@@ -61,6 +64,9 @@ frappe.ui.form.on("Job Item", {
 		if (frm.doc.task_type !== "Checkup" || row.installed_or_removed !== "Installed") {
 			frappe.model.set_value(cdt, cdn, "replace_against", null);
 		}
+		if (frm.doc.task_type !== "Removal") {
+			frappe.model.set_value(cdt, cdn, "removal_reason", null);
+		}
 	},
 	item_installed_removed_add(frm, cdt, cdn) {
 		if (frm.doc.task_type === "Removal") {
@@ -72,6 +78,9 @@ frappe.ui.form.on("Job Item", {
 		}
 		if (frm.doc.task_type !== "Checkup") {
 			frappe.model.set_value(cdt, cdn, "replace_against", null);
+		}
+		if (frm.doc.task_type !== "Removal") {
+			frappe.model.set_value(cdt, cdn, "removal_reason", null);
 		}
 	},
 	item_installed_removed_remove(frm, cdt, cdn) {
@@ -130,6 +139,9 @@ frappe.ui.form.on("Job Item", {
 		if (val !== "Installed" || frm.doc.task_type !== "Checkup") {
 			frappe.model.set_value(cdt, cdn, "replace_against", null);
 		}
+		if (frm.doc.task_type !== "Removal") {
+			frappe.model.set_value(cdt, cdn, "removal_reason", null);
+		}
 
 		frappe.model.set_value(cdt, cdn, "item", null);
 	},
@@ -175,12 +187,71 @@ frappe.ui.form.on("Removal Items", {
 	destination(frm, cdt, cdn) {
 		const row = locals[cdt][cdn];
 		if (!row) return;
-		if (row.destination === "Customer") {
-			frappe.model.set_value(cdt, cdn, "warehouse", frm.doc.customer_warehouse || "");
-		} else {
+		if (frm.doc.task_type === "Removal") {
 			frappe.model.set_value(cdt, cdn, "warehouse", frm.doc.technician_warehouse || "");
+		} else {
+			if (row.destination === "Customer") {
+				frappe.model.set_value(cdt, cdn, "warehouse", frm.doc.customer_warehouse || "");
+			} else {
+				frappe.model.set_value(cdt, cdn, "warehouse", frm.doc.technician_warehouse || "");
+			}
+		}
+		if (row.destination !== "Customer") {
+			frappe.model.set_value(cdt, cdn, "removal_reason", "");
+		}
+		if (frm.doc.item_installed_removed) {
+			const item_row = frm.doc.item_installed_removed.find(r => r.item === row.item);
+			if (item_row) {
+				frappe.model.set_value(item_row.doctype, item_row.name, "destination", row.destination);
+				if (row.destination !== "Customer") {
+					frappe.model.set_value(item_row.doctype, item_row.name, "removal_reason", "");
+				}
+			}
 		}
 	},
+	removal_reason(frm, cdt, cdn) {
+		const row = locals[cdt][cdn];
+		if (!row) return;
+		if (frm.doc.item_installed_removed) {
+			const item_row = frm.doc.item_installed_removed.find(r => r.item === row.item);
+			if (item_row) {
+				frappe.model.set_value(item_row.doctype, item_row.name, "removal_reason", row.removal_reason || "");
+			}
+		}
+	}
+});
+
+frappe.ui.form.on("Job Item", {
+	destination(frm, cdt, cdn) {
+		const row = locals[cdt][cdn];
+		if (!row) return;
+		if (row.destination !== "Customer") {
+			frappe.model.set_value(cdt, cdn, "removal_reason", "");
+		}
+		if (frm.doc.removal_items) {
+			const rem_row = frm.doc.removal_items.find(r => r.item === row.item);
+			if (rem_row) {
+				frappe.model.set_value(rem_row.doctype, rem_row.name, "destination", row.destination);
+				const wh = frm.doc.task_type === "Removal"
+					? frm.doc.technician_warehouse
+					: (row.destination === "Customer" ? frm.doc.customer_warehouse : frm.doc.technician_warehouse);
+				frappe.model.set_value(rem_row.doctype, rem_row.name, "warehouse", wh || "");
+				if (row.destination !== "Customer") {
+					frappe.model.set_value(rem_row.doctype, rem_row.name, "removal_reason", "");
+				}
+			}
+		}
+	},
+	removal_reason(frm, cdt, cdn) {
+		const row = locals[cdt][cdn];
+		if (!row) return;
+		if (frm.doc.removal_items) {
+			const rem_row = frm.doc.removal_items.find(r => r.item === row.item);
+			if (rem_row) {
+				frappe.model.set_value(rem_row.doctype, rem_row.name, "removal_reason", row.removal_reason || "");
+			}
+		}
+	}
 });
 
 frappe.ui.form.on("Job Image", {
@@ -262,113 +333,12 @@ frappe.ui.form.on("Job", {
 
 	onload_post_render(frm) {
 		_toggle_replace_against(frm);
+		_toggle_removal_reason(frm);
 	},
 
 	refresh(frm) {
 		_attachVehicleNumberMask(frm);
 		render_vehicle_items(frm);
-
-		// --- START: Click to Copy Logic (STRICTLY FOR SPECIFIC TABLES - FIXED CUSTOM DEVICE ID) ---
-		function render_copy_buttons_in_grid(frm) {
-			
-			// 1. Lower Grid Items (SIRF 'item_installed_removed' table ke liye)
-			let $installed_wrapper = frm.fields_dict.item_installed_removed.$wrapper;
-			if ($installed_wrapper) {
-				// YAHAN CHANGE KIYA HAI: 'device_id' ko 'custom_device_id' kar diya
-				$installed_wrapper.find('.grid-row [data-fieldname="item"], .grid-row [data-fieldname="item_name"], .grid-row [data-fieldname="custom_device_id"]').each(function() {
-					
-					// Header ya empty row ko ignore karo
-					if ($(this).closest('.grid-heading-row').length > 0 || $(this).closest('.grid-row-check').length > 0) return;
-
-					let $staticArea = $(this).find('.static-area');
-					// Agar static area nahi hai (edit mode), toh ignore karo
-					if ($staticArea.length === 0) return;
-
-					let val = $staticArea.text().trim();
-					
-					// Agar field khali hai toh button hata do (agar pehle se tha)
-					if (!val) {
-						$(this).find('.custom-copy-icon').remove();
-						$(this).css('padding-right', '');
-						return;
-					}
-
-					if (val && $(this).find('.custom-copy-icon').length === 0) {
-						$(this).css({'position': 'relative', 'padding-right': '25px'});
-						
-						let iconBtn = document.createElement('a');
-						iconBtn.className = 'custom-copy-icon text-muted';
-						iconBtn.style.cssText = 'position: absolute; right: 5px; top: 50%; transform: translateY(-50%); cursor: pointer; z-index: 100; color: #8D99A6; display: flex; align-items: center; justify-content: center;';
-						iconBtn.title = "Copy";
-						iconBtn.innerHTML = '<svg style="width: 14px; height: 14px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
-						
-						iconBtn.addEventListener('click', function(e) {
-							e.stopPropagation(); 
-							e.preventDefault();
-							frappe.utils.copy_to_clipboard(val);
-							frappe.show_alert({message: val + ' Copied!', indicator: 'green'});
-							
-							iconBtn.style.color = '#28a745';
-							setTimeout(() => { iconBtn.style.color = '#8D99A6'; }, 1000);
-						}, true);
-						
-						$(this).append(iconBtn);
-					}
-				});
-			}
-
-			// 2. Upper Vehicle Details Table (SIRF 'item_details' table ke liye)
-			let $vehicle_details_wrapper = frm.fields_dict.item_details.$wrapper;
-			if ($vehicle_details_wrapper) {
-				$vehicle_details_wrapper.find('.custom-vehicle-item-table td:nth-child(2), .custom-vehicle-item-table td:nth-child(3)').each(function() {
-					let val = $(this).text().trim();
-					if (!val) return;
-
-					if (!$(this).is('th') && $(this).find('.custom-copy-icon').length === 0) {
-						if (val && val !== 'Item Type' && val !== 'Item') {
-							$(this).css({'position': 'relative', 'padding-right': '25px'});
-							
-							let iconBtn = document.createElement('a');
-							iconBtn.className = 'custom-copy-icon text-muted';
-							iconBtn.style.cssText = 'position: absolute; right: 5px; top: 50%; transform: translateY(-50%); cursor: pointer; z-index: 100; color: #8D99A6; display: flex; align-items: center; justify-content: center;';
-							iconBtn.title = "Copy";
-							iconBtn.innerHTML = '<svg style="width: 14px; height: 14px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
-							
-							iconBtn.addEventListener('click', function(e) {
-								e.stopPropagation(); 
-								e.preventDefault();
-								frappe.utils.copy_to_clipboard(val);
-								frappe.show_alert({message: val + ' Copied!', indicator: 'green'});
-								
-								iconBtn.style.color = '#28a745';
-								setTimeout(() => { iconBtn.style.color = '#8D99A6'; }, 1000);
-							}, true);
-							
-							$(this).append(iconBtn);
-						}
-					}
-				});
-			}
-		}
-
-		// Initial render
-		setTimeout(() => render_copy_buttons_in_grid(frm), 500);
-
-		// Grid event hook (Strictly limited to item_installed_removed grid)
-		if (frm.fields_dict.item_installed_removed && frm.fields_dict.item_installed_removed.grid) {
-			let grid = frm.fields_dict.item_installed_removed.grid;
-			if (!grid._copy_event_bound) {
-				grid._copy_event_bound = true;
-				grid.wrapper.on('DOMSubtreeModified', function() {
-					if (window._copy_timer) clearTimeout(window._copy_timer);
-					window._copy_timer = setTimeout(() => {
-						render_copy_buttons_in_grid(frm);
-					}, 200);
-				});
-			}
-		}
-		// --- END: Click to Copy Logic ---
-
 
 		const roles = frappe.user_roles;
 		const is_erp_crm = roles.includes("System Manager") || roles.includes("Administrator") || roles.includes("Fleet Administrator") || roles.includes("Fleet Manager") || roles.includes("Support Team");
@@ -377,6 +347,12 @@ frappe.ui.form.on("Job", {
 		if (frm.doc.task_type !== "Checkup") {
 			(frm.doc.item_installed_removed || []).forEach(row => {
 				row.replace_against = null;
+			});
+		}
+
+		if (frm.doc.task_type !== "Removal") {
+			(frm.doc.item_installed_removed || []).forEach(row => {
+				row.removal_reason = null;
 			});
 		}
 
@@ -393,6 +369,7 @@ frappe.ui.form.on("Job", {
 		frm.toggle_display("chargeable_reason", is_reinstall && !!frm.doc.is_chargeable);
 		frm.toggle_display("chargeable_reason_description", is_reinstall && !!frm.doc.is_chargeable);
 		_toggle_replace_against(frm);
+		_toggle_removal_reason(frm);
 
 		if (["Installation", "Accessory"].includes(frm.doc.task_type)) {
 			frm.set_value("is_chargeable", 1);
@@ -676,7 +653,14 @@ frappe.ui.form.on("Job", {
 			});
 			frm.refresh_field("item_installed_removed");
 		}
+		if (frm.doc.task_type !== "Removal") {
+			(frm.doc.item_installed_removed || []).forEach(row => {
+				row.removal_reason = null;
+			});
+			frm.refresh_field("item_installed_removed");
+		}
 		_toggle_replace_against(frm);
+		_toggle_removal_reason(frm);
 
 		if (["Installation", "Accessory"].includes(frm.doc.task_type)) {
 			frm.set_value("is_chargeable", 1);
@@ -818,6 +802,8 @@ function _populate_removal_items(frm) {
 								row.item_type = vi.item_type;
 								row.item_name = detail.item_name || "";
 								row.brand = detail.brand || "";
+								row.destination = "Technician";
+								row.removal_reason = "";
 								row.is_chargeable = 0;
 								row.replace_against = null;
 								row.chargeable_reason = "";
@@ -830,6 +816,7 @@ function _populate_removal_items(frm) {
 								rem_row.brand = detail.brand || "";
 								rem_row.destination = "Technician";
 								rem_row.warehouse = frm.doc.technician_warehouse || "";
+								rem_row.removal_reason = "";
 							});
 							frm.refresh_field("item_installed_removed");
 							frm.refresh_field("removal_items");
@@ -1326,4 +1313,75 @@ function _toggle_replace_against(frm) {
 	}
 }
 
+function _toggle_removal_reason(frm) {
+	if (frm._toggling_removal_reason) return;
+	frm._toggling_removal_reason = true;
+	try {
+		const grid = frm.fields_dict.item_installed_removed && frm.fields_dict.item_installed_removed.grid;
+		const $wrapper = frm.fields_dict.item_installed_removed && frm.fields_dict.item_installed_removed.$wrapper;
+		const is_removal = frm.doc.task_type === "Removal";
 
+		if ($wrapper) {
+			$wrapper.toggleClass("hide-removal-reason", !is_removal);
+		}
+
+		if (!grid) return;
+
+		// 1. Update docfield properties on the grid and meta
+		["destination", "removal_reason"].forEach(fn => {
+			grid.update_docfield_property(fn, "hidden", is_removal ? 0 : 1);
+			grid.update_docfield_property(fn, "in_list_view", is_removal ? 1 : 0);
+
+			const df_meta = frappe.meta.get_docfield("Job Item", fn, frm.doc.name);
+			if (df_meta) {
+				df_meta.hidden = is_removal ? 0 : 1;
+				df_meta.in_list_view = is_removal ? 1 : 0;
+			}
+		});
+
+		// 2. Handle user_defined_columns (from UserSettings GridView)
+		if (!is_removal) {
+			if (grid.user_defined_columns && grid.user_defined_columns.length) {
+				grid.user_defined_columns = grid.user_defined_columns.filter(
+					col => !["destination", "removal_reason"].includes(col.fieldname)
+				);
+			}
+		} else {
+			if (grid.user_defined_columns && grid.user_defined_columns.length) {
+				["destination", "removal_reason"].forEach(fn => {
+					const exists = grid.user_defined_columns.some(col => col.fieldname === fn);
+					if (!exists) {
+						const col_df = (grid.docfields || []).find(d => d.fieldname === fn)
+							|| frappe.meta.get_docfield("Job Item", fn);
+						if (col_df) {
+							col_df.hidden = 0;
+							col_df.in_list_view = 1;
+							col_df.columns = fn === "destination" ? 2 : 3;
+							grid.user_defined_columns.push(col_df);
+						}
+					}
+				});
+			}
+		}
+
+		// 3. Rebuild visible columns if state changed
+		const has_col = (grid.visible_columns || []).some(
+			c => c[0] && (c[0].fieldname === "removal_reason" || c[0].fieldname === "destination")
+		);
+
+		if (is_removal !== has_col) {
+			grid.visible_columns = null;
+			grid.setup_visible_columns();
+			grid.reset_grid();
+		}
+
+		// 4. Force DOM visibility
+		if (!is_removal) {
+			grid.wrapper.find('[data-fieldname="removal_reason"], [data-fieldname="destination"]').hide();
+		} else {
+			grid.wrapper.find('[data-fieldname="removal_reason"], [data-fieldname="destination"]').show();
+		}
+	} finally {
+		frm._toggling_removal_reason = false;
+	}
+}
