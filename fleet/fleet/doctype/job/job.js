@@ -340,6 +340,98 @@ frappe.ui.form.on("Job", {
 		_attachVehicleNumberMask(frm);
 		render_vehicle_items(frm);
 
+		function render_copy_buttons_in_grid(frm) {
+			
+			let $installed_wrapper = frm.fields_dict.item_installed_removed.$wrapper;
+			if ($installed_wrapper) {
+				$installed_wrapper.find('.grid-row [data-fieldname="item"], .grid-row [data-fieldname="item_name"], .grid-row [data-fieldname="custom_device_id"]').each(function() {
+					
+					if ($(this).closest('.grid-heading-row').length > 0 || $(this).closest('.grid-row-check').length > 0) return;
+
+					let $staticArea = $(this).find('.static-area');
+					if ($staticArea.length === 0) return;
+
+					let val = $staticArea.text().trim();
+					
+					if (!val) {
+						$(this).find('.custom-copy-icon').remove();
+						$(this).css('padding-right', '');
+						return;
+					}
+
+					if (val && $(this).find('.custom-copy-icon').length === 0) {
+						$(this).css({'position': 'relative', 'padding-right': '25px'});
+						
+						let iconBtn = document.createElement('a');
+						iconBtn.className = 'custom-copy-icon text-muted';
+						iconBtn.style.cssText = 'position: absolute; right: 5px; top: 50%; transform: translateY(-50%); cursor: pointer; z-index: 100; color: #8D99A6; display: flex; align-items: center; justify-content: center;';
+						iconBtn.title = "Copy";
+						iconBtn.innerHTML = '<svg style="width: 14px; height: 14px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
+						
+						iconBtn.addEventListener('click', function(e) {
+							e.stopPropagation(); 
+							e.preventDefault();
+							frappe.utils.copy_to_clipboard(val);
+							frappe.show_alert({message: val + ' Copied!', indicator: 'green'});
+							
+							iconBtn.style.color = '#28a745';
+							setTimeout(() => { iconBtn.style.color = '#8D99A6'; }, 1000);
+						}, true);
+						
+						$(this).append(iconBtn);
+					}
+				});
+			}
+
+			let $vehicle_details_wrapper = frm.fields_dict.item_details.$wrapper;
+			if ($vehicle_details_wrapper) {
+				$vehicle_details_wrapper.find('.custom-vehicle-item-table td:nth-child(2), .custom-vehicle-item-table td:nth-child(3)').each(function() {
+					let val = $(this).text().trim();
+					if (!val) return;
+
+					if (!$(this).is('th') && $(this).find('.custom-copy-icon').length === 0) {
+						if (val && val !== 'Item Type' && val !== 'Item') {
+							$(this).css({'position': 'relative', 'padding-right': '25px'});
+							
+							let iconBtn = document.createElement('a');
+							iconBtn.className = 'custom-copy-icon text-muted';
+							iconBtn.style.cssText = 'position: absolute; right: 5px; top: 50%; transform: translateY(-50%); cursor: pointer; z-index: 100; color: #8D99A6; display: flex; align-items: center; justify-content: center;';
+							iconBtn.title = "Copy";
+							iconBtn.innerHTML = '<svg style="width: 14px; height: 14px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
+							
+							iconBtn.addEventListener('click', function(e) {
+								e.stopPropagation(); 
+								e.preventDefault();
+								frappe.utils.copy_to_clipboard(val);
+								frappe.show_alert({message: val + ' Copied!', indicator: 'green'});
+								
+								iconBtn.style.color = '#28a745';
+								setTimeout(() => { iconBtn.style.color = '#8D99A6'; }, 1000);
+							}, true);
+							
+							$(this).append(iconBtn);
+						}
+					}
+				});
+			}
+		}
+
+		setTimeout(() => render_copy_buttons_in_grid(frm), 500);
+
+		if (frm.fields_dict.item_installed_removed && frm.fields_dict.item_installed_removed.grid) {
+			let grid = frm.fields_dict.item_installed_removed.grid;
+			if (!grid._copy_event_bound) {
+				grid._copy_event_bound = true;
+				grid.wrapper.on('DOMSubtreeModified', function() {
+					if (window._copy_timer) clearTimeout(window._copy_timer);
+					window._copy_timer = setTimeout(() => {
+						render_copy_buttons_in_grid(frm);
+					}, 200);
+				});
+			}
+		}
+
+
 		const roles = frappe.user_roles;
 		const is_erp_crm = roles.includes("System Manager") || roles.includes("Administrator") || roles.includes("Fleet Administrator") || roles.includes("Fleet Manager") || roles.includes("Support Team");
 		const is_tech_only = roles.includes("Technician") && !is_erp_crm;
