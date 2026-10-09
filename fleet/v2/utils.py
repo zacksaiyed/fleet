@@ -327,3 +327,19 @@ def get_material_permissions():
         "allow_return": bool(emp.custom_allow_material_return_creation_from_apps),
         "allow_request": bool(emp.custom_allow_material_request_creation_from_apps)
     }
+
+def update_customer_vehicle_count():
+    frappe.db.sql("UPDATE `tabCustomer` SET custom_vehicle_count = 0")
+
+    counts = frappe.db.sql("""
+        SELECT custom_customer, COUNT(name) as total_vehicles
+        FROM `tabVehicle`
+        WHERE custom_customer IS NOT NULL AND custom_customer != ''
+        GROUP BY custom_customer
+    """, as_dict=True)
+
+    for row in counts:
+        if frappe.db.exists("Customer", row.custom_customer):
+            frappe.db.set_value('Customer', row.custom_customer, 'custom_vehicle_count', row.total_vehicles)
+
+    frappe.db.commit()
