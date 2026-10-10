@@ -196,12 +196,17 @@ doc_events = {
         ],
         "after_insert": [
             "fleet.erpnext_events.vehicle.after_insert_vehicle",
-            "fleet.erpnext_events.vehicle.handle_manual_installation_after_insert"
+            "fleet.erpnext_events.vehicle.handle_manual_installation_after_insert",
+			"fleet.v2.utils.update_customer_vehicle_count"
         ],
         "on_update": [
             "fleet.erpnext_events.vehicle.on_update_vehicle",
-            "fleet.erpnext_events.vehicle.handle_manual_installation_on_update"
+            "fleet.erpnext_events.vehicle.handle_manual_installation_on_update",
+			 "fleet.v2.utils.update_customer_vehicle_count"
         ],
+		 "after_delete": [
+            "fleet.v2.utils.update_customer_vehicle_count"
+        ]
     },
     "Customer": {
         "validate":[
