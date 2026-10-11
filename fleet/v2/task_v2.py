@@ -5,7 +5,8 @@ import frappe
 from frappe import _
 from frappe.utils import nowdate, now_datetime
 
-_VALID_VEHICLE_TYPES = {"Truck", "Bus", "Car", "Mini Truck"}
+def _get_valid_vehicle_types() -> set[str]:
+    return set(frappe.get_all("Vehicle Type", pluck="name"))
 
 
 def _error(http_status: int, code: str, message: str, data=None) -> dict:
@@ -2002,12 +2003,13 @@ def create_job_for_task(
     # VEHICLE TYPE VALIDATION
     # =========================================================
 
-    if type and type not in _VALID_VEHICLE_TYPES:
+    valid_vehicle_types = _get_valid_vehicle_types() if type else set()
+    if type and type not in valid_vehicle_types:
         return _error(
             400,
             "INVALID_PARAMS",
             "type must be one of: "
-            + ", ".join(sorted(_VALID_VEHICLE_TYPES))
+            + ", ".join(sorted(valid_vehicle_types))
         )
 
     # =========================================================
@@ -2594,16 +2596,17 @@ def update_job(
 
         if swap_type is not None:
 
+            valid_vehicle_types = _get_valid_vehicle_types() if swap_type else set()
             if (
                 swap_type
-                and swap_type not in _VALID_VEHICLE_TYPES
+                and swap_type not in valid_vehicle_types
             ):
                 return _error(
                     400,
                     "INVALID_VEHICLE_TYPE",
                     "swap_type must be one of: "
                     + ", ".join(
-                        sorted(_VALID_VEHICLE_TYPES)
+                        sorted(valid_vehicle_types)
                     )
                 )
 
@@ -3207,15 +3210,16 @@ def update_job(
             .strip()
         )
 
+    valid_vehicle_types = _get_valid_vehicle_types() if type else set()
     if (
         type is not None
-        and type not in _VALID_VEHICLE_TYPES
+        and type not in valid_vehicle_types
     ):
         return _error(
             400,
             "INVALID_PARAMS",
             f"type must be one of: "
-            f"{', '.join(sorted(_VALID_VEHICLE_TYPES))}"
+            f"{', '.join(sorted(valid_vehicle_types))}"
         )
 
     changed_scalars = {}
