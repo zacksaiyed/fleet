@@ -7,7 +7,7 @@ frappe.listview_settings["Customer"] = {
 			if (count > 0) {
 				let filter_url = `/app/vehicle?custom_customer=${encodeURIComponent(doc.name)}`;
 				
-				return `<a href="${filter_url}" style="text-decoration: underline; color: #173630; background-color: #d2f4ea; padding: 2px 5px; border-radius: 3px;">
+				return `<a href="${filter_url}" style="text-decoration: underline; color: #173630; padding: 2px 5px; border-radius: 3px;">
 					${count} 
 				</a>`;
 			}
