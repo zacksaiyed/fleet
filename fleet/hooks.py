@@ -255,11 +255,10 @@ scheduler_events = {
     "cron": {
 		"* * * * *": [
 			"fleet.fleet.doctype.job.job.reopen_expired_held_jobs",
-			"frappe_whatsapp.utils.trigger_whatsapp_notifications_all",
 		],
         "*/5 * * * *": [
             "fleet.scheduled.task_auto_reject.auto_reject_unaccepted_tasks",
-            "fleet.scheduled.sales_invoice_reminder.send_sales_invoice_reminders",
+          
         ],
 	"0 22 * * *": [
 		"fleet.fleet.doctype.job.job.set_progress_jobs_to_pending",
