@@ -321,7 +321,6 @@ def get_material_permissions():
         "allow_request": bool(emp.custom_allow_material_request_creation_from_apps)
     }
 
-
 def update_customer_vehicle_count(doc, method):
     if doc.custom_customer:
         count = frappe.db.count("Vehicle", {"custom_customer": doc.custom_customer})

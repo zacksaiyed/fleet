@@ -377,3 +377,6 @@ fixtures = [
         ["name", "in", ["Vehicle Item Warehouse Status"]]
     ]},
 ]
+
+# Load API modules so @frappe.whitelist handlers under fleet.apis are registered.
+import fleet.apis  # noqa: F401, E402
