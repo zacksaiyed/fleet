@@ -4,6 +4,17 @@ import frappe
 
 from fleet.apis._helpers import parse_json_field, require_login
 
+
+def _resolve_job_name(name=None, job_name=None):
+	name = (name or job_name or frappe.form_dict.get("name") or frappe.form_dict.get("job_name") or "").strip()
+	if name.startswith("{{") and name.endswith("}}"):
+		frappe.throw(
+			"Set job_name in your API client (Bruno/Postman environment). "
+			"The server received the literal placeholder, not a JOB id."
+		)
+	return name
+
+
 _JOB_VEHICLE_KEYS = ("vehicle_number", "make", "model", "color", "type", "done_comment", "completion_comment", "hold_comment")
 _ITEM_ROW_KEYS = (
 	"item",
@@ -87,7 +98,7 @@ def vehicle_context(vehicle_number=None, task=None, task_type=None):
 @frappe.whitelist(methods=["GET", "POST"])
 def load(name=None, job_name=None):
 	require_login()
-	name = (name or job_name or frappe.form_dict.get("name") or frappe.form_dict.get("job_name") or "").strip()
+	name = _resolve_job_name(name, job_name)
 	if not name:
 		frappe.throw("name is required")
 	if not frappe.db.exists("Job", name):
@@ -186,7 +197,7 @@ def _apply_images_section(job_doc, images_payload: dict):
 @frappe.whitelist(methods=["POST"])
 def save(name=None, job_name=None, job=None, items=None, images=None):
 	require_login()
-	name = (name or job_name or frappe.form_dict.get("name") or frappe.form_dict.get("job_name") or "").strip()
+	name = _resolve_job_name(name, job_name)
 	if not name:
 		frappe.throw("name is required")
 
