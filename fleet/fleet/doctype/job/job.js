@@ -431,7 +431,6 @@ frappe.ui.form.on("Job", {
 			}
 		}
 
-
 		const roles = frappe.user_roles;
 		const is_erp_crm = roles.includes("System Manager") || roles.includes("Administrator") || roles.includes("Fleet Administrator") || roles.includes("Fleet Manager") || roles.includes("Support Team");
 		const is_tech_only = roles.includes("Technician") && !is_erp_crm;
