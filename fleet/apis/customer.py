@@ -23,7 +23,6 @@ def list_with_vehicle_counts(txt=None, limit_page_length=20, start=0):
 	]
 
 	kwargs = {
-		"doctype": "Customer",
 		"fields": fields,
 		"limit_start": start,
 		"limit_page_length": limit_page_length,

@@ -41,7 +41,6 @@ def list_v2(status=None, task=None, txt=None, page_length=20, start=0):
 	]
 
 	kwargs = {
-		"doctype": "Job",
 		"fields": fields,
 		"limit_start": start,
 		"limit_page_length": page_length,
