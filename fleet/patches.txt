@@ -13,5 +13,6 @@ fleet.patches.set_vehicle_installed_items_chargeable
 fleet.patches.update_sim_mobile_number
 fleet.patches.move_completed_reinstallation_items_to_customer_warehouse
 fleet.patches.set_main_store_warehouse_type
+fleet.patches.backfill_job_dates
 
 

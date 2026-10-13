@@ -12,13 +12,6 @@ def _get_valid_vehicle_types() -> set[str]:
 def _error(http_status: int, code: str, message: str, data=None) -> dict:
     frappe.local.response["http_status_code"] = http_status
 
-    if http_status in (400, 409):
-        return {
-            "message": {
-                "message": message
-            }
-        }
-
     resp = {
         "status": "error",
         "code": code,

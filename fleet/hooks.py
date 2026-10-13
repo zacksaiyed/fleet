@@ -254,10 +254,11 @@ doc_events = {
 scheduler_events = {
     "cron": {
 		"* * * * *": [
-			"fleet.fleet.doctype.job.job.reopen_expired_held_jobs"
+			"fleet.fleet.doctype.job.job.reopen_expired_held_jobs",
 		],
         "*/5 * * * *": [
-            "fleet.scheduled.task_auto_reject.auto_reject_unaccepted_tasks"
+            "fleet.scheduled.task_auto_reject.auto_reject_unaccepted_tasks",
+          
         ],
 	"0 22 * * *": [
 		"fleet.fleet.doctype.job.job.set_progress_jobs_to_pending",
