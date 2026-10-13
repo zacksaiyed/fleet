@@ -36,6 +36,9 @@ def get_data(filters=None):
         conditions += """
             and (
                 j.date >= %(from_date)s
+                or j.creation_date >= %(from_date)s
+                or j.in_review_date >= %(from_date)s
+                or j.complete_date >= %(from_date)s
                 or DATE(j.completed_on_technician) >= %(from_date)s
                 or DATE(j.completed_on_support) >= %(from_date)s
             )
@@ -45,6 +48,9 @@ def get_data(filters=None):
         conditions += """
             and (
                 j.date <= %(to_date)s
+                or j.creation_date <= %(to_date)s
+                or j.in_review_date <= %(to_date)s
+                or j.complete_date <= %(to_date)s
                 or DATE(j.completed_on_technician) <= %(to_date)s
                 or DATE(j.completed_on_support) <= %(to_date)s
             )
@@ -54,6 +60,9 @@ def get_data(filters=None):
         conditions += """
             and (
                 j.date between %(from_date)s and %(to_date)s
+                or j.creation_date between %(from_date)s and %(to_date)s
+                or j.in_review_date between %(from_date)s and %(to_date)s
+                or j.complete_date between %(from_date)s and %(to_date)s
                 or DATE(j.completed_on_technician)
                     between %(from_date)s and %(to_date)s
                 or DATE(j.completed_on_support)
@@ -76,7 +85,9 @@ def get_data(filters=None):
     data = frappe.db.sql(
         """
         SELECT
-            j.date as date_of_installation,
+            COALESCE(j.date, j.creation_date) as date_of_installation,
+            COALESCE(j.in_review_date, DATE(j.completed_on_technician)) as in_review_date,
+            COALESCE(j.complete_date, DATE(j.completed_on_support)) as complete_date,
             j.name as job,
             ts.custom_customer as customer,
             j.vehicle_number as vehicle_no,
@@ -176,6 +187,8 @@ def get_data(filters=None):
 
         temp_row = final_data.get(row.job) or {
             "date_of_installation": row.date_of_installation,
+            "in_review_date": row.in_review_date,
+            "complete_date": row.complete_date,
             "job": row.job,
             "customer": row.customer,
             "vehicle_no": row.vehicle_no,
@@ -594,6 +607,18 @@ def get_columns(filters=None):
             "fieldname": "date_of_installation",
             "fieldtype": "Date",
             "width": 180
+        },
+        {
+            "label": "REVIEW DATE",
+            "fieldname": "in_review_date",
+            "fieldtype": "Date",
+            "width": 150
+        },
+        {
+            "label": "COMPLETE DATE",
+            "fieldname": "complete_date",
+            "fieldtype": "Date",
+            "width": 150
         },
         {
             "label": "CUSTOMER",

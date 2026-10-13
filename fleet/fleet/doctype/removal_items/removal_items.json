@@ -34,7 +34,7 @@
    "read_only": 1
   },
   {
-   "columns": 2,
+   "columns": 1,
    "fetch_from": "item.custom_item_type",
    "fieldname": "item_type",
    "fieldtype": "Link",
@@ -50,10 +50,11 @@
    "in_list_view": 1,
    "label": "Brand",
    "options": "Brand",
-   "read_only": 1
+   "read_only": 1,
+   "columns": 1
   },
   {
-   "columns": 2,
+   "columns": 1,
    "fieldname": "destination",
    "fieldtype": "Select",
    "in_list_view": 1,
@@ -62,7 +63,7 @@
    "reqd": 1
   },
   {
-   "columns": 3,
+   "columns": 1,
    "depends_on": "eval:doc.destination==\"Customer\"",
    "fieldname": "removal_reason",
    "fieldtype": "Small Text",
@@ -75,7 +76,8 @@
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Warehouse",
-   "options": "Warehouse"
+   "options": "Warehouse",
+   "columns": 2
   }
  ],
  "grid_page_length": 50,

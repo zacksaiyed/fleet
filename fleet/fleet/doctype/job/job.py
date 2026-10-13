@@ -12,6 +12,8 @@ from frappe.utils import add_to_date, get_datetime, getdate, now_datetime, now
 class Job(Document):
 
 	def before_insert(self):
+		if not getattr(self, "creation_date", None):
+			self.creation_date = self.date or (getdate(self.creation) if getattr(self, "creation", None) else frappe.utils.today())
 		if self.task_type in ["Installation", "Accessory", "Swap"]:
 			self.is_chargeable = 1
 		elif self.task_type == "Removal":
@@ -20,6 +22,23 @@ class Job(Document):
 			self.is_chargeable = 1
 
 	def before_save(self):
+		if not getattr(self, "creation_date", None):
+			self.creation_date = self.date or (getdate(self.creation) if getattr(self, "creation", None) else frappe.utils.today())
+
+		if self.status == "In Review" and not getattr(self, "in_review_date", None):
+			self.in_review_date = (
+				getdate(self.completed_on_technician)
+				if getattr(self, "completed_on_technician", None)
+				else frappe.utils.today()
+			)
+
+		if self.status == "Completed" and not getattr(self, "complete_date", None):
+			self.complete_date = (
+				getdate(self.completed_on_support)
+				if getattr(self, "completed_on_support", None)
+				else frappe.utils.today()
+			)
+
 		if self.task_type in ["Installation", "Accessory", "Swap"]:
 			self.is_chargeable = 1
 		elif self.task_type == "Removal":
@@ -720,6 +739,8 @@ class Job(Document):
 			task_date = frappe.db.get_value("Task", self.task, "custom_date")
 			if task_date:
 				self.date = task_date
+		if not getattr(self, "creation_date", None) and self.date:
+			self.creation_date = self.date
 
 	def _vehicle_strip(self):
 		if self.vehicle_number and self.task_type == "Installation":
@@ -1678,6 +1699,7 @@ def job_action(job, action, comment=None, comment_field=None, hold_until_date=No
 		doc.status                      = "In Review"
 		doc.completed_by_technician     = frappe.session.user
 		doc.completed_on_technician     = now()
+		doc.in_review_date              = frappe.utils.today()
 		msg = "Job marked as In Review."
 
 	elif action == "hold":
@@ -1718,6 +1740,7 @@ def job_action(job, action, comment=None, comment_field=None, hold_until_date=No
 		doc.status                  = "Completed"
 		doc.completed_by_support    = frappe.session.user
 		doc.completed_on_support    = now()
+		doc.complete_date           = frappe.utils.today()
 		msg = "Job completed."
 
 	elif action == "mark_pending":
