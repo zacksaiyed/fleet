@@ -281,9 +281,6 @@ scheduler_events = {
 # override_whitelisted_methods = {
 # 	"frappe.desk.doctype.event.event.get_events": "fleet.event.get_events"
 # }
-override_whitelisted_methods = {
-    "frappe.desk.listview.get_group_by_count": "fleet.erpnext_events.vehicle.get_group_by_count"
-}
 #
 # each overriding function accepts a `data` argument;
 # generated from the base implementation of the doctype dashboard,
