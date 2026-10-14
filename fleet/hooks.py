@@ -157,7 +157,7 @@ has_permission = {
 # Override standard doctype classes
 
 override_doctype_class = {
-    # "Data Import": "fleet.override.data_import.CustomDataImport"
+    "Data Import": "fleet.override.data_import.CustomDataImport"
 }
 
 # Document Events
@@ -165,6 +165,9 @@ override_doctype_class = {
 # Hook on document methods and events
 
 doc_events = {
+    "Sales Invoice": {
+        "on_submit": "fleet.custom_py.sales_invoice_whatsapp.queue_invoice_pdf",
+    },
     "User": {
         "validate": "fleet.erpnext_events.user_warehouse_hooks.validate_user_roles",
         "on_update": "fleet.erpnext_events.user_warehouse_hooks.on_update_user_roles"
@@ -258,7 +261,7 @@ scheduler_events = {
 		],
         "*/5 * * * *": [
             "fleet.scheduled.task_auto_reject.auto_reject_unaccepted_tasks",
-          
+
         ],
 	"0 22 * * *": [
 		"fleet.fleet.doctype.job.job.set_progress_jobs_to_pending",
