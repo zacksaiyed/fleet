@@ -45,3 +45,5 @@ def send_sales_invoice_reminders():
             )
         except Exception:
             frappe.log_error(title=f"Sales Invoice WhatsApp reminder failed: {name}")
+
+
