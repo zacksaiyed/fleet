@@ -2,23 +2,6 @@ import frappe
 from frappe import _
 from fleet.custom_py.item_warehouse import update_item_warehouse
 
-@frappe.whitelist()
-def get_group_by_count(doctype, current_filters, field):
-    """Include every Vehicle customer in the sidebar, retaining read permissions."""
-    if doctype != "Vehicle" or field != "custom_customer":
-        from frappe.desk.listview import get_group_by_count as standard_get_group_by_count
-
-        return standard_get_group_by_count(doctype, current_filters, field)
-
-    return frappe.get_list(
-        "Vehicle",
-        filters=frappe.parse_json(current_filters) or [],
-        group_by="`tabVehicle`.custom_customer",
-        fields=["count(*) as count", "`custom_customer` as name"],
-        order_by="count desc, custom_customer asc",
-        limit_page_length=0,
-    )
-
 def validate_vehicle(doc, method=None):
     if doc.license_plate:
         normalized = doc.license_plate.replace(" ", "").upper()
