@@ -244,7 +244,7 @@ def get_item_tracking_timeline(item):
 		JOIN `tabJob Item` ji
 			ON ji.parent = j.name
 		WHERE ji.item = %(item)s
-		  AND j.status IN ('In Review', 'Completed')
+		  AND j.status IN ('Completed')
 		ORDER BY COALESCE(
 			j.completed_on_support,
 			j.completed_on_technician
