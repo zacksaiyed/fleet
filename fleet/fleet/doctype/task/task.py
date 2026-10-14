@@ -488,12 +488,53 @@ def on_update(doc, method=None):
 
 # create jobs from dialog
 
+def _as_vehicle_list(value):
+	if value is None:
+		return []
+	if isinstance(value, str):
+		value = value.strip()
+		if not value:
+			return []
+		if value.startswith("["):
+			value = json.loads(value)
+		else:
+			return [part.strip() for part in value.split(",") if part.strip()]
+	return list(value or [])
+
+
+def _normalize_job_row(entry):
+	job_type = entry.get("job_type") or entry.get("task_type")
+	vehicles = entry.get("vehicle_list")
+	if vehicles is None:
+		vehicles = entry.get("vehicles")
+	vehicles = _as_vehicle_list(vehicles)
+	count = entry.get("no_of_jobs")
+	if count is None:
+		count = entry.get("count", 1)
+	return job_type, int(count or 1), vehicles
+
+
 @frappe.whitelist()
-def create_jobs_from_dialog(task, job_rows):
+def create_jobs_from_dialog(task, job_rows=None, job_type=None, vehicle_list=None, no_of_jobs=None, assign_technician=None):
+	job_rows = job_rows if job_rows is not None else frappe.form_dict.get("job_rows")
 	if isinstance(job_rows, str):
 		job_rows = json.loads(job_rows)
 
+	if not job_rows:
+		job_type = job_type or frappe.form_dict.get("job_type")
+		vehicle_list = vehicle_list if vehicle_list is not None else frappe.form_dict.get("vehicle_list")
+		no_of_jobs = no_of_jobs if no_of_jobs is not None else frappe.form_dict.get("no_of_jobs")
+		job_rows = [{
+			"job_type": job_type,
+			"vehicle_list": vehicle_list or [],
+			"no_of_jobs": no_of_jobs or 1,
+		}]
+
 	task_doc = frappe.get_doc("Task", task)
+	assign_technician = assign_technician or frappe.form_dict.get("assign_technician")
+	if assign_technician:
+		frappe.db.set_value("Task", task, "custom_assign_to", assign_technician)
+		task_doc.custom_assign_to = assign_technician
 	technician = task_doc.custom_assign_to or None   # may be blank, jobs created without technician
 	customer = task_doc.custom_customer
 	date = task_doc.custom_date
@@ -508,7 +549,8 @@ def create_jobs_from_dialog(task, job_rows):
 	# Pre-validate all vehicle numbers before creating any jobs
 	errors = []
 	for entry in job_rows:
-		for raw_vehicle in (entry.get("vehicles") or []):
+		_, _, entry_vehicles = _normalize_job_row(entry)
+		for raw_vehicle in entry_vehicles:
 			if not raw_vehicle:
 				continue
 			# normalized = raw_vehicle.replace(" ", "").upper()
@@ -532,9 +574,9 @@ def create_jobs_from_dialog(task, job_rows):
 	entries_to_append = []
 
 	for entry in job_rows:
-		task_type = entry.get("task_type")
-		count     = int(entry.get("count", 1))
-		vehicles  = entry.get("vehicles") or []
+		task_type, count, vehicles = _normalize_job_row(entry)
+		if not task_type:
+			frappe.throw("job_type is required")
 
 		if not vehicles:
 			vehicles = [""] * count
