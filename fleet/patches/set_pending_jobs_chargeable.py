@@ -7,6 +7,10 @@ def execute():
 	2. Set is_chargeable = 1 for jobs and child table items whose status is 'In Progress' or 'Pending'.
 	Removal jobs and Removed items remain is_chargeable = 0.
 	"""
+	from fleet.patches.schema import ensure_custom_fields
+
+	ensure_custom_fields()
+
 	# 1. Update all Installed items in Vehicle
 	if frappe.db.table_exists("Vehicle Item") and frappe.db.has_column("Vehicle Item", "is_chargeable"):
 		frappe.db.sql(

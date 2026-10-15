@@ -6,9 +6,9 @@ def execute():
 	Create default Damage and Lost warehouses for each company
 	and configure them in Company master.
 	"""
-	# Ensure custom fields for fleet are created/synced first
-	from frappe.modules.utils import sync_customizations
-	sync_customizations(app="fleet")
+	from fleet.patches.schema import ensure_custom_fields
+
+	ensure_custom_fields()
 
 	# Ensure fixtures (Warehouse Types, etc.) are synced
 	from frappe.utils.fixtures import sync_fixtures

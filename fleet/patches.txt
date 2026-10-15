@@ -4,6 +4,8 @@
 
 [post_model_sync]
 # Patches added in this section will be executed after doctypes are migrated
+# Customizations sync later in Frappe; each Fleet data patch calls
+# fleet.patches.schema.ensure_custom_fields before accessing custom columns.
 fleet.patches.lock_pending_transfer_items
 fleet.patches.create_default_damage_and_lost_warehouses
 fleet.patches.set_pending_jobs_chargeable
