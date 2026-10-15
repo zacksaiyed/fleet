@@ -8,6 +8,10 @@ def execute():
 	2. In Progress / In Review Jobs (where item is 'Installed', plus Swap job items)
 	whose custom_is_locked is not set to 1.
 	"""
+	from fleet.patches.schema import ensure_custom_fields
+
+	ensure_custom_fields()
+
 	if not frappe.db.has_column("Item", "custom_is_locked"):
 		return
 

@@ -5,6 +5,10 @@ from frappe.utils import getdate
 
 
 def execute():
+	from fleet.patches.schema import ensure_custom_fields
+
+	ensure_custom_fields()
+
 	# These fields belong to Job's JSON schema; do not create duplicate Custom Fields.
 	frappe.reload_doc("fleet", "doctype", "job", force=True)
 

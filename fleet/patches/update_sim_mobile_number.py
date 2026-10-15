@@ -1,6 +1,10 @@
 import frappe
 
 def execute():
+    from fleet.patches.schema import ensure_custom_fields
+
+    ensure_custom_fields()
+
     # 1. Update Vehicle Item table (Vehicle Doctype)
     frappe.db.sql("""
         UPDATE `tabVehicle Item` cvi

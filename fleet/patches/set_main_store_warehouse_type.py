@@ -2,6 +2,10 @@ import frappe
 
 
 def execute():
+	from fleet.patches.schema import ensure_custom_fields
+
+	ensure_custom_fields()
+
 	if not frappe.db.exists("Warehouse Type", "Stores"):
 		frappe.get_doc({"doctype": "Warehouse Type", "name": "Stores"}).insert(
 			ignore_permissions=True

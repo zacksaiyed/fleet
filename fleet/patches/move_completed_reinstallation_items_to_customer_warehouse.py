@@ -8,6 +8,10 @@ def execute():
 	Find installed items that are still in the technician warehouse and move them
 	to the customer warehouse via Stock Entry (Material Transfer) and update Item warehouse.
 	"""
+	from fleet.patches.schema import ensure_custom_fields
+
+	ensure_custom_fields()
+
 	if not frappe.db.table_exists("Job") or not frappe.db.table_exists("Job Item"):
 		return
 

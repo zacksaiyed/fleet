@@ -8,6 +8,10 @@ def execute():
 	2. Technician -> Technician: 'Material Handover'
 	3. Technician -> Store: 'Material Return'
 	"""
+	from fleet.patches.schema import ensure_custom_fields
+
+	ensure_custom_fields()
+
 	if not frappe.db.has_column("Material Transfer", "purpose"):
 		return
 

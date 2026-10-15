@@ -471,63 +471,43 @@ class Job(Document):
 					+ "<br>".join(missing)
 				)
 
-			# Validate stock in customer warehouse
-			for row in removal_rows:
-				actual_qty = frappe.db.get_value(
-					"Bin",
-					{
-						"item_code": row.item,
-						"warehouse": self.customer_warehouse,
-					},
-					"actual_qty",
-				) or 0
+			# Reused items stay in the customer warehouse for the new vehicle.
+			install_item_codes = {row.items for row in (self.get("items") or []) if row.items}
+			returned_rows = [row for row in removal_rows if row.item not in install_item_codes]
+			if returned_rows:
+				for row in returned_rows:
+					qty = frappe.db.get_value(
+						"Bin", {"item_code": row.item, "warehouse": self.customer_warehouse}, "actual_qty"
+					) or 0
+					if qty <= 0:
+						frappe.throw(
+							f"Item <b>{row.item}</b> is not available in Customer Warehouse "
+							f"<b>{self.customer_warehouse}</b>."
+						)
 
-				if actual_qty <= 0:
-					frappe.throw(
-						f"Item <b>{row.item}</b> is not available in Customer Warehouse "
-						f"<b>{self.customer_warehouse}</b>."
-					)
-
-			# Customer Warehouse -> Technician Warehouse
-			company = frappe.db.get_value(
-				"Warehouse",
-				self.customer_warehouse,
-				"company",
-			)
-
-			removal_stock_entry = frappe.get_doc({
-				"doctype": "Stock Entry",
-				"stock_entry_type": "Material Transfer",
-				"company": company,
-				"custom_job": self.name,
-				"items": [
-					{
-						"item_code": row.item,
-						"qty": 1,
+				removal_stock_entry = frappe.get_doc({
+					"doctype": "Stock Entry",
+					"stock_entry_type": "Material Transfer",
+					"company": frappe.db.get_value("Warehouse", self.customer_warehouse, "company"),
+					"custom_job": self.name,
+					"items": [{
+						"item_code": row.item, "qty": 1,
 						"s_warehouse": self.customer_warehouse,
 						"t_warehouse": self.technician_warehouse,
-					}
-					for row in removal_rows
-				],
-			})
+					} for row in returned_rows],
+				})
+				removal_stock_entry.insert(ignore_permissions=True)
+				removal_stock_entry.submit()
 
-			removal_stock_entry.insert(
-				ignore_permissions=True
-			)
-			removal_stock_entry.submit()
+				from fleet.custom_py.item_warehouse import update_item_warehouse
 
-			from fleet.custom_py.item_warehouse import update_item_warehouse
+				for row in returned_rows:
+					update_item_warehouse(row.item, self.technician_warehouse)
 
 			for row in removal_rows:
-				update_item_warehouse(
-					row.item,
-					self.technician_warehouse,
-				)
-
-				if row.item in old_vehicle_items:
-					vehicle_item = old_vehicle_items[row.item]
-					vehicle_item.status = "Removed"
-					vehicle_item.date_of_removal = self.date
+				vehicle_item = old_vehicle_items[row.item]
+				vehicle_item.status = "Removed"
+				vehicle_item.date_of_removal = self.date
 
 			for row in removal_rows:
 				frappe.db.set_value(
