@@ -68,38 +68,6 @@ def task_action(task, action, technician=None, reject_comment=None):
 			frappe.throw("Permission denied.")
 		doc.status = "In Progress"
 		msg = "Task started."
-	# elif action == "reassign":
-	# 	if doc.status not in ("Open", "Accepted", "In Progress", "Rejected"):
-	# 		frappe.throw(
-	# 			"Task must be Open, Accepted, In Progress or Rejected to assign/reassign."
-	# 		)
-
-	# 	if not is_support:
-	# 		frappe.throw("Only Support Team can assign/reassign a task.")
-
-	# 	if not technician:
-	# 		frappe.throw("Technician is required.")
-
-	# 	old_technician = doc.custom_assign_to
-
-	# 	# Only check for same technician when someone is already assigned
-	# 	if old_technician and old_technician == technician:
-	# 		frappe.throw("Please select a different technician.")
-
-	# 	doc.custom_assign_to = technician
-	# 	result = _handle_task_reassignment(doc, old_technician, technician)
-
-	# 	if result.get("new_task"):
-	# 		return {
-	# 			"msg": f"Task reassigned. New Task {result['new_task']} created for remaining jobs.",
-	# 			"task_status": doc.status,
-	# 			"new_task": result["new_task"],
-	# 			"new_task_created": True,
-	# 			"material_transfers": result.get("material_transfers", []),
-	# 		}
-
-	# 	emp_name = frappe.db.get_value("Employee", technician, "employee_name")
-	# 	msg = f"Task reassigned to {emp_name or technician} and reopened."
 	elif action == "reassign":
 		if doc.status not in ("Open", "Accepted", "In Progress", "Rejected"):
 			frappe.throw(
@@ -114,36 +82,68 @@ def task_action(task, action, technician=None, reject_comment=None):
 
 		old_technician = doc.custom_assign_to
 
-		if not old_technician:
-			_set_task_technician(doc, technician)
-			_reassign_jobs(doc.name, technician)
-			doc.status = "Open"
-			msg = "Task assigned."
-		else:
-			if old_technician == technician:
-				frappe.throw("Please select a different technician.")
+		# Only check for same technician when someone is already assigned
+		if old_technician and old_technician == technician:
+			frappe.throw("Please select a different technician.")
 
-			result = _handle_task_reassignment(
-				doc,
-				old_technician,
-				technician,
-			)
+		doc.custom_assign_to = technician
+		result = _handle_task_reassignment(doc, old_technician, technician)
 
-			if result.get("new_task"):
-				return {
-					"msg": f"Task reassigned. New Task {result['new_task']} created for remaining jobs.",
-					"task_status": doc.status,
-					"new_task": result["new_task"],
-					"new_task_created": True,
-					"material_transfers": result.get("material_transfers", []),
-				}
+		if result.get("new_task"):
+			return {
+				"msg": f"Task reassigned. New Task {result['new_task']} created for remaining jobs.",
+				"task_status": doc.status,
+				"new_task": result["new_task"],
+				"new_task_created": True,
+				"material_transfers": result.get("material_transfers", []),
+			}
 
-			emp_name = frappe.db.get_value(
-				"Employee",
-				technician,
-				"employee_name",
-			)
-			msg = f"Task reassigned to {emp_name or technician} and reopened."
+		emp_name = frappe.db.get_value("Employee", technician, "employee_name")
+		msg = f"Task reassigned to {emp_name or technician} and reopened."
+	# elif action == "reassign":
+	# 	if doc.status not in ("Open", "Accepted", "In Progress", "Rejected"):
+	# 		frappe.throw(
+	# 			"Task must be Open, Accepted, In Progress or Rejected to assign/reassign."
+	# 		)
+
+	# 	if not is_support:
+	# 		frappe.throw("Only Support Team can assign/reassign a task.")
+
+	# 	if not technician:
+	# 		frappe.throw("Technician is required.")
+
+	# 	old_technician = doc.custom_assign_to
+
+	# 	if not old_technician:
+	# 		_set_task_technician(doc, technician)
+	# 		_reassign_jobs(doc.name, technician)
+	# 		doc.status = "Open"
+	# 		msg = "Task assigned."
+	# 	else:
+	# 		if old_technician == technician:
+	# 			frappe.throw("Please select a different technician.")
+
+	# 		result = _handle_task_reassignment(
+	# 			doc,
+	# 			old_technician,
+	# 			technician,
+	# 		)
+
+	# 		if result.get("new_task"):
+	# 			return {
+	# 				"msg": f"Task reassigned. New Task {result['new_task']} created for remaining jobs.",
+	# 				"task_status": doc.status,
+	# 				"new_task": result["new_task"],
+	# 				"new_task_created": True,
+	# 				"material_transfers": result.get("material_transfers", []),
+	# 			}
+
+	# 		emp_name = frappe.db.get_value(
+	# 			"Employee",
+	# 			technician,
+	# 			"employee_name",
+	# 		)
+	# 		msg = f"Task reassigned to {emp_name or technician} and reopened."
 	elif action == "hold":
 		if doc.status not in ("In Progress", "In Review"):
 			frappe.throw("Task must be In Progress or In Review to put On Hold.")
