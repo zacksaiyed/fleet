@@ -603,7 +603,7 @@ def get_columns(filters=None):
             "width": 200
         },
         {
-            "label": "DATE OF INSTALLATION",
+            "label": "CREATION DATE",
             "fieldname": "date_of_installation",
             "fieldtype": "Date",
             "width": 180

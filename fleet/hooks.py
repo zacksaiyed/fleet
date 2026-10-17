@@ -362,6 +362,12 @@ fixtures = [
     {"dt": "Custom DocPerm", "filters": [
         ["role", "in", ["Fleet Administrator", "Fleet Manager"]]
     ]},
+    {"dt": "Workflow Action Master", "filters": [
+        ["name", "in", [
+            "Accept", "Done", "Complete", "Re Open", "Start", "Hold", "Cancel",
+            "Transfer Material", "Approve", "Reject"
+        ]]
+    ]},
     {"dt": "Workflow","filters": [
         [
             "name", "in", [
