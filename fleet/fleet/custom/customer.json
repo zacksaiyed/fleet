@@ -1,6 +1,15 @@
 {
  "custom_fields": [
   {
+   "doctype": "Custom Field",
+   "dt": "Customer",
+   "fieldname": "custom_tpin",
+   "fieldtype": "Data",
+   "insert_after": "customer_name",
+   "label": "TPIN",
+   "name": "Customer-custom_tpin"
+  },
+  {
    "creation": "2026-10-09 12:00:00.000000",
    "docstatus": 0,
    "doctype": "Custom Field",
