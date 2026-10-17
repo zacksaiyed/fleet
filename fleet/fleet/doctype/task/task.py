@@ -86,7 +86,6 @@ def task_action(task, action, technician=None, reject_comment=None):
 		if old_technician and old_technician == technician:
 			frappe.throw("Please select a different technician.")
 
-		doc.custom_assign_to = technician
 		result = _handle_task_reassignment(doc, old_technician, technician)
 
 		if result.get("new_task"):
@@ -258,17 +257,19 @@ def _handle_task_reassignment(doc, old_technician, new_technician):
 
 	new_warehouse = _get_technician_warehouse(new_technician)
 
+	emp_name = frappe.db.get_value("Employee", new_technician, "employee_name")
+
 	for job in movable_jobs:
-		frappe.db.set_value(
-			"Job",
-			job.name,
-			{
-				"task": new_task.name,
-				"assigned_technician": new_technician,
-				"technician_warehouse": new_warehouse or None,
-			},
-			update_modified=True,
-		)
+		job_doc = frappe.get_doc("Job", job.name)
+		job_doc.task = new_task.name
+		job_doc.assigned_technician = new_technician
+		job_doc.technician_warehouse = new_warehouse or None
+		
+		# Agar aapke Job form me technician_name ka field hai, toh usko bhi assign kar dein:
+		if job_doc.meta.has_field("technician_name"):
+			job_doc.technician_name = emp_name or new_technician
+			
+		job_doc.save(ignore_permissions=True)
 
 	_remove_moved_jobs_from_old_task(
 		doc,
