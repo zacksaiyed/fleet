@@ -182,6 +182,9 @@ def ensure_item(item):
         frappe.throw(_("Item {0} is not a stock item.").format(item))
     return item
 
+@frappe.whitelist()
+def return_vehicle_item_status():
+    return ["Installled","Removed"]
 
 def stock_transfer(item, source, target, vehicle):
     if source == target:

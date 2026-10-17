@@ -188,15 +188,13 @@ def get_customer_addresses(customer):
 
 def create_contact(
     customer,
-    first_name,
-    last_name,
+    customer_name,
     email_id,
     mobile_no,
 ):
     contact = frappe.get_doc({
         "doctype": "Contact",
-        "first_name": first_name,
-        "last_name": last_name,
+        "first_name": customer_name,
         "is_primary_contact": 1,
         "email_ids": [
             {
@@ -259,60 +257,9 @@ def create_address(
     return address
 
 
-# @frappe.whitelist(methods=["GET", "POST"])
-# def list_with_vehicle_counts(
-#     txt=None,
-#     limit_page_length=20,
-#     start=0,
-# ):
-#     require_admin()
-
-#     txt = (get_value("txt", txt) or "").strip()
-#     limit_page_length = max(
-#         1,
-#         min(cint(get_value("limit_page_length", limit_page_length)), 100),
-#     )
-#     start = max(0, cint(get_value("start", start)))
-
-#     or_filters = []
-
-#     if txt:
-#         or_filters = [
-#             ["Customer", "name", "like", f"%{txt}%"],
-#             ["Customer", "customer_name", "like", f"%{txt}%"],
-#         ]
-
-#     rows = frappe.get_all(
-#         "Customer",
-#         fields=[
-#             "name",
-#             "customer_name",
-#         ],
-#         or_filters=or_filters,
-#         limit_start=start,
-#         limit_page_length=limit_page_length + 1,
-#         order_by="modified desc",
-#     )
-
-#     has_more = len(rows) > limit_page_length
-#     rows = rows[:limit_page_length]
-
-#     customers = [
-#         {
-#             "name": row.name,
-#             "customer_name": row.customer_name,
-#             "vehicle_count": get_vehicle_count(row.name),
-#         }
-#         for row in rows
-#     ]
-
-#     return {
-#         "customers": customers,
-#         "start": start,
-#         "limit_page_length": limit_page_length,
-#         "has_more": has_more,
-#     }
-
+@frappe.whitelist()
+def fetch_customer_type():
+    return ["Individual","Company","Partnership"]
 
 
 import json
@@ -472,8 +419,7 @@ def vehicle_count(customer=None):
 
 @frappe.whitelist(methods=["POST"])
 def create_customer(
-    first_name=None,
-    last_name=None,
+    customer_name = None,
     email_id=None,
     mobile_no=None,
     address_line1=None,
@@ -485,12 +431,10 @@ def create_customer(
 ):
     require_admin()
 
-    first_name = required(
-        get_value("first_name", first_name), "First Name"
+    customer_name = required(
+        get_value("customer_name", customer_name), "Customer Name"
     )
-    last_name = required(
-        get_value("last_name", last_name), "Last Name"
-    )
+    
     email_id = required(
         get_value("email_id", email_id), "Email ID"
     )
@@ -518,7 +462,7 @@ def create_customer(
 
     validate_email_address(email_id, throw=True)
 
-    customer_name = f"{first_name} {last_name}"
+    customer_name = customer_name
 
     frappe.db.savepoint("fleet_customer_create")
 
@@ -533,8 +477,7 @@ def create_customer(
 
         contact = create_contact(
             customer.name,
-            first_name,
-            last_name,
+            customer_name,
             email_id,
             mobile_no,
         )
