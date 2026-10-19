@@ -501,7 +501,6 @@ def get_add_assets_details(items=None):
             "name",
             "item_name",
             "custom_item_type",
-            "custom_color",
             "brand",
         ],
         limit_page_length=0,
@@ -521,7 +520,6 @@ def get_add_assets_details(items=None):
             "item": item.name,
             "item_name": item.item_name or "--",
             "item_type": item.custom_item_type or "--",
-            "color": item.custom_color or "--",
             "brand": item.brand or "--",
         })
 
