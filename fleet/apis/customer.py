@@ -184,42 +184,62 @@ def get_customer_addresses(customer):
         ],
         order_by="is_primary_address desc, creation asc",
     )
-
-
 def create_contact(
     customer,
     customer_name,
     email_id,
     mobile_no,
+    first_name=None,
+    last_name=None
 ):
+    for fieldname, value in {
+        "customer": customer,
+        "customer_name": customer_name,
+        "email_id": email_id,
+        "mobile_no": mobile_no,
+        "first_name": first_name,
+        "last_name": last_name
+    }.items():
+        if isinstance(value, (tuple, list, dict)):
+            frappe.throw(
+                f"Invalid value for {fieldname}: {repr(value)}"
+            )
+
+    first_name = (first_name or customer_name).strip()
+    last_name = (last_name or "").strip()
+
+    if not last_name and " " in first_name:
+        first_name, last_name = first_name.split(" ", 1)
+
     contact = frappe.get_doc({
         "doctype": "Contact",
-        "first_name": customer_name,
+        "first_name": first_name,
+        "last_name": last_name,
         "is_primary_contact": 1,
         "email_ids": [
             {
                 "email_id": email_id,
-                "is_primary": 1,
+                "is_primary": 1
             }
         ],
         "phone_nos": [
             {
                 "phone": mobile_no,
-                "is_primary_mobile_no": 1,
+                "is_primary_mobile_no": 1
             }
         ],
         "links": [
             {
                 "link_doctype": "Customer",
-                "link_name": customer,
+                "link_name": customer
             }
-        ],
+        ]
     })
 
     contact.insert(ignore_permissions=True)
+
     return contact
-
-
+    
 def create_address(
     customer,
     address_line1,
@@ -429,12 +449,20 @@ def create_customer(
     city=None,
     state=None,
     country=None,
+    first_name = None,
+    last_name = None
 ):
     require_admin()
 
     customer_name = required(
         get_value("customer_name", customer_name), "Customer Name"
     )
+    
+    first_name = get_value("first_name", first_name)
+    last_name = get_value("last_name", last_name)
+
+    first_name = str(first_name).strip() if first_name else customer_name
+    last_name = str(last_name).strip() if last_name else ""
     
     email_id = required(
         get_value("email_id", email_id), "Email ID"
@@ -481,6 +509,8 @@ def create_customer(
             customer_name,
             email_id,
             mobile_no,
+            first_name,
+            last_name
         )
 
         address = create_address(
