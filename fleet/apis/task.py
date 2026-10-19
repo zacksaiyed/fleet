@@ -1,4 +1,3 @@
-from appe.appe import print_format
 import frappe
 
 from fleet.apis._helpers import parse_json_field, require_login
