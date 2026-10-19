@@ -470,6 +470,66 @@ def add_vehicle_item(vehicle=None, item=None, item_type=None, status=None):
         raise
     return {"message": "Vehicle Item added", "vehicle": doc.name, "row_id": row.name, "status": status, "stock_entry": se}
 
+@frappe.whitelist()
+def get_item_type():
+    item_type = frappe.db.get_all("Item Type",pluck="name")
+
+    return item_type
+
+@frappe.whitelist(methods=["GET", "POST"])
+def get_add_assets_details(items=None):
+    require_admin()
+
+    items = value("items", items)
+    items = parse_json(items, "items")
+
+    if not items:
+        return {"items": []}
+
+    if isinstance(items, str):
+        items = [x.strip() for x in items.split(",") if x.strip()]
+
+    if not isinstance(items, list):
+        frappe.throw(_("items must be a list of Item Codes."))
+
+    items = list(dict.fromkeys(items))
+
+    item_details = frappe.get_all(
+        "Item",
+        filters={"name": ["in", items]},
+        fields=[
+            "name",
+            "item_name",
+            "custom_item_type",
+            "custom_color",
+            "brand",
+        ],
+        limit_page_length=0,
+    )
+
+    item_map = {item.name: item for item in item_details}
+
+    result = []
+
+    for item_code in items:
+        item = item_map.get(item_code)
+
+        if not item:
+            frappe.throw(_("Item {0} not found.").format(item_code))
+
+        result.append({
+            "item": item.name,
+            "item_name": item.item_name or "--",
+            "item_type": item.custom_item_type or "--",
+            "color": item.custom_color or "--",
+            "brand": item.brand or "--",
+        })
+
+    return {
+        "status": "success",
+        "total_items": len(result),
+        "items": result,
+    }
 
 @frappe.whitelist(methods=["POST"])
 def remove_vehicle_item(vehicle=None, row_id=None, item=None, target_warehouse=None):

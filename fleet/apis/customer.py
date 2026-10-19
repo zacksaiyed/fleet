@@ -375,7 +375,7 @@ def list_with_vehicle_counts(
 
     rows = frappe.get_all(
         "Customer",
-        fields=["name", "customer_name"],
+        fields=["name", "customer_name","custom_tpin"],
         filters=conditions,
         or_filters=or_filters,
         limit_start=start,
@@ -393,6 +393,7 @@ def list_with_vehicle_counts(
             "name": row.name,
             "customer_name": row.customer_name,
             "vehicle_count": get_vehicle_count(row.name),
+            "tpin":row.custom_tpin
         })
 
     return {

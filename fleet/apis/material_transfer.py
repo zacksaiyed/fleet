@@ -579,6 +579,9 @@ def get_approval_requests(
         for record in records:
             grouped = {}
 
+            # if record.purpose == "Material Handover":
+            #     continue
+
             for item in items_by_transfer[record.name]:
                 item_type = item.item_type or "Uncategorized"
 
