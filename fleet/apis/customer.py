@@ -437,10 +437,16 @@ def vehicle_count(customer=None):
         "vehicle_count": get_vehicle_count(customer),
     }
 
+@frappe.whitelist()
+def get_country_dropdown():
+    country = frappe.db.get_all("Country",pluck="name",order_by="name asc")
+
+    return country
 
 @frappe.whitelist(methods=["POST"])
 def create_customer(
     customer_name = None,
+    customer_type = None,
     email_id=None,
     mobile_no=None,
     address_line1=None,
@@ -488,6 +494,7 @@ def create_customer(
     country = required(
         get_value("country", country), "Country"
     )
+    customer_type = required(get_value("customer_type",customer_type),"Customer Type")
 
     validate_email_address(email_id, throw=True)
 
@@ -499,7 +506,7 @@ def create_customer(
         customer = frappe.get_doc({
             "doctype": "Customer",
             "customer_name": customer_name,
-            "customer_type": "Individual",
+            "customer_type": customer_type,
         })
 
         customer.insert(ignore_permissions=True)

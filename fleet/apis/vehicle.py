@@ -184,7 +184,7 @@ def ensure_item(item):
 
 @frappe.whitelist()
 def return_vehicle_item_status():
-    return ["Installled","Removed"]
+    return ["Installed","Removed"]
 
 def stock_transfer(item, source, target, vehicle):
     if source == target:
@@ -330,14 +330,54 @@ def create_vehicle(license_plate=None, customer=None, items=None):
         raise
     return {"message": "Vehicle created successfully", "vehicle": vehicle_payload(doc), "stock_entries": entries}
 
-
 @frappe.whitelist(methods=["GET", "POST"])
 def get_vehicle_details(vehicle=None):
     require_admin()
+
     doc = frappe.get_doc("Vehicle", resolve_vehicle(value("vehicle", vehicle)))
     data = vehicle_payload(doc)
-    data["comments"] = frappe.get_all("Comment", filters={"reference_doctype": "Vehicle", "reference_name": doc.name, "comment_type": "Comment"}, fields=["name", "content", "comment_by", "creation"], order_by="creation asc")
+
+    comments = frappe.get_all(
+        "Comment",
+        filters={
+            "reference_doctype": "Vehicle",
+            "reference_name": doc.name,
+            "comment_type": "Comment"
+        },
+        fields=["content"],
+        order_by="creation asc"
+    )
+
+    data["comments"] = "\n".join(
+        comment.content for comment in comments if comment.content
+    )
+
     return {"vehicle": data}
+    
+@frappe.whitelist(methods=["GET", "POST"])
+def get_filtered_items(item_type=None):
+    require_admin()
+
+    warehouses = [wh.name for wh in store_warehouses()]
+
+    if not warehouses:
+        return []
+
+    filters = {
+        "custom_current_warehouse": ["in", warehouses],
+        "custom_is_locked": 0
+    }
+
+    if item_type:
+        filters["custom_item_type"] = item_type
+
+    return frappe.get_all(
+        "Item",
+        filters=filters,
+        pluck="name",
+        order_by="name asc",
+        limit_page_length=0
+    )
 
 
 @frappe.whitelist(methods=["POST"])
