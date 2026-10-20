@@ -29,14 +29,5 @@ frappe.listview_settings["Customer"] = {
 			});
 		}, null, "warning");
 
-		frappe.call({
-			method: "fleet.v2.utils.sync_all_vehicle_counts",
-			callback: function(r) {
-				if (!r.exc) {
-					console.log("All Vehicle Counts Synced Successfully!");
-					listview.refresh(); 
-				}
-			}
-		});
 	},
 };
