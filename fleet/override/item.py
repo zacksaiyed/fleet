@@ -80,20 +80,20 @@ def _validate_import_columns(doc):
 
 
 def _inject_from_data_import(doc):
-	"""Use only metadata bound to the current import by its worker."""
-	meta = frappe.flags.get("item_import_meta")
-	if not meta:
-		return
+    """Use only metadata bound to the current import by its worker."""
+    meta = frappe.flags.get("item_import_meta")
+    if not meta:
+        return
 
-	# The import's selected type applies to every new Item in this batch.
-	if meta.get("custom_item_type"):
-		doc.custom_item_type = meta["custom_item_type"]
-	if not doc.brand and meta.get("custom_brand"):
-		doc.brand = meta["custom_brand"]
-	if not doc.custom_sim_type and meta.get("custom_sim_type"):
-		doc.custom_sim_type = meta["custom_sim_type"]
-	if not doc.custom_country_code and meta.get("custom_country_code"):
-		doc.custom_country_code = meta["custom_country_code"]
+    if not doc.custom_item_type and meta.get("custom_item_type"):
+        doc.custom_item_type = meta["custom_item_type"]
+        
+    if not doc.brand and meta.get("custom_brand"):
+        doc.brand = meta["custom_brand"]
+    if not doc.custom_sim_type and meta.get("custom_sim_type"):
+        doc.custom_sim_type = meta["custom_sim_type"]
+    if not doc.custom_country_code and meta.get("custom_country_code"):
+        doc.custom_country_code = meta["custom_country_code"]
 
 
 def _get_store_warehouse():
