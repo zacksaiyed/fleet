@@ -283,8 +283,8 @@ def _mt_admin_items(items):
 def _validate_request_warehouses(purpose, target, source=None):
     if not purpose:
         frappe.throw(_("Purpose is required"))
-    if purpose != "Material Request":
-        frappe.throw(_("Purpose must be Material Request"))
+    # if purpose != "Material Request":
+    #     frappe.throw(_("Purpose must be Material Request"))
 
     cfg = _config()
     configured_source = cfg.get("store_warehouse")
