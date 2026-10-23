@@ -395,7 +395,7 @@ def list_with_vehicle_counts(
 
     rows = frappe.get_all(
         "Customer",
-        fields=["name", "customer_name","custom_tpin"],
+        fields=["name", "customer_name","custom_tpin","customer_group"],
         filters=conditions,
         or_filters=or_filters,
         limit_start=start,
@@ -413,7 +413,8 @@ def list_with_vehicle_counts(
             "name": row.name,
             "customer_name": row.customer_name,
             "vehicle_count": get_vehicle_count(row.name),
-            "tpin":row.custom_tpin
+            "tpin":row.custom_tpin,
+            "customer_group":row.customer_group
         })
 
     return {
@@ -443,6 +444,11 @@ def get_country_dropdown():
 
     return country
 
+@frappe.whitelist()
+def get_customer_group():
+    types = frappe.db.get_all("Customer Group",{"is_group":0},pluck="name")
+    return types
+
 @frappe.whitelist(methods=["POST"])
 def create_customer(
     customer_name = None,
@@ -456,7 +462,8 @@ def create_customer(
     state=None,
     country=None,
     first_name = None,
-    last_name = None
+    last_name = None,
+    customer_group = None
 ):
     require_admin()
 
@@ -495,6 +502,7 @@ def create_customer(
         get_value("country", country), "Country"
     )
     customer_type = required(get_value("customer_type",customer_type),"Customer Type")
+    customer_group = required(get_value("customer_group",customer_group),"Customer Group")
 
     validate_email_address(email_id, throw=True)
 
@@ -507,6 +515,7 @@ def create_customer(
             "doctype": "Customer",
             "customer_name": customer_name,
             "customer_type": customer_type,
+            "customer_group":customer_group
         })
 
         customer.insert(ignore_permissions=True)
@@ -565,6 +574,7 @@ def get_customer_details(customer=None):
             "name": doc.name,
             "customer_name": doc.customer_name,
             "vehicle_count": get_vehicle_count(customer),
+            "customer_group":doc.customer_group,
             "first_name": contact.get("first_name") if contact else None,
             "last_name": contact.get("last_name") if contact else None,
             "email_id": contact.get("email_id") if contact else None,
@@ -581,6 +591,7 @@ def update_customer(
     last_name=None,
     email_id=None,
     mobile_no=None,
+    customer_group = None
 ):
     require_admin()
 
@@ -592,6 +603,7 @@ def update_customer(
     last_name = get_value("last_name", last_name)
     email_id = get_value("email_id", email_id)
     mobile_no = get_value("mobile_no", mobile_no)
+    customer_group = get_value("customer_group",customer_group)
 
     contact_data = get_primary_contact(customer)
 
