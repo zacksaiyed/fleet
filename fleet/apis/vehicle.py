@@ -284,10 +284,11 @@ def list_vehicles(txt=None, filters=None, start=0, limit_page_length=20):
 
 
 @frappe.whitelist(methods=["POST"])
-def create_vehicle(license_plate=None, customer=None, items=None):
+def create_vehicle(license_plate=None, customer=None, items=None,comments = None):
     require_admin()
     plate = required(value("license_plate", license_plate), "License Plate").replace(" ", "").upper()
     customer = resolve_customer(value("customer", customer))
+    comments = value("comments",comments),"Comments"
     if frappe.db.exists("Vehicle", plate) or frappe.db.exists("Vehicle", {"license_plate": plate}):
         frappe.throw(_("Vehicle already exists."))
     items = parse_json(value("items", items), "items") or []
@@ -297,6 +298,8 @@ def create_vehicle(license_plate=None, customer=None, items=None):
     doc.license_plate = plate
     doc.custom_customer = customer
     apply_vehicle_fields(doc)
+    if comments:
+        doc.add_comment("Comment",comments)
     seen = set()
     prepared = []
     for entry in items:
@@ -381,12 +384,15 @@ def get_filtered_items(item_type=None):
 
 
 @frappe.whitelist(methods=["POST"])
-def update_vehicle(vehicle=None, items=None):
+def update_vehicle(vehicle=None, items=None, comments = None):
     require_admin()
     doc = frappe.get_doc("Vehicle", resolve_vehicle(value("vehicle", vehicle)))
     raw_items = value("items", items)
+    comments = value("comments",comments),"Comments"
     if raw_items is None:
         apply_vehicle_fields(doc)
+        if comments:
+            doc.add_comment("Comment",comments)
         save_vehicle(doc)
         return {"message": "Vehicle updated successfully", "vehicle": vehicle_payload(doc)}
 
