@@ -388,11 +388,11 @@ def update_vehicle(vehicle=None, items=None, comments = None):
     require_admin()
     doc = frappe.get_doc("Vehicle", resolve_vehicle(value("vehicle", vehicle)))
     raw_items = value("items", items)
-    comments = value("comments",comments),"Comments"
+    comments = value("comments",comments)
+    if comments:
+        doc.add_comment("Comment",text=comments)
     if raw_items is None:
         apply_vehicle_fields(doc)
-        if comments:
-            doc.add_comment("Comment",comments)
         save_vehicle(doc)
         return {"message": "Vehicle updated successfully", "vehicle": vehicle_payload(doc)}
 
