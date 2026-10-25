@@ -222,6 +222,48 @@ def save_vehicle(doc, insert=False):
             doc.save(ignore_permissions=True)
 
 
+def get_vehicle_comments(vehicle):
+    rows = frappe.get_all(
+        "Comment",
+        filters={
+            "reference_doctype": "Vehicle",
+            "reference_name": vehicle,
+            "comment_type": "Comment",
+        },
+        fields=["content"],
+        order_by="creation asc",
+        limit_page_length=0,
+    )
+    return "\n".join(row.content for row in rows if row.content)
+
+
+def replace_vehicle_comments(vehicle, comments):
+    if comments is None:
+        return
+    if not isinstance(comments, str):
+        frappe.throw(_("Comments must be a string."))
+    existing = frappe.get_all(
+        "Comment",
+        filters={
+            "reference_doctype": "Vehicle",
+            "reference_name": vehicle,
+            "comment_type": "Comment",
+        },
+        pluck="name",
+        limit_page_length=0,
+    )
+    for name in existing:
+        frappe.delete_doc("Comment", name, ignore_permissions=True)
+    if comments.strip():
+        frappe.get_doc({
+            "doctype": "Comment",
+            "comment_type": "Comment",
+            "reference_doctype": "Vehicle",
+            "reference_name": vehicle,
+            "content": comments,
+        }).insert(ignore_permissions=True)
+
+
 def vehicle_payload(doc):
     data = {"name": doc.name, "license_plate": doc.license_plate, "custom_customer": doc.custom_customer}
     if doc.custom_customer:
@@ -230,6 +272,7 @@ def vehicle_payload(doc):
         if field_exists("Vehicle", f):
             data[f] = doc.get(f)
     data["items"] = [{"row_id": r.name, "item_type": r.get("item_type"), "item": r.item, "status": r.status, "date_of_installation": r.get("date_of_installation"), "date_of_removal": r.get("date_of_removal")} for r in doc.get("custom_vehicle_item") or []]
+    data["comments"] = get_vehicle_comments(doc.name)
     return data
 
 
@@ -288,7 +331,7 @@ def create_vehicle(license_plate=None, customer=None, items=None,comments = None
     require_admin()
     plate = required(value("license_plate", license_plate), "License Plate").replace(" ", "").upper()
     customer = resolve_customer(value("customer", customer))
-    comments = value("comments",comments),"Comments"
+    comments = value("comments", comments)
     if frappe.db.exists("Vehicle", plate) or frappe.db.exists("Vehicle", {"license_plate": plate}):
         frappe.throw(_("Vehicle already exists."))
     items = parse_json(value("items", items), "items") or []
@@ -298,8 +341,6 @@ def create_vehicle(license_plate=None, customer=None, items=None,comments = None
     doc.license_plate = plate
     doc.custom_customer = customer
     apply_vehicle_fields(doc)
-    if comments:
-        doc.add_comment("Comment",comments)
     seen = set()
     prepared = []
     for entry in items:
@@ -328,6 +369,7 @@ def create_vehicle(license_plate=None, customer=None, items=None,comments = None
                 entries.append(stock_entry)
         if prepared:
             save_vehicle(doc)
+        replace_vehicle_comments(doc.name, comments)
     except Exception:
         frappe.db.rollback(save_point="mobile_create_vehicle_with_items")
         raise
@@ -339,21 +381,6 @@ def get_vehicle_details(vehicle=None):
 
     doc = frappe.get_doc("Vehicle", resolve_vehicle(value("vehicle", vehicle)))
     data = vehicle_payload(doc)
-
-    comments = frappe.get_all(
-        "Comment",
-        filters={
-            "reference_doctype": "Vehicle",
-            "reference_name": doc.name,
-            "comment_type": "Comment"
-        },
-        fields=["content"],
-        order_by="creation asc"
-    )
-
-    data["comments"] = "\n".join(
-        comment.content for comment in comments if comment.content
-    )
 
     return {"vehicle": data}
     
@@ -389,11 +416,15 @@ def update_vehicle(vehicle=None, items=None, comments = None):
     doc = frappe.get_doc("Vehicle", resolve_vehicle(value("vehicle", vehicle)))
     raw_items = value("items", items)
     comments = value("comments",comments)
-    if comments:
-        doc.add_comment("Comment",text=comments)
     if raw_items is None:
-        apply_vehicle_fields(doc)
-        save_vehicle(doc)
+        frappe.db.savepoint("mobile_update_vehicle_fields")
+        try:
+            apply_vehicle_fields(doc)
+            save_vehicle(doc)
+            replace_vehicle_comments(doc.name, comments)
+        except Exception:
+            frappe.db.rollback(save_point="mobile_update_vehicle_fields")
+            raise
         return {"message": "Vehicle updated successfully", "vehicle": vehicle_payload(doc)}
 
     requested = parse_json(raw_items, "items")
@@ -470,6 +501,7 @@ def update_vehicle(vehicle=None, items=None, comments = None):
             doc.append("custom_vehicle_item", row_data)
         apply_vehicle_fields(doc)
         save_vehicle(doc)
+        replace_vehicle_comments(doc.name, comments)
     except Exception:
         frappe.db.rollback(save_point="mobile_update_vehicle_with_items")
         raise

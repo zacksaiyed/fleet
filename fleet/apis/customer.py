@@ -502,7 +502,7 @@ def create_customer(
         get_value("country", country), "Country"
     )
     customer_type = required(get_value("customer_type",customer_type),"Customer Type")
-    customer_group = required(get_value("customer_group",customer_group),"Customer Group")
+    customer_group = get_value("customer_group",customer_group),"Customer Group"
 
     validate_email_address(email_id, throw=True)
 
