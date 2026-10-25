@@ -403,6 +403,29 @@ def _error(http_status: int, code: str, message: str, data=None) -> dict:
     return resp
 
 
+@frappe.whitelist(methods=["GET", "POST"])
+def get_task_options():
+    require_login()
+
+    meta = frappe.get_meta("Task")
+
+    def get_options(fieldname):
+        field = meta.get_field(fieldname)
+
+        if not field or not field.options:
+            return []
+
+        return [
+            option.strip()
+            for option in field.options.split("\n")
+            if option.strip()
+        ]
+
+    return {
+        "status": get_options("status"),
+        "priority": get_options("priority")
+    }
+
 @frappe.whitelist()
 def get_task_jobs(task: str) -> dict:
     """
