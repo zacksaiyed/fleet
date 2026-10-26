@@ -402,6 +402,61 @@ def _error(http_status: int, code: str, message: str, data=None) -> dict:
 
     return resp
 
+@frappe.whitelist(methods=["GET", "POST"])
+def get_task_customer_vehicles(task=None, task_type=None):
+    require_admin()
+
+    task = (task or frappe.form_dict.get("task") or "").strip()
+    task_type = (task_type or frappe.form_dict.get("task_type") or "").strip()
+
+    if not task:
+        frappe.throw(_("Task is required."))
+
+    task_doc = frappe.db.get_value(
+        "Task",
+        task,
+        ["name", "custom_customer"],
+        as_dict=True
+    )
+
+    if not task_doc:
+        frappe.throw(_("Task not found."))
+
+    if task_type == "Installation":
+        return {
+            "task": task,
+            "customer": task_doc.custom_customer,
+            "show_vehicle_list": False,
+            "vehicles": []
+        }
+
+    if not task_type:
+        frappe.throw(_("Task Type is required."))
+
+    if not task_doc.custom_customer:
+        return {
+            "task": task,
+            "customer": None,
+            "show_vehicle_list": True,
+            "vehicles": []
+        }
+
+    vehicles = frappe.get_all(
+        "Vehicle",
+        filters={
+            "custom_customer": task_doc.custom_customer
+        },
+        fields=["name", "license_plate"],
+        order_by="license_plate asc",
+        limit_page_length=0
+    )
+
+    return {
+        "task": task,
+        "customer": task_doc.custom_customer,
+        "show_vehicle_list": True,
+        "vehicles": vehicles
+    }
 
 @frappe.whitelist(methods=["GET", "POST"])
 def get_task_options():
