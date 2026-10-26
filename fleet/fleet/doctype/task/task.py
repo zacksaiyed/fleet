@@ -1,6 +1,6 @@
 import json
 import frappe
-from frappe.utils import now_datetime
+from frappe.utils import now_datetime,nowdate
 from frappe.model.workflow import apply_workflow
 
 
@@ -86,6 +86,7 @@ def task_action(task, action, technician=None, reject_comment=None):
 		if old_technician and old_technician == technician:
 			frappe.throw("Please select a different technician.")
 
+		# doc.custom_assign_to = technician
 		result = _handle_task_reassignment(doc, old_technician, technician)
 
 		if result.get("new_task"):
@@ -217,26 +218,30 @@ def _handle_task_reassignment(doc, old_technician, new_technician):
 	material_transfers = []
 
 	if not has_locked_jobs:
-		for job in movable_jobs:
-			material_transfer = None
-			if job.status in ("In Progress", "Hold", "On Hold"):
-				material_transfer = _create_material_transfer_for_job(
-					job.name,
-					old_technician,
-					new_technician,
-				)
-			if material_transfer:
-				material_transfers.append(material_transfer)
+			for job in movable_jobs:
+				material_transfer = None
+				if job.status in ("Pending", "In Progress", "Hold", "On Hold"):
+					material_transfer = _create_material_transfer_for_job(
+						job.name,
+						old_technician,
+						new_technician,
+					)
+				if material_transfer:
+					material_transfers.append(material_transfer)
+				
+				frappe.db.set_value("Job", job.name, "date", nowdate())
 
-		_set_task_technician(doc, new_technician)
-		_reassign_jobs(doc.name, new_technician)
-		doc.status = "Open"
+			_set_task_technician(doc, new_technician)
+			
+			doc.custom_date = nowdate()
+			
+			_reassign_jobs(doc.name, new_technician)
+			doc.status = "Open"
 
-		return {
-			"new_task": None,
-			"material_transfers": material_transfers,
-		}
-
+			return {
+				"new_task": None,
+				"material_transfers": material_transfers,
+			}
 	if not movable_jobs:
 		frappe.throw("There are no jobs available for reassignment.")
 
@@ -264,19 +269,23 @@ def _handle_task_reassignment(doc, old_technician, new_technician):
 		job_doc.task = new_task.name
 		job_doc.assigned_technician = new_technician
 		job_doc.technician_warehouse = new_warehouse or None
+		job_doc.date = nowdate()
 		
 		# Agar aapke Job form me technician_name ka field hai, toh usko bhi assign kar dein:
 		if job_doc.meta.has_field("technician_name"):
 			job_doc.technician_name = emp_name or new_technician
 			
 		job_doc.save(ignore_permissions=True)
-
 	_remove_moved_jobs_from_old_task(
 		doc,
 		[job.name for job in movable_jobs],
 	)
-
+ 	
 	doc.save(ignore_permissions=True)
+
+ 
+	recompute_task_status(doc.name)
+
 
 	return {
 		"new_task": new_task.name,
@@ -370,6 +379,7 @@ def _create_task_for_reassignment(old_task, new_technician, movable_jobs):
 	new_task.name = None
 	new_task.docstatus = 0
 	new_task.status = "Open"
+	new_task.custom_date = nowdate()
 
 	_set_task_technician(new_task, new_technician)
 
