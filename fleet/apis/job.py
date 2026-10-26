@@ -279,8 +279,19 @@ import json
 import frappe
 from frappe import _
 from frappe.utils import cint, get_url, today
+from fleet.apis._helpers import require_login
+
 
 from fleet.v2 import task_v2
+
+ADMIN_ROLE = "Administrator"
+
+def require_admin():
+    require_login()
+    if ADMIN_ROLE not in frappe.get_roles(frappe.session.user):
+        frappe.throw(_("Only Admin can perform this action."), frappe.PermissionError)
+
+
 
 
 DIRECTIONS = {
