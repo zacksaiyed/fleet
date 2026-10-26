@@ -144,45 +144,6 @@
 # 	return save_v2(**kwargs)
 
 
-# @frappe.whitelist(methods=["POST"])
-# def action_v2(name=None, job_name=None, action=None, **kwargs):
-# 	require_login()
-# 	name = (name or job_name or frappe.form_dict.get("name") or frappe.form_dict.get("job_name") or "").strip()
-# 	action = (action or frappe.form_dict.get("action") or "").strip().lower()
-# 	if not name:
-# 		frappe.throw("name is required")
-# 	if action not in ("hold", "complete", "cancel", "reassign"):
-# 		frappe.throw("action must be hold, complete, cancel, or reassign")
-
-# 	job = frappe.get_doc("Job", name)
-# 	payload = {}
-
-# 	if action == "hold":
-# 		payload["status"] = "On Hold"
-# 		if frappe.form_dict.get("hold_comment") is not None:
-# 			payload["hold_comment"] = frappe.form_dict.get("hold_comment")
-# 		if frappe.form_dict.get("hold_until") is not None:
-# 			payload["hold_until"] = frappe.form_dict.get("hold_until")
-# 	elif action == "complete":
-# 		payload["status"] = "Completed"
-# 		if frappe.form_dict.get("completion_comment") is not None:
-# 			payload["completion_comment"] = frappe.form_dict.get("completion_comment")
-# 	elif action == "cancel":
-# 		payload["status"] = "Cancelled"
-# 	elif action == "reassign":
-# 		tech = (frappe.form_dict.get("assigned_technician") or "").strip()
-# 		if not tech:
-# 			frappe.throw("assigned_technician is required for reassign")
-# 		payload["assigned_technician"] = tech
-
-# 	job.update(payload)
-# 	job.save()
-# 	return {"ok": True, "name": job.name, "status": job.status, "action": action}
-
-
-# @frappe.whitelist(methods=["POST"])
-# def fleet_job_action_v2(**kwargs):
-# 	return action_v2(**kwargs)
 
 
 # @frappe.whitelist(methods=["POST"])
@@ -294,6 +255,10 @@ def require_admin():
 
 
 
+@frappe.whitelist(methods=["POST"])
+def fleet_job_action_v2(**kwargs):
+	return action_v2(**kwargs)
+
 DIRECTIONS = {
     'Installation': ('Installed',),
     'Checkup': ('Installed', 'Removed'),
@@ -306,6 +271,43 @@ DIRECTIONS = {
 def _admin():
     if frappe.session.user == 'Guest' or 'Administrator' not in frappe.get_roles(frappe.session.user):
         frappe.throw(_('Only Administrator can perform this action.'), frappe.PermissionError)
+
+
+
+@frappe.whitelist(methods=["POST"])
+def action_v2(name=None, job_name=None, action=None, **kwargs):
+	require_login()
+	name = (name or job_name or frappe.form_dict.get("name") or frappe.form_dict.get("job_name") or "").strip()
+	action = (action or frappe.form_dict.get("action") or "").strip().lower()
+	if not name:
+		frappe.throw("name is required")
+	if action not in ("hold", "complete", "cancel", "reassign"):
+		frappe.throw("action must be hold, complete, cancel, or reassign")
+
+	job = frappe.get_doc("Job", name)
+	payload = {}
+
+	if action == "hold":
+		payload["status"] = "On Hold"
+		if frappe.form_dict.get("hold_comment") is not None:
+			payload["hold_comment"] = frappe.form_dict.get("hold_comment")
+		if frappe.form_dict.get("hold_until") is not None:
+			payload["hold_until"] = frappe.form_dict.get("hold_until")
+	elif action == "complete":
+		payload["status"] = "Completed"
+		if frappe.form_dict.get("completion_comment") is not None:
+			payload["completion_comment"] = frappe.form_dict.get("completion_comment")
+	elif action == "cancel":
+		payload["status"] = "Cancelled"
+	elif action == "reassign":
+		tech = (frappe.form_dict.get("assigned_technician") or "").strip()
+		if not tech:
+			frappe.throw("assigned_technician is required for reassign")
+		payload["assigned_technician"] = tech
+
+	job.update(payload)
+	job.save()
+	return {"ok": True, "name": job.name, "status": job.status, "action": action}
 
 
 def _arg(key, default=None):
