@@ -420,6 +420,329 @@ def _set_items(job, rows):
         job.append('item_installed_removed', data)
 
 
+
+@frappe.whitelist(methods=["GET", "POST"])
+def get_job_item_options(job=None, direction=None):
+    _admin()
+
+    job = _arg("job", job) or _arg("name")
+    direction = _arg("direction", direction)
+
+    if not job:
+        frappe.throw(_("job is required."))
+
+    doc = frappe.get_doc("Job", job)
+    task_type = doc.task_type or ""
+
+    extra_fields = {
+        "GPS Device": "custom_imei_no",
+        "SIM": "custom_sim_type",
+        "Fuel Sensor": "custom_sensor_unique_number",
+        "Temperature": "custom_temperature_serial_number",
+        "Dashcam": "custom_dashcam_unique_number",
+    }
+
+    icons = {
+        r.name: r.icon
+        for r in frappe.get_all(
+            "Item Type",
+            fields=["name", "icon"]
+        )
+    }
+
+    def group_items(rows):
+        groups = {}
+
+        for row in rows:
+            item_type = row.get("item_type") or "Uncategorized"
+
+            if item_type not in groups:
+                groups[item_type] = {
+                    "item_type": item_type,
+                    "icon": icons.get(item_type),
+                    "total_qty": 0,
+                    "items": [],
+                }
+
+            groups[item_type]["total_qty"] += 1
+            groups[item_type]["items"].append(row)
+
+        return list(groups.values())
+
+    def format_items(rows, selected=None):
+        selected = selected or set()
+        result = []
+
+        for r in rows:
+            data = {
+                "item": r.item,
+                "item_name": r.item_name,
+                "item_type": r.item_type,
+                "brand": r.brand,
+                "selected": r.item in selected,
+            }
+
+            if "qty" in r:
+                data["qty"] = r.qty
+
+            extra = extra_fields.get(r.item_type)
+
+            if extra:
+                data[extra] = r.get(extra)
+
+            result.append(data)
+
+        return result
+
+    def get_warehouse_items(warehouse, selected=None):
+        if not warehouse:
+            return []
+
+        selected = selected or set()
+
+        rows = frappe.db.sql(
+            """
+            SELECT
+                i.name AS item,
+                i.item_name,
+                i.custom_item_type AS item_type,
+                i.brand,
+                i.custom_imei_no,
+                i.custom_sim_type,
+                i.custom_sensor_unique_number,
+                i.custom_temperature_serial_number,
+                i.custom_dashcam_unique_number,
+                b.actual_qty AS qty,
+                i.custom_is_locked
+            FROM `tabBin` b
+            INNER JOIN `tabItem` i
+                ON i.name = b.item_code
+            WHERE b.warehouse = %(warehouse)s
+              AND b.actual_qty > 0
+              AND i.disabled = 0
+              AND COALESCE(i.custom_is_locked, 0) = 0
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM `tabJob Item` ji
+                  INNER JOIN `tabJob` j
+                      ON j.name = ji.parent
+                  WHERE ji.item = i.name
+                    AND ji.installed_or_removed = 'Installed'
+                    AND j.name != %(job)s
+                    AND j.status NOT IN ('Cancelled', 'Completed')
+              )
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM `tabMaterial Transfer Item` mti
+                  INNER JOIN `tabMaterial Transfer` mt
+                      ON mt.name = mti.parent
+                  WHERE mti.item = i.name
+                    AND mt.source = %(warehouse)s
+                    AND mt.workflow_state = 'Approval Pending'
+                    AND mt.docstatus < 2
+              )
+            ORDER BY i.custom_item_type, i.item_name
+            """,
+            {
+                "warehouse": warehouse,
+                "job": doc.name,
+            },
+            as_dict=True,
+        )
+
+        return format_items(rows, selected)
+
+    def get_vehicle_items(selected=None):
+        vehicle_number = (
+            (doc.vehicle_number or "")
+            .replace(" ", "")
+            .upper()
+            .strip()
+        )
+
+        if not vehicle_number:
+            frappe.throw(_("Vehicle number is required."))
+
+        vehicle = frappe.db.get_value(
+            "Vehicle",
+            vehicle_number,
+            ["name", "custom_customer"],
+            as_dict=True,
+        )
+
+        if not vehicle:
+            frappe.throw(
+                _("Vehicle {0} not found.").format(vehicle_number)
+            )
+
+        if (
+            vehicle.custom_customer
+            and doc.customer
+            and vehicle.custom_customer != doc.customer
+        ):
+            frappe.throw(
+                _("Vehicle belongs to another customer.")
+            )
+
+        rows = frappe.db.sql(
+            """
+            SELECT
+                vi.item,
+                i.item_name,
+                COALESCE(
+                    vi.item_type,
+                    i.custom_item_type
+                ) AS item_type,
+                i.brand,
+                i.custom_imei_no,
+                i.custom_sim_type,
+                i.custom_sensor_unique_number,
+                i.custom_temperature_serial_number,
+                i.custom_dashcam_unique_number
+            FROM `tabVehicle Item` vi
+            INNER JOIN `tabItem` i
+                ON i.name = vi.item
+            WHERE vi.parent = %(vehicle)s
+              AND vi.status = 'Installed'
+              AND i.disabled = 0
+            ORDER BY vi.idx ASC
+            """,
+            {"vehicle": vehicle.name},
+            as_dict=True,
+        )
+
+        return format_items(rows, selected)
+
+    selected_installed = {
+        r.item
+        for r in doc.get("item_installed_removed") or []
+        if r.item and r.installed_or_removed == "Installed"
+    }
+
+    selected_removed = {
+        r.item
+        for r in doc.get("item_installed_removed") or []
+        if r.item and r.installed_or_removed == "Removed"
+    }
+
+    warehouse = (
+        doc.get("technician_warehouse")
+        or _warehouse_for_technician(doc.assigned_technician)
+    )
+
+    if task_type == "Swap":
+        swap_rows = doc.get("items") or []
+
+        old_to_new = {
+            r.items
+            for r in swap_rows
+            if r.items and r.source == "Old Vehicle"
+        }
+
+        technician_selected = {
+            r.items
+            for r in swap_rows
+            if r.items and r.source == "Technician"
+        }
+
+        vehicle_items = get_vehicle_items()
+
+        for item in vehicle_items:
+            item["move_to"] = (
+                "New Vehicle"
+                if item["item"] in old_to_new
+                else "My Assets"
+            )
+            item["move_to_options"] = [
+                "My Assets",
+                "New Vehicle",
+            ]
+
+        technician_items = get_warehouse_items(
+            warehouse,
+            technician_selected,
+        )
+
+        return {
+            "status": "success",
+            "job_type": "Swap",
+            "vehicle": {
+                "vehicle_number": doc.vehicle_number,
+                "move_to_options": [
+                    "My Assets",
+                    "New Vehicle",
+                ],
+                "groups": group_items(vehicle_items),
+            },
+            "technician": {
+                "warehouse": warehouse,
+                "groups": group_items(technician_items),
+            },
+        }
+
+    if task_type == "Re-Installation":
+        items = get_vehicle_items(selected_installed)
+
+        return {
+            "status": "success",
+            "job_type": task_type,
+            "direction": "Installed",
+            "allowed_directions": ["Installed"],
+            "vehicle_number": doc.vehicle_number,
+            "groups": group_items(items),
+        }
+
+    allowed = DIRECTIONS.get(
+        task_type,
+        ("Installed", "Removed"),
+    )
+
+    if not direction:
+        if len(allowed) == 1:
+            direction = allowed[0]
+        else:
+            frappe.throw(
+                _("direction is required. Allowed: {0}").format(
+                    ", ".join(allowed)
+                )
+            )
+
+    if direction not in allowed:
+        frappe.throw(
+            _("Invalid direction. Allowed: {0}").format(
+                ", ".join(allowed)
+            )
+        )
+
+    if direction == "Installed":
+        items = get_warehouse_items(
+            warehouse,
+            selected_installed,
+        )
+    else:
+        items = get_vehicle_items(selected_removed)
+
+    response = {
+        "status": "success",
+        "job_type": task_type,
+        "direction": direction,
+        "allowed_directions": list(allowed),
+        "groups": group_items(items),
+    }
+
+    if task_type == "Removal":
+        response["destination_options"] = [
+            "Customer",
+            "Technician",
+        ]
+        response["move_to_options"] = [
+            "Customer",
+            "Technician",
+        ]
+
+    return response
+
+
 def _set_images(job, rows):
     allowed = _fields('Job Image')
     existing = {r.name: r for r in job.get('job_images') or []}
