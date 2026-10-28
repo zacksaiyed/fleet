@@ -853,7 +853,6 @@ def create_job(task=None, task_type=None, vehicle_number=None, assigned_technici
         task_doc.append('custom_task_jobs', {'task_type': task_type, 'vehicle': vehicle_number, 'status': job.status, 'job': job.name})
         task_doc.save(ignore_permissions=True)
     return {'message': 'Job created successfully', 'job': _payload(job)}
-
 @frappe.whitelist(methods=["POST"])
 def update_job(
     name=None,
@@ -938,6 +937,29 @@ def update_job(
         if not isinstance(items, list):
             frappe.throw(_("items must be a JSON array."))
 
+        allowed_fields = {
+            "item",
+            "item_type",
+            "item_name",
+            "brand",
+            "installed_or_removed",
+            "destination",
+            "removal_reason",
+            "replace_against",
+            "is_chargeable",
+            "chargeable_reason",
+            "chargeable_reason_description",
+        }
+
+        child_doctype = job_doc.meta.get_field(
+            "item_installed_removed"
+        ).options
+
+        valid_fields = {
+            field.fieldname
+            for field in frappe.get_meta(child_doctype).fields
+        }
+
         job_doc.set("item_installed_removed", [])
 
         for row in items:
@@ -949,22 +971,7 @@ def update_job(
                 {
                     key: value
                     for key, value in row.items()
-                    if key in {
-                        "item",
-                        "item_type",
-                        "item_name",
-                        "brand",
-                        "installed_or_removed",
-                        "destination",
-                        "removal_reason",
-                        "replace_against",
-                        "is_chargeable",
-                        "chargeable_reason",
-                        "chargeable_reason_description",
-                    }
-                    and job_doc.meta.get_field(
-                        "item_installed_removed"
-                    )
+                    if key in allowed_fields and key in valid_fields
                 }
             )
 
@@ -998,8 +1005,6 @@ def update_job(
                 }
             )
 
-    job_doc.save()
-
     uploaded = []
 
     uploaded_files = (
@@ -1015,6 +1020,7 @@ def update_job(
     ) or ""
 
     for idx, uploaded_file in enumerate(uploaded_files):
+
         image_bytes = uploaded_file.read()
 
         if not image_bytes:
@@ -1051,19 +1057,22 @@ def update_job(
 
         uploaded.append(file_doc.file_url)
 
-    if uploaded:
-        job_doc.save()
+    job_doc.save()
 
-    site_url = frappe.utils.get_url()
+    job_doc.reload()
+
+    site_url = frappe.utils.get_url().rstrip("/")
 
     images_response = []
 
     for row in job_doc.get("job_images") or []:
+
         image_path = row.get("image") or ""
 
         images_response.append(
             {
                 "name": row.name,
+                "idx": row.idx,
                 "image": image_path,
                 "image_url": (
                     site_url + image_path
@@ -1077,14 +1086,24 @@ def update_job(
     items_response = []
 
     for row in job_doc.get("item_installed_removed") or []:
+
         items_response.append(
             {
                 "name": row.name,
+                "idx": row.idx,
                 "item": row.get("item"),
                 "item_type": row.get("item_type"),
                 "item_name": row.get("item_name"),
                 "brand": row.get("brand"),
                 "installed_or_removed": row.get("installed_or_removed"),
+                "destination": row.get("destination"),
+                "removal_reason": row.get("removal_reason"),
+                "replace_against": row.get("replace_against"),
+                "is_chargeable": row.get("is_chargeable"),
+                "chargeable_reason": row.get("chargeable_reason"),
+                "chargeable_reason_description": row.get(
+                    "chargeable_reason_description"
+                ),
             }
         )
 
@@ -1099,20 +1118,20 @@ def update_job(
             "customer": job_doc.customer,
             "vehicle_number": job_doc.vehicle_number,
             "assigned_technician": job_doc.assigned_technician,
+            "technician_name": job_doc.get("technician_name"),
             "date": job_doc.date,
             "type": job_doc.type,
             "make": job_doc.make,
             "model": job_doc.model,
             "color": job_doc.color,
-            "done_comment": job_doc.done_comment,
-            "hold_comment": job_doc.hold_comment,
-            "completion_comment": job_doc.completion_comment,
+            "done_comment": job_doc.get("done_comment"),
+            "hold_comment": job_doc.get("hold_comment"),
+            "completion_comment": job_doc.get("completion_comment"),
             "item_installed_removed": items_response,
             "job_images": images_response,
         },
         "uploaded_images": uploaded,
     }
-
 @frappe.whitelist(methods=["POST"])
 def upload_job_image(job, image_data=None, filename=None, comment=None):
 	return task_v2.upload_job_image(job=job, image_data=image_data, filename=filename, comment=comment)
