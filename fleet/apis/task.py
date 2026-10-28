@@ -614,39 +614,103 @@ def _vehicle_list(value):
 	return list(value)
 
 
+# @frappe.whitelist(methods=["POST"])
+# def create_jobs(task=None, job_type=None, vehicle_list=None, no_of_jobs=None, assign_technician=None, job_rows=None):
+# 	require_login()
+# 	task = (task or frappe.form_dict.get("task") or "").strip()
+# 	if not task:
+# 		frappe.throw("task is required")
+
+# 	assign_technician = (assign_technician or frappe.form_dict.get("assign_technician") or "").strip()
+# 	if assign_technician:
+# 		frappe.db.set_value("Task", task, "custom_assign_to", assign_technician)
+
+# 	rows = parse_json_field(job_rows if job_rows is not None else frappe.form_dict.get("job_rows"))
+# 	if rows:
+# 		mapped = []
+# 		for row in rows:
+# 			mapped.append({
+# 				"task_type": row.get("job_type") or row.get("task_type"),
+# 				"count": int(row.get("no_of_jobs") if row.get("no_of_jobs") is not None else row.get("count") or 1),
+# 				"vehicles": _vehicle_list(row.get("vehicle_list") if "vehicle_list" in row else row.get("vehicles")),
+# 			})
+# 	else:
+# 		job_type = job_type or frappe.form_dict.get("job_type")
+# 		if not job_type:
+# 			frappe.throw("job_type is required")
+# 		vehicle_list = _vehicle_list(vehicle_list if vehicle_list is not None else frappe.form_dict.get("vehicle_list"))
+# 		no_of_jobs = no_of_jobs if no_of_jobs is not None else frappe.form_dict.get("no_of_jobs") or 1
+# 		mapped = [{
+# 			"task_type": job_type,
+# 			"count": int(no_of_jobs or 1),
+# 			"vehicles": vehicle_list,
+# 		}]
+
+# 	return create_jobs_from_dialog(task, mapped)
+
 @frappe.whitelist(methods=["POST"])
 def create_jobs(task=None, job_type=None, vehicle_list=None, no_of_jobs=None, assign_technician=None, job_rows=None):
-	require_login()
-	task = (task or frappe.form_dict.get("task") or "").strip()
-	if not task:
-		frappe.throw("task is required")
+    require_login()
 
-	assign_technician = (assign_technician or frappe.form_dict.get("assign_technician") or "").strip()
-	if assign_technician:
-		frappe.db.set_value("Task", task, "custom_assign_to", assign_technician)
+    task = (task or frappe.form_dict.get("task") or "").strip()
+    if not task:
+        frappe.throw("task is required")
 
-	rows = parse_json_field(job_rows if job_rows is not None else frappe.form_dict.get("job_rows"))
-	if rows:
-		mapped = []
-		for row in rows:
-			mapped.append({
-				"task_type": row.get("job_type") or row.get("task_type"),
-				"count": int(row.get("no_of_jobs") if row.get("no_of_jobs") is not None else row.get("count") or 1),
-				"vehicles": _vehicle_list(row.get("vehicle_list") if "vehicle_list" in row else row.get("vehicles")),
-			})
-	else:
-		job_type = job_type or frappe.form_dict.get("job_type")
-		if not job_type:
-			frappe.throw("job_type is required")
-		vehicle_list = _vehicle_list(vehicle_list if vehicle_list is not None else frappe.form_dict.get("vehicle_list"))
-		no_of_jobs = no_of_jobs if no_of_jobs is not None else frappe.form_dict.get("no_of_jobs") or 1
-		mapped = [{
-			"task_type": job_type,
-			"count": int(no_of_jobs or 1),
-			"vehicles": vehicle_list,
-		}]
+    assign_technician = (assign_technician or frappe.form_dict.get("assign_technician") or "").strip()
+    if assign_technician:
+        frappe.db.set_value("Task", task, "custom_assign_to", assign_technician)
 
-	return create_jobs_from_dialog(task, mapped)
+    rows = parse_json_field(
+        job_rows if job_rows is not None else frappe.form_dict.get("job_rows")
+    )
+
+    if rows:
+        mapped = []
+        for row in rows:
+            mapped.append({
+                "task_type": row.get("job_type") or row.get("task_type"),
+                "count": int(
+                    row.get("no_of_jobs")
+                    if row.get("no_of_jobs") is not None
+                    else row.get("count") or 1
+                ),
+                "vehicles": _vehicle_list(
+                    row.get("vehicle_list")
+                    if "vehicle_list" in row
+                    else row.get("vehicles")
+                ),
+            })
+    else:
+        job_type = job_type or frappe.form_dict.get("job_type")
+        if not job_type:
+            frappe.throw("job_type is required")
+
+        vehicle_list = _vehicle_list(
+            vehicle_list
+            if vehicle_list is not None
+            else frappe.form_dict.get("vehicle_list")
+        )
+
+        no_of_jobs = (
+            no_of_jobs
+            if no_of_jobs is not None
+            else frappe.form_dict.get("no_of_jobs") or 1
+        )
+
+        mapped = [{
+            "task_type": job_type,
+            "count": int(no_of_jobs or 1),
+            "vehicles": vehicle_list,
+        }]
+
+    create_jobs_from_dialog(task, mapped)
+
+    task_doc = frappe.get_doc("Task", task)
+    task_doc.reload()
+
+    return {
+        "task": task_doc.as_dict()
+    }
 
 
 @frappe.whitelist(methods=["GET", "POST"])
