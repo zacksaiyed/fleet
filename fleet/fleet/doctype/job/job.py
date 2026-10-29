@@ -131,8 +131,97 @@ class Job(Document):
 		self._validate_vehicle_existence()
 		self.validate_swap_vehicle()
 
-		if self.status == "Completed" and not self.completion_comment:
-			frappe.throw("Completion comment is mandatory before marking a Job as Completed.")
+		if self.status == "Completed":
+			if not self.completion_comment:
+				frappe.throw("Completion comment is mandatory before marking a Job as Completed.")
+			self._validate_installation_job_requirements()
+
+	def _validate_installation_job_requirements(self):
+		task_type = (getattr(self, "task_type", None) or "").strip()
+		if task_type not in ("Installation", "Checkup"):
+			return
+
+		final_installed = set()
+
+		# For existing vehicles (Checkup), start with currently Installed items on the vehicle
+		if self.vehicle_number and frappe.db.exists("Vehicle", self.vehicle_number):
+			v_items = frappe.db.get_all(
+				"Vehicle Item",
+				filters={"parent": self.vehicle_number, "status": "Installed"},
+				pluck="item"
+			)
+			for item_code in v_items:
+				if item_code:
+					final_installed.add(item_code)
+
+		# Apply current job's removals and installations
+		row_type_map = {}
+		for row in (self.get("item_installed_removed") or []):
+			if not row.item:
+				continue
+			if row.get("item_type"):
+				row_type_map[row.item] = row.item_type
+			inst_rem = getattr(row, "installed_or_removed", "Installed")
+			if inst_rem == "Removed":
+				final_installed.discard(row.item)
+			elif inst_rem == "Installed":
+				final_installed.add(row.item)
+
+		gps_items = []
+		sim_items = []
+
+		for item_code in final_installed:
+			item_data = frappe.db.get_value(
+				"Item",
+				item_code,
+				["custom_item_type", "custom_sim_type"],
+				as_dict=True
+			) or {}
+
+			raw_type = (row_type_map.get(item_code) or item_data.get("custom_item_type") or "").strip().upper()
+			sim_type = (item_data.get("custom_sim_type") or "").strip().upper()
+
+			if raw_type in ("GPS DEVICE", "GPS", "GPS TRACKER") or "GPS" in raw_type:
+				gps_items.append(item_code)
+			elif raw_type in ("SIM", "SIM CARD") or raw_type.startswith("SIM"):
+				sim_items.append({
+					"item": item_code,
+					"sim_type": sim_type,
+				})
+
+		# 1. 1 GPS is compulsory installed
+		if len(gps_items) == 0:
+			frappe.throw(
+				frappe._("Cannot complete {0} job: 1 GPS Device is compulsory on the vehicle.").format(task_type),
+				title=frappe._("Missing GPS Device")
+			)
+		elif len(gps_items) > 1:
+			frappe.throw(
+				frappe._("Cannot complete {0} job: Exactly 1 GPS Device is allowed on the vehicle (found {1}).").format(task_type, len(gps_items)),
+				title=frappe._("Multiple GPS Devices")
+			)
+
+		# 2. SIM normally compulsory 1 is compulsory, and if 2 SIMs then 1 is IOT and second is Local
+		sim_count = len(sim_items)
+		if sim_count == 0:
+			frappe.throw(
+				frappe._("Cannot complete {0} job: At least 1 SIM is compulsory on the vehicle.").format(task_type),
+				title=frappe._("Missing SIM")
+			)
+		elif sim_count == 2:
+			types = [s["sim_type"] for s in sim_items]
+			has_iot = "IOT" in types
+			has_local = "LOCAL" in types
+			if not (has_iot and has_local):
+				frappe.throw(
+					frappe._("Cannot complete {0} job: When 2 SIMs are installed on the vehicle, 1 must be IOT and the other must be Local.").format(task_type),
+					title=frappe._("Invalid SIM Configuration")
+				)
+		elif sim_count > 2:
+			frappe.throw(
+				frappe._("Cannot complete {0} job: Maximum 2 SIMs (1 IOT and 1 Local) are allowed on the vehicle (found {1}).").format(task_type, sim_count),
+				title=frappe._("Too Many SIMs")
+			)
 
 	def validate_swap_vehicle(self):
 		if not self.task_type == "Swap" :
@@ -1380,13 +1469,31 @@ class Job(Document):
 				"attached_to_name":    vehicle_number,
 			}):
 				continue
-			frappe.get_doc({
-				"doctype":             "File",
-				"file_url":            row.image,
-				"attached_to_doctype": "Vehicle",
-				"attached_to_name":    vehicle_number,
-				"is_private":          0,
-			}).insert(ignore_permissions=True)
+			try:
+				file_doc = frappe.get_doc({
+					"doctype":             "File",
+					"file_url":            row.image,
+					"file_name":           row.image.split("/")[-1],
+					"attached_to_doctype": "Vehicle",
+					"attached_to_name":    vehicle_number,
+					"is_private":          0,
+				})
+				file_doc.flags.copy_from_existing_file = True
+				file_doc.insert(ignore_permissions=True)
+			except (FileNotFoundError, OSError):
+				try:
+					file_doc.set_new_name()
+					file_doc.db_insert()
+				except Exception as fallback_err:
+					frappe.log_error(
+						title=f"Failed to attach image to Vehicle {vehicle_number}",
+						message=f"Image: {row.image}\nError: {fallback_err}"
+					)
+			except Exception as err:
+				frappe.log_error(
+					title=f"Failed to attach image to Vehicle {vehicle_number}",
+					message=f"Image: {row.image}\nError: {err}"
+				)
 
 
 # Item search by warehouse
@@ -1714,6 +1821,7 @@ def job_action(job, action, comment=None, comment_field=None, hold_until_date=No
 			frappe.throw("Job must be In Review to Complete.")
 		if not is_support:
 			frappe.throw("Only Support Team can complete a job.")
+		doc._validate_installation_job_requirements()
 		if not comment:
 			frappe.throw("Completion comment is required.")
 		doc.completion_comment      = comment
@@ -1748,6 +1856,16 @@ def job_action(job, action, comment=None, comment_field=None, hold_until_date=No
 	doc.flags.updated_from_job_document = 1
 	doc.save(ignore_permissions=True)
 	return {"msg": msg, "job_status": doc.status, "hold_until": doc.hold_until}
+
+
+@frappe.whitelist()
+def validate_installation_requirements(job):
+	if isinstance(job, str):
+		doc = frappe.get_doc("Job", job)
+	else:
+		doc = job
+	doc._validate_installation_job_requirements()
+	return {"status": "ok"}
 
 
 def set_progress_jobs_to_pending():

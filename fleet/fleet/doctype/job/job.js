@@ -642,9 +642,30 @@ frappe.ui.form.on("Job", {
 		// SUPPORT TEAM ONLY
 		if (is_support) {
 			if (status === "In Review") {
-				frm.add_custom_button(__("Complete"), () =>
-					_job_action_with_comment(frm, "complete", __("Completion Comment"), "completion_comment")
-				).removeClass("btn-default btn-secondary").addClass("btn-success").css("background-color", "#28a745").css("border-color", "#28a745").css("color", "#fff");
+				frm.add_custom_button(__("Complete"), () => {
+					const proceed = () => {
+						if (["Installation", "Checkup"].includes(frm.doc.task_type)) {
+							frappe.call({
+								method: "fleet.fleet.doctype.job.job.validate_installation_requirements",
+								args: { job: frm.doc.name },
+								freeze: true,
+								freeze_message: __("Validating requirements..."),
+								callback(r) {
+									if (r.exc) return;
+									_job_action_with_comment(frm, "complete", __("Completion Comment"), "completion_comment");
+								}
+							});
+						} else {
+							_job_action_with_comment(frm, "complete", __("Completion Comment"), "completion_comment");
+						}
+					};
+
+					if (frm.is_dirty()) {
+						frm.save(null, proceed);
+					} else {
+						proceed();
+					}
+				}).removeClass("btn-default btn-secondary").addClass("btn-success").css("background-color", "#28a745").css("border-color", "#28a745").css("color", "#fff");
 
 				frm.add_custom_button(__("Mark as Pending"), () =>
 					_job_action(frm, "mark_pending")
