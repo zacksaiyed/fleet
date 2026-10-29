@@ -1469,31 +1469,13 @@ class Job(Document):
 				"attached_to_name":    vehicle_number,
 			}):
 				continue
-			try:
-				file_doc = frappe.get_doc({
-					"doctype":             "File",
-					"file_url":            row.image,
-					"file_name":           row.image.split("/")[-1],
-					"attached_to_doctype": "Vehicle",
-					"attached_to_name":    vehicle_number,
-					"is_private":          0,
-				})
-				file_doc.flags.copy_from_existing_file = True
-				file_doc.insert(ignore_permissions=True)
-			except (FileNotFoundError, OSError):
-				try:
-					file_doc.set_new_name()
-					file_doc.db_insert()
-				except Exception as fallback_err:
-					frappe.log_error(
-						title=f"Failed to attach image to Vehicle {vehicle_number}",
-						message=f"Image: {row.image}\nError: {fallback_err}"
-					)
-			except Exception as err:
-				frappe.log_error(
-					title=f"Failed to attach image to Vehicle {vehicle_number}",
-					message=f"Image: {row.image}\nError: {err}"
-				)
+			frappe.get_doc({
+				"doctype":             "File",
+				"file_url":            row.image,
+				"attached_to_doctype": "Vehicle",
+				"attached_to_name":    vehicle_number,
+				"is_private":          0,
+			}).insert(ignore_permissions=True)
 
 
 # Item search by warehouse
