@@ -49,8 +49,26 @@ def task_action(task, action, technician=None, reject_comment=None):
 		_assert_status(doc, "Open", "Task must be Open to Accept.")
 		if not (is_support or is_tech):
 			frappe.throw("Permission denied.")
+			
+		new_warehouse = _get_technician_warehouse(doc.custom_assign_to)
+		
+		if new_warehouse:
+			pending_mts = frappe.get_all(
+				"Material Transfer",
+				filters={
+					"target": new_warehouse,
+					"docstatus": ["<", 2]  
+				},
+				fields=["name"]
+			)
+			
+			for mt in pending_mts:
+				mt_doc = frappe.get_doc("Material Transfer", mt.name)
+				if mt_doc.get("workflow_state") != "Approved":
+					apply_workflow(mt_doc, "Approve")
+
 		doc.status = "Accepted"
-		msg = "Task accepted."
+		msg = "Task accepted and materials transferred."
 
 	elif action == "reject":
 		_assert_status(doc, "Open", "Task must be Open to Reject.")
@@ -263,6 +281,7 @@ def _handle_task_reassignment(doc, old_technician, new_technician):
 	new_warehouse = _get_technician_warehouse(new_technician)
 
 	emp_name = frappe.db.get_value("Employee", new_technician, "employee_name")
+	new_tech_user = frappe.db.get_value("Employee", new_technician, "user_id")
 
 	for job in movable_jobs:
 		job_doc = frappe.get_doc("Job", job.name)
@@ -272,8 +291,10 @@ def _handle_task_reassignment(doc, old_technician, new_technician):
 		job_doc.date = nowdate()
 		
 		# Agar aapke Job form me technician_name ka field hai, toh usko bhi assign kar dein:
-		if job_doc.meta.has_field("technician_name"):
-			job_doc.technician_name = emp_name or new_technician
+		# if job_doc.meta.has_field("technician_name"):
+		# 	job_doc.technician_name = emp_name or new_technician
+		if job_doc.meta.has_field("completed_by"):
+			job_doc.completed_by = new_tech_user
 			
 		job_doc.save(ignore_permissions=True)
 	_remove_moved_jobs_from_old_task(
@@ -356,7 +377,7 @@ def _create_material_transfer_for_job(
 
 	# material_transfer.db_set("workflow_state", "Approved")
 	apply_workflow(material_transfer, "Transfer Material")
-	apply_workflow(material_transfer, "Approve")
+	# apply_workflow(material_transfer, "Approve")
 
 
 	return material_transfer.name
