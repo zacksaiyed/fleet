@@ -108,85 +108,136 @@ def get_purpose_warehouses(purpose, source=None, search=None):
 
 
 @frappe.whitelist(methods=["GET", "POST"])
-def list_transfers(search=None, workflow_state=None, purpose=None, source=None, target=None,
-                   from_date=None, to_date=None, start=0, page_length=20, order_by="modified desc",
-                   filters=None):
+def list_transfers(
+    search=None,
+    workflow_state=None,
+    purpose=None,
+    source=None,
+    target=None,
+    from_date=None,
+    to_date=None,
+    start=0,
+    page_length=20,
+    order_by=None,
+    filters=None,
+    sort_by=None,
+    sort_order=None
+):
     _admin()
-    start = max(0, cint(start))
-    page_length = min(100, max(1, cint(page_length) or 20))
-    allowed_orders = {"modified desc", "modified asc", "creation desc", "creation asc", "date desc", "date asc"}
-    if order_by not in allowed_orders:
-        frappe.throw(_("Invalid order_by"))
+
+    from fleet.apis.list_filter_utils import (
+        parse_filters,
+        get_order_by,
+        get_pagination
+    )
+
+    start, page_length = get_pagination(start, page_length)
+
+    if order_by and not sort_by:
+        parts = order_by.strip().split()
+        if len(parts) not in (1, 2):
+            frappe.throw(_("Invalid order_by"))
+        sort_by = parts[0]
+        sort_order = parts[1] if len(parts) == 2 else "asc"
+
+    sort_by = sort_by or "modified"
+    sort_order = sort_order or "desc"
+
+    sorting = get_order_by(
+        "Material Transfer",
+        sort_by,
+        sort_order
+    )
+
     meta = frappe.get_meta("Material Transfer")
-    columns = ["name", "purpose", "source", "target", "workflow_state", "docstatus", "owner", "creation", "modified"]
-    for col in ("date", "accepted_by", "stock_entry", "reject_reason"):
-        if meta.has_field(col):
-            columns.append(col)
-    allowed_filter_fields = {
-        "name", "purpose", "source", "target", "workflow_state", "docstatus",
-        "owner", "creation", "modified", "date", "accepted_by", "stock_entry",
-        "reject_reason", "initiated_by", "initiated_on", "rejected_by", "rejected_on",
-    }
-    allowed_operators = {"=", "!=", ">", ">=", "<", "<=", "like", "not like", "in", "not in", "between", "is", "is not"}
-    if isinstance(filters, str):
-        try:
-            filters = json.loads(filters)
-        except (TypeError, ValueError):
-            frappe.throw(_("filters must be valid JSON"))
-    if filters is None:
-        filters = []
-    if isinstance(filters, dict):
-        filters = [[key, "=", value] for key, value in filters.items()]
-    if not isinstance(filters, list):
-        frappe.throw(_("filters must be a list of [field, operator, value]"))
-    normalized_filters = []
-    for entry in filters:
-        if not isinstance(entry, (list, tuple)) or len(entry) not in (3, 4):
-            frappe.throw(_("Each filter must be [field, operator, value]"))
-        if len(entry) == 4:
-            doctype, field, operator, value = entry
-            if doctype != "Material Transfer":
-                frappe.throw(_("Only Material Transfer fields may be filtered"))
-        else:
-            field, operator, value = entry
-        operator = str(operator).lower().strip()
-        if field not in allowed_filter_fields or (field != "name" and not meta.has_field(field)):
-            frappe.throw(_("Invalid Material Transfer filter field: {0}").format(field))
-        if operator not in allowed_operators:
-            frappe.throw(_("Unsupported filter operator: {0}").format(operator))
-        if operator in ("in", "not in", "between") and not isinstance(value, (list, tuple)):
-            frappe.throw(_("Operator {0} requires a list value").format(operator))
-        if operator == "between" and len(value) != 2:
-            frappe.throw(_("Between requires exactly two values"))
-        if operator in ("is", "is not") and value not in ("set", "not set", "null", "not null"):
-            frappe.throw(_("Invalid null-check filter"))
-        normalized_filters.append([field, operator, value])
-    for key, val in (("workflow_state", workflow_state), ("purpose", purpose), ("source", source), ("target", target)):
-        if val:
-            normalized_filters.append([key, "=", val])
+
+    columns = [
+        "name",
+        "purpose",
+        "source",
+        "target",
+        "workflow_state",
+        "docstatus",
+        "owner",
+        "creation",
+        "modified"
+    ]
+
+    for field in (
+        "date",
+        "accepted_by",
+        "stock_entry",
+        "reject_reason"
+    ):
+        if meta.has_field(field):
+            columns.append(field)
+
+    conditions = parse_filters("Material Transfer", filters)
+
+    for field, value in (
+        ("workflow_state", workflow_state),
+        ("purpose", purpose),
+        ("source", source),
+        ("target", target)
+    ):
+        if value:
+            conditions.append([field, "=", value])
+
     if from_date or to_date:
         if not meta.has_field("date"):
             frappe.throw(_("Material Transfer has no date field"))
-        if from_date and to_date and getdate(from_date) > getdate(to_date):
-            frappe.throw(_("From Date cannot exceed To Date"))
+
         if from_date and to_date:
-            normalized_filters.append(["date", "between", [str(getdate(from_date)), str(getdate(to_date))]])
+            if getdate(from_date) > getdate(to_date):
+                frappe.throw(_("From Date cannot exceed To Date"))
+
+            conditions.append([
+                "date", "between",
+                [str(getdate(from_date)), str(getdate(to_date))]
+            ])
+
         elif from_date:
-            normalized_filters.append(["date", ">=", str(getdate(from_date))])
+            conditions.append([
+                "date", ">=", str(getdate(from_date))
+            ])
+
         else:
-            normalized_filters.append(["date", "<=", str(getdate(to_date))])
-    or_filters = None
+            conditions.append([
+                "date", "<=", str(getdate(to_date))
+            ])
+
+    or_filters = []
+
     if search:
         search = str(search).strip()
-        or_filters = [["Material Transfer", f, "like", "%" + search + "%"] for f in ("name", "source", "target", "purpose")]
-    rows = frappe.get_list("Material Transfer", filters=normalized_filters, or_filters=or_filters,
-                           fields=columns, order_by=order_by, start=start, page_length=page_length + 1)
+        or_filters = [
+            ["Material Transfer", field, "like", f"%{search}%"]
+            for field in ("name", "source", "target", "purpose")
+        ]
+
+    rows = frappe.get_list(
+        "Material Transfer",
+        filters=conditions,
+        or_filters=or_filters,
+        fields=columns,
+        order_by=sorting,
+        start=start,
+        page_length=page_length + 1
+    )
+
     has_more = len(rows) > page_length
     rows = rows[:page_length]
+
     for row in rows:
         row["id"] = row["name"]
         row["status"] = row.get("workflow_state")
-    return {"transfers": rows, "start": start, "page_length": page_length, "has_more": has_more}
+
+    return {
+        "transfers": rows,
+        "start": start,
+        "page_length": page_length,
+        "has_more": has_more
+    }
 
 
 @frappe.whitelist(methods=["GET", "POST"])
@@ -403,6 +454,8 @@ def action_material_request(name, action, reject_reason=None):
         "docstatus": result.docstatus,
         "stock_entry": result.get("stock_entry"),
     }
+
+
 @frappe.whitelist(methods=["GET", "POST"])
 def get_approval_requests(
     status=None,
@@ -410,49 +463,195 @@ def get_approval_requests(
     start=0,
     page_length=20,
     sort_by=None,
-    sort_order=None
+    sort_order=None,
+    state=None,
+    filters=None,
 ):
     _admin()
 
-    allowed_sort_fields = {
-        "creation": "mt.creation",
-        "modified": "mt.modified"
-    }
+    from fleet.apis.list_filter_utils import parse_filters
 
-    sort_by = str(sort_by or "modified").strip().lower()
-    sort_order = str(sort_order or "desc").strip().lower()
+    # Get request parameters
+    args = frappe.form_dict
 
-    if sort_by not in allowed_sort_fields:
-        frappe.throw(_("sort_by must be creation or modified"))
+    status = args.get("status", status)
+    state = args.get("state", state)
+    search = args.get("search", search)
+    filters = args.get("filters", filters)
+    sort_by = args.get("sort_by", sort_by)
+    sort_order = args.get("sort_order", sort_order)
+    start = args.get("start", start)
+    page_length = args.get("page_length", page_length)
 
-    if sort_order not in ("asc", "desc"):
-        frappe.throw(_("sort_order must be asc or desc"))
-
-    order_by = (
-        f"{allowed_sort_fields[sort_by]} {sort_order.upper()}, mt.name DESC"
-    )
-
+    # Workflow states
     state_map = {
         "Pending": "Approval Pending",
         "Approved": "Approved",
         "Rejected": "Rejected",
     }
 
-    if status and status not in state_map:
-        frappe.throw(_("status must be Pending, Approved or Rejected"))
+    state_lookup = {
+        "pending": "Pending",
+        "approval pending": "Pending",
+        "approved": "Approved",
+        "rejected": "Rejected",
+    }
 
+    # State parameter
+    state = str(state or "").strip().lower()
+    status = str(status or "").strip().lower()
+
+    if state and state not in state_lookup:
+        frappe.throw(
+            _("state must be pending, approved or rejected")
+        )
+
+    if status and status not in state_lookup:
+        frappe.throw(
+            _("status must be Pending, Approved or Rejected")
+        )
+
+    selected_state = (
+        state_lookup[state] if state
+        else state_lookup[status] if status
+        else None
+    )
+
+    if state and status:
+        if state_lookup[state] != state_lookup[status]:
+            frappe.throw(
+                _("state and status parameters do not match")
+            )
+
+    # Pagination
     start = max(0, cint(start))
-    page_length = min(100, max(1, cint(page_length) or 20))
+    page_length = min(
+        100,
+        max(1, cint(page_length) or 20)
+    )
+
     search = str(search or "").strip()
+
+    # Sorting
+    sort_by = str(
+        sort_by or "modified"
+    ).strip()
+
+    sort_order = str(
+        sort_order or "desc"
+    ).strip().lower()
+
+    meta = frappe.get_meta("Material Transfer")
+    allowed_fields = set(meta.get_valid_columns())
+
+    if sort_by not in allowed_fields:
+        frappe.throw(
+            _("Invalid sort field: {0}").format(sort_by)
+        )
+
+    if sort_order not in ("asc", "desc"):
+        frappe.throw(
+            _("sort_order must be asc or desc")
+        )
+
+    order_by = (
+        f"mt.`{sort_by}` {sort_order.upper()}, "
+        "mt.`name` DESC"
+    )
+
+    # Dynamic filters
+    normalized_filters = parse_filters(
+        "Material Transfer",
+        filters
+    )
 
     result = {}
 
-    for tab, workflow_state in state_map.items():
+    # All tabs when no state is selected
+    # Only selected tab when state/status is passed
+    tabs_to_process = (
+        [selected_state]
+        if selected_state
+        else list(state_map.keys())
+    )
 
-        conditions = ["mt.workflow_state = %(state)s"]
-        params = {"state": workflow_state}
+    for tab in tabs_to_process:
 
+        workflow_state = state_map[tab]
+
+        conditions = [
+            "mt.workflow_state = %(workflow_state)s"
+        ]
+
+        params = {
+            "workflow_state": workflow_state
+        }
+
+        # Apply dynamic filters
+        for index, condition in enumerate(normalized_filters):
+
+            field, operator, value = condition
+            param = f"filter_{index}"
+            column = f"mt.`{field}`"
+
+            if operator in ("in", "not in"):
+
+                if not value:
+                    conditions.append(
+                        "1 = 0" if operator == "in" else "1 = 1"
+                    )
+                    continue
+
+                placeholders = []
+
+                for j, item in enumerate(value):
+                    key = f"{param}_{j}"
+                    params[key] = item
+                    placeholders.append(f"%({key})s")
+
+                conditions.append(
+                    f"{column} {operator.upper()} "
+                    f"({', '.join(placeholders)})"
+                )
+
+            elif operator == "between":
+
+                params[f"{param}_from"] = value[0]
+                params[f"{param}_to"] = value[1]
+
+                conditions.append(
+                    f"{column} BETWEEN "
+                    f"%({param}_from)s AND %({param}_to)s"
+                )
+
+            elif operator in ("is", "is not"):
+
+                if value == "set":
+                    expression = (
+                        f"({column} IS NOT NULL AND "
+                        f"{column} != '')"
+                    )
+                else:
+                    expression = (
+                        f"({column} IS NULL OR "
+                        f"{column} = '')"
+                    )
+
+                if operator == "is not":
+                    expression = f"NOT {expression}"
+
+                conditions.append(expression)
+
+            else:
+                params[param] = value
+
+                conditions.append(
+                    f"{column} {operator.upper()} %({param})s"
+                )
+
+        # Search
         if search:
+
             conditions.append("""
                 (
                     mt.name LIKE %(search)s
@@ -473,28 +672,24 @@ def get_approval_requests(
                     )
                 )
             """)
+
             params["search"] = f"%{search}%"
 
         where = " AND ".join(conditions)
 
+        # Count matching records
         count = frappe.db.sql(
             """
             SELECT COUNT(DISTINCT mt.name)
             FROM `tabMaterial Transfer` mt
-            LEFT JOIN `tabUser` u ON u.name = mt.owner
-            LEFT JOIN `tabEmployee` e ON e.user_id = mt.owner
+            LEFT JOIN `tabUser` u
+                ON u.name = mt.owner
+            LEFT JOIN `tabEmployee` e
+                ON e.user_id = mt.owner
             WHERE
             """ + where,
             params,
         )[0][0]
-
-        if status and status != tab:
-            result[tab.lower()] = {
-                "total": count,
-                "requests": [],
-                "has_more": False,
-            }
-            continue
 
         query_params = {
             **params,
@@ -502,6 +697,7 @@ def get_approval_requests(
             "limit": page_length + 1,
         }
 
+        # Fetch matching requests
         records = frappe.db.sql(
             """
             SELECT DISTINCT
@@ -515,6 +711,7 @@ def get_approval_requests(
                 mt.creation,
                 mt.modified,
                 mt.reject_reason,
+
                 COALESCE(
                     (
                         SELECT NULLIF(emp.employee_name, '')
@@ -548,10 +745,15 @@ def get_approval_requests(
         has_more = len(records) > page_length
         records = records[:page_length]
 
+        # Fetch items for returned transfers
         names = [row.name for row in records]
-        items_by_transfer = {name: [] for name in names}
+
+        items_by_transfer = {
+            name: [] for name in names
+        }
 
         if names:
+
             item_rows = frappe.get_all(
                 "Material Transfer Item",
                 filters={
@@ -576,14 +778,16 @@ def get_approval_requests(
 
         requests = []
 
+        # Format response
         for record in records:
+
             grouped = {}
 
-            # if record.purpose == "Material Handover":
-            #     continue
-
             for item in items_by_transfer[record.name]:
-                item_type = item.item_type or "Uncategorized"
+
+                item_type = (
+                    item.item_type or "Uncategorized"
+                )
 
                 if item_type not in grouped:
                     grouped[item_type] = {
@@ -619,7 +823,9 @@ def get_approval_requests(
                     if tab == "Rejected"
                     else None
                 ),
-                "total_items": len(items_by_transfer[record.name]),
+                "total_items": len(
+                    items_by_transfer[record.name]
+                ),
                 "item_groups": list(grouped.values()),
                 "can_approve": tab == "Pending",
                 "can_reject": tab == "Pending",

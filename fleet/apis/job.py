@@ -785,27 +785,108 @@ def _payload(job):
     }
 
 
-@frappe.whitelist(methods=['GET', 'POST'])
-def list_jobs(status=None, task=None, txt=None, page_length=20, start=0):
+@frappe.whitelist(methods=["GET", "POST"])
+def list_jobs(
+    status=None,
+    task=None,
+    txt=None,
+    page_length=20,
+    start=0,
+    filters=None,
+    sort_by="creation",
+    sort_order="desc"
+):
     _admin()
-    status = _arg('status', status)
-    task = _arg('task', task)
-    txt = _arg('txt', txt)
-    page_length = max(1, min(cint(_arg('page_length', page_length)), 100))
-    start = max(0, cint(_arg('start', start)))
-    statuses = ['Pending', 'In Progress', 'In Review', 'On Hold', 'Completed', 'Cancelled']
-    counts = {s: frappe.db.count('Job', {'status': s}) for s in statuses}
-    filters = {}
-    if status:
-        filters['status'] = status
-    if task:
-        filters['task'] = task
-    kwargs = {'filters': filters, 'fields': ['name', 'title', 'status', 'task', 'task_type', 'customer', 'vehicle_number', 'technician_name', 'assigned_technician', 'creation'], 'order_by': 'creation desc', 'limit_start': start, 'limit_page_length': page_length}
-    if txt:
-        kwargs['or_filters'] = [[field, 'like', f'%{txt}%'] for field in ('name', 'title', 'customer', 'vehicle_number', 'technician_name')]
-    jobs = frappe.get_all('Job', **kwargs)
-    return {'chip_counts': {'Open': counts['Pending'], 'Accepted': counts['In Review'], 'In progress': counts['In Progress'], 'Completed': counts['Completed']}, 'status_counts': counts, 'jobs': jobs}
 
+    from fleet.apis.list_filter_utils import (
+        parse_filters,
+        get_order_by,
+        get_pagination
+    )
+
+    status = _arg("status", status)
+    task = _arg("task", task)
+    txt = (_arg("txt", txt) or "").strip()
+    filters = _arg("filters", filters)
+
+    sort_by = _arg("sort_by", sort_by)
+    sort_order = _arg("sort_order", sort_order)
+
+    start, page_length = get_pagination(
+        _arg("start", start),
+        _arg("page_length", page_length)
+    )
+
+    conditions = parse_filters("Job", filters)
+
+    if status:
+        conditions.append(["status", "=", status])
+
+    if task:
+        conditions.append(["task", "=", task])
+
+    order_by = get_order_by(
+        "Job", sort_by, sort_order, default="creation"
+    )
+
+    statuses = [
+        "Pending", "In Progress", "In Review",
+        "On Hold", "Completed", "Cancelled"
+    ]
+
+    counts = {
+        s: frappe.db.count("Job", {"status": s})
+        for s in statuses
+    }
+
+    or_filters = []
+
+    if txt:
+        or_filters = [
+            [field, "like", f"%{txt}%"]
+            for field in (
+                "name", "title", "customer",
+                "vehicle_number", "technician_name"
+            )
+        ]
+
+    rows = frappe.get_list(
+        "Job",
+        fields=[
+            "name",
+            "title",
+            "status",
+            "task",
+            "task_type",
+            "customer",
+            "vehicle_number",
+            "technician_name",
+            "assigned_technician",
+            "creation"
+        ],
+        filters=conditions,
+        or_filters=or_filters,
+        order_by=order_by,
+        start=start,
+        page_length=page_length + 1
+    )
+
+    has_more = len(rows) > page_length
+    jobs = rows[:page_length]
+
+    return {
+        "chip_counts": {
+            "Open": counts["Pending"],
+            "Accepted": counts["In Review"],
+            "In progress": counts["In Progress"],
+            "Completed": counts["Completed"]
+        },
+        "status_counts": counts,
+        "jobs": jobs,
+        "start": start,
+        "page_length": page_length,
+        "has_more": has_more
+    }
 
 @frappe.whitelist(methods=['GET', 'POST'])
 def job_details(name=None):
