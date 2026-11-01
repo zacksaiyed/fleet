@@ -138,38 +138,79 @@ class Job(Document):
 
 	def _validate_installation_job_requirements(self):
 		task_type = (getattr(self, "task_type", None) or "").strip()
-		if task_type not in ("Installation", "Checkup"):
+		if task_type not in ("Installation", "Checkup", "Accessory", "Re-Installation", "Swap"):
 			return
 
-		final_installed = set()
+		if task_type == "Swap":
+			if not (self.new_vehicle_number or "").strip():
+				frappe.throw(frappe._("New Vehicle Number is mandatory for Swap job."), title=frappe._("Missing New Vehicle"))
+			if not self.swap_type:
+				frappe.throw(frappe._("New Vehicle Type is mandatory for Swap job."), title=frappe._("Missing New Vehicle Details"))
+			if not (self.swap_make or "").strip():
+				frappe.throw(frappe._("New Vehicle Make is mandatory for Swap job."), title=frappe._("Missing New Vehicle Details"))
+			if not (self.swap_model or "").strip():
+				frappe.throw(frappe._("New Vehicle Model is mandatory for Swap job."), title=frappe._("Missing New Vehicle Details"))
 
-		# For existing vehicles (Checkup), start with currently Installed items on the vehicle
-		if self.vehicle_number and frappe.db.exists("Vehicle", self.vehicle_number):
-			v_items = frappe.db.get_all(
-				"Vehicle Item",
-				filters={"parent": self.vehicle_number, "status": "Installed"},
-				pluck="item"
-			)
-			for item_code in v_items:
-				if item_code:
-					final_installed.add(item_code)
+			# Prevent duplicate items in Swap items
+			swap_items = [r.items for r in (self.get("items") or []) if r.items]
+			if not swap_items:
+				frappe.throw(frappe._("At least one item must be installed on the new vehicle in a Swap job."), title=frappe._("Missing Items"))
 
-		# Apply current job's removals and installations
-		row_type_map = {}
-		for row in (self.get("item_installed_removed") or []):
-			if not row.item:
-				continue
-			if row.get("item_type"):
-				row_type_map[row.item] = row.item_type
-			inst_rem = getattr(row, "installed_or_removed", "Installed")
-			if inst_rem == "Removed":
-				final_installed.discard(row.item)
-			elif inst_rem == "Installed":
-				final_installed.add(row.item)
+			seen_swap_items = set()
+			for item_code in swap_items:
+				if item_code in seen_swap_items:
+					frappe.throw(
+						frappe._("Cannot complete Swap job: Item {0} is added multiple times to the new vehicle.").format(item_code),
+						title=frappe._("Duplicate Item")
+					)
+				seen_swap_items.add(item_code)
 
-		gps_items = []
-		sim_items = []
+			final_installed = set(swap_items)
+			row_type_map = {r.items: r.item_type for r in (self.get("items") or []) if r.items and r.get("item_type")}
+		else:
+			# 1. Prevent duplicate items in current job's Installed rows
+			installed_rows = [
+				row for row in (self.get("item_installed_removed") or [])
+				if row.item and getattr(row, "installed_or_removed", "Installed") == "Installed"
+			]
+			seen_job_items = set()
+			for row in installed_rows:
+				if row.item in seen_job_items:
+					frappe.throw(
+						frappe._("Cannot complete {0} job: Item {1} is added multiple times as Installed in this job.").format(task_type, row.item),
+						title=frappe._("Duplicate Item")
+					)
+				seen_job_items.add(row.item)
 
+			# 2. Compute final installed items on vehicle
+			final_installed = set()
+
+			# For existing vehicles, start with currently Installed items on the vehicle
+			if self.vehicle_number and frappe.db.exists("Vehicle", self.vehicle_number):
+				v_items = frappe.db.get_all(
+					"Vehicle Item",
+					filters={"parent": self.vehicle_number, "status": "Installed"},
+					pluck="item"
+				)
+				for item_code in v_items:
+					if item_code:
+						final_installed.add(item_code)
+
+			# Apply current job's removals and installations
+			row_type_map = {}
+			for row in (self.get("item_installed_removed") or []):
+				if not row.item:
+					continue
+				if row.get("item_type"):
+					row_type_map[row.item] = row.item_type
+				inst_rem = getattr(row, "installed_or_removed", "Installed")
+				if inst_rem == "Removed":
+					final_installed.discard(row.item)
+				elif inst_rem == "Installed":
+					final_installed.add(row.item)
+
+		# 3. Categorize items by type
+		items_by_type = {}
 		for item_code in final_installed:
 			item_data = frappe.db.get_value(
 				"Item",
@@ -178,37 +219,48 @@ class Job(Document):
 				as_dict=True
 			) or {}
 
-			raw_type = (row_type_map.get(item_code) or item_data.get("custom_item_type") or "").strip().upper()
+			raw_type = (row_type_map.get(item_code) or item_data.get("custom_item_type") or "").strip()
+			if not raw_type:
+				raw_type = (frappe.db.get_value("Vehicle Item", {"item": item_code}, "item_type") or "").strip()
+
 			sim_type = (item_data.get("custom_sim_type") or "").strip().upper()
 
-			if raw_type in ("GPS DEVICE", "GPS", "GPS TRACKER") or "GPS" in raw_type:
-				gps_items.append(item_code)
-			elif raw_type in ("SIM", "SIM CARD") or raw_type.startswith("SIM"):
-				sim_items.append({
-					"item": item_code,
-					"sim_type": sim_type,
-				})
+			raw_upper = raw_type.upper()
+			if "GPS" in raw_upper:
+				norm_type = "GPS Device"
+			elif "SIM" in raw_upper:
+				norm_type = "SIM"
+			elif "DASH" in raw_upper or "CAM" in raw_upper:
+				norm_type = "DASHCAM"
+			elif "FUEL" in raw_upper:
+				norm_type = "Fuel Sensor"
+			elif "TEMP" in raw_upper:
+				norm_type = "Temperature"
+			else:
+				norm_type = raw_type.title() if raw_type else "Accessory"
 
-		# 1. 1 GPS is compulsory installed
-		if len(gps_items) == 0:
+			items_by_type.setdefault(norm_type, []).append({
+				"item": item_code,
+				"sim_type": sim_type,
+				"raw_type": raw_type
+			})
+
+		# 4. GPS validation
+		gps_items = items_by_type.get("GPS Device", [])
+		if len(gps_items) > 1:
+			item_list = ", ".join(x["item"] for x in gps_items)
 			frappe.throw(
-				frappe._("Cannot complete {0} job: 1 GPS Device is compulsory on the vehicle.").format(task_type),
-				title=frappe._("Missing GPS Device")
-			)
-		elif len(gps_items) > 1:
-			frappe.throw(
-				frappe._("Cannot complete {0} job: Exactly 1 GPS Device is allowed on the vehicle (found {1}).").format(task_type, len(gps_items)),
+				frappe._("Cannot complete {0} job: Multiple GPS Devices are not allowed on the vehicle (found {1}: {2}). Only 1 GPS Device can be installed.").format(
+					task_type, len(gps_items), item_list
+				),
 				title=frappe._("Multiple GPS Devices")
 			)
 
-		# 2. SIM normally compulsory 1 is compulsory, and if 2 SIMs then 1 is IOT and second is Local
+		# 5. SIM validation
+		sim_items = items_by_type.get("SIM", [])
 		sim_count = len(sim_items)
-		if sim_count == 0:
-			frappe.throw(
-				frappe._("Cannot complete {0} job: At least 1 SIM is compulsory on the vehicle.").format(task_type),
-				title=frappe._("Missing SIM")
-			)
-		elif sim_count == 2:
+
+		if sim_count == 2:
 			types = [s["sim_type"] for s in sim_items]
 			has_iot = "IOT" in types
 			has_local = "LOCAL" in types
@@ -222,6 +274,19 @@ class Job(Document):
 				frappe._("Cannot complete {0} job: Maximum 2 SIMs (1 IOT and 1 Local) are allowed on the vehicle (found {1}).").format(task_type, sim_count),
 				title=frappe._("Too Many SIMs")
 			)
+
+		# 6. Any other accessory (DASHCAM, Fuel Sensor, Temperature, or any other accessory)
+		for itype, items_list in items_by_type.items():
+			if itype in ("GPS Device", "SIM"):
+				continue
+			if len(items_list) > 1:
+				item_list = ", ".join(x["item"] for x in items_list)
+				frappe.throw(
+					frappe._("Cannot complete {0} job: Multiple {1} items are not allowed on the vehicle (found {2}: {3}). Only 1 {1} can be installed.").format(
+						task_type, itype, len(items_list), item_list
+					),
+					title=frappe._("Duplicate Accessory Installed")
+				)
 
 	def validate_swap_vehicle(self):
 		if not self.task_type == "Swap" :
@@ -1764,6 +1829,18 @@ def job_action(job, action, comment=None, comment_field=None, hold_until_date=No
 			frappe.throw("Comment is required.")
 		if not doc.job_images:
 			frappe.throw("At least one image is required before marking the job as Done.")
+		if doc.task_type == "Swap":
+			if not (doc.new_vehicle_number or "").strip():
+				frappe.throw("New Vehicle Number is mandatory before marking a Swap job as Done.")
+			if not doc.swap_type:
+				frappe.throw("New Vehicle Type is mandatory before marking a Swap job as Done.")
+			if not (doc.swap_make or "").strip():
+				frappe.throw("New Vehicle Make is mandatory before marking a Swap job as Done.")
+			if not (doc.swap_model or "").strip():
+				frappe.throw("New Vehicle Model is mandatory before marking a Swap job as Done.")
+			if not doc.items:
+				frappe.throw("At least one item must be installed on the new vehicle in a Swap job.")
+			doc._validate_installation_job_requirements()
 		doc.done_comment                = comment
 		doc.status                      = "In Review"
 		doc.completed_by_technician     = frappe.session.user

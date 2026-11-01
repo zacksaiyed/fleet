@@ -226,8 +226,6 @@
    "columns": 2,
    "fieldname": "creation_date",
    "fieldtype": "Date",
-   "in_list_view": 0,
-   "in_standard_filter": 1,
    "label": "Creation Date",
    "read_only": 1
   },
@@ -235,8 +233,6 @@
    "columns": 2,
    "fieldname": "in_review_date",
    "fieldtype": "Date",
-   "in_list_view": 0,
-   "in_standard_filter": 1,
    "label": "In Review Date",
    "read_only": 1
   },
@@ -244,8 +240,6 @@
    "columns": 2,
    "fieldname": "complete_date",
    "fieldtype": "Date",
-   "in_list_view": 0,
-   "in_standard_filter": 1,
    "label": "Complete Date",
    "read_only": 1
   },

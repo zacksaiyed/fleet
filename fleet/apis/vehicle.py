@@ -383,7 +383,7 @@ def get_vehicle_details(vehicle=None):
     data = vehicle_payload(doc)
 
     return {"vehicle": data}
-    
+
 @frappe.whitelist(methods=["GET", "POST"])
 def get_filtered_items(item_type=None):
     require_admin()
@@ -682,7 +682,14 @@ def move_vehicle_to_customer(vehicle=None, customer=None):
     except Exception:
         frappe.db.rollback(save_point="mobile_move_vehicle")
         raise
-    return {"message": "Vehicle moved", "vehicle": doc.name, "customer": new_customer, "stock_entries": entries, "transfer_log": log.name}
+    return {
+        "message": "Vehicle moved",
+        "vehicle": doc.name,
+        "customer": new_customer,
+        "stock_entries": entries,
+        "transfer_log": log.name,
+        "vehicle_details": doc.as_dict(),
+    }
 
 
 @frappe.whitelist(methods=["POST"])

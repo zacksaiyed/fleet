@@ -98,7 +98,9 @@ def get_data(filters=None):
             COALESCE(jitm.item_type, '') AS item_type,
             j.task_type as job_type,
             j.status as status,
-            j.technician_name as technician_name
+            j.technician_name as technician_name,
+            j.completed_by_support as completed_by_support,
+            COALESCE(NULLIF(u.full_name, ''), j.completed_by_support, '') as reviewer_name
 
         FROM
             `tabJob` j
@@ -112,6 +114,11 @@ def get_data(filters=None):
             `tabTask` ts
         ON
             ts.name = j.task
+
+        LEFT JOIN
+            `tabUser` u
+        ON
+            u.name = j.completed_by_support
 
         WHERE
             1 = 1
@@ -153,9 +160,7 @@ def get_data(filters=None):
                 },
                 [
                     "name",
-                    "custom_sim_type",
-                    "custom_serial_no",
-                    "custom_mobile_number"
+                    "custom_sim_type"
                 ]
             )
         }
@@ -182,6 +187,8 @@ def get_data(filters=None):
     # =========================================================
 
     final_data = {}
+    installed_items_by_job = {}
+    removed_items_by_job = {}
 
     for row in data:
 
@@ -194,23 +201,19 @@ def get_data(filters=None):
             "vehicle_no": row.vehicle_no,
             "job_type": row.job_type,
             "technician_name": row.technician_name,
+            "reviewer_name": row.reviewer_name or row.completed_by_support or "",
+            "completed_by_support": row.completed_by_support or "",
             "status": row.status,
 
             # Existing Installed
-            "gps_device_no": "",
             "gps_imei_no": "",
             "sim_no": "",
-            "sim_serial_no": "",
-            "sim_mobile_no": "",
             "type": "",
             "accessories": "",
 
             # Existing Removed
-            "removed_gps_device_no": "",
             "removed_gps_imei_no": "",
             "removed_sim_no": "",
-            "removed_sim_serial_no": "",
-            "removed_sim_mobile_no": "",
             "removed_type": "",
             "removed_accessories": "",
 
@@ -220,11 +223,8 @@ def get_data(filters=None):
                 if row.job_type == "Swap"
                 else ""
             ),
-            "new_vehicle_gps_device_no": "",
             "new_vehicle_gps_imei_no": "",
             "new_vehicle_sim_no": "",
-            "new_vehicle_sim_serial_no": "",
-            "new_vehicle_sim_mobile_no": "",
             "new_vehicle_type": "",
             "new_vehicle_accessories": "",
         }
@@ -244,6 +244,7 @@ def get_data(filters=None):
                 and row.installed_or_removed != "Installed"
             )
         ):
+            removed_items_by_job.setdefault(row.job, set()).add(row.item)
 
             # -------------------------------------------------
             # GPS REMOVED
@@ -254,11 +255,6 @@ def get_data(filters=None):
                 gps_imei = (
                     gps_item_details.get(row.item)
                     or ""
-                )
-
-                temp_row["removed_gps_device_no"] = append_value(
-                    temp_row.get("removed_gps_device_no"),
-                    row.item_name
                 )
 
                 temp_row["removed_gps_imei_no"] = append_value(
@@ -281,16 +277,6 @@ def get_data(filters=None):
                         or ""
                     )
 
-                    custom_serial_no = (
-                        item_detail.get("custom_serial_no")
-                        or ""
-                    )
-
-                    custom_mobile_number = (
-                        item_detail.get("custom_mobile_number")
-                        or "Not Available"
-                    )
-
                     temp_row["removed_sim_no"] = append_value(
                         temp_row.get("removed_sim_no"),
                         row.item_name
@@ -299,16 +285,6 @@ def get_data(filters=None):
                     temp_row["removed_type"] = append_value(
                         temp_row.get("removed_type"),
                         custom_sim_type
-                    )
-
-                    temp_row["removed_sim_serial_no"] = append_value(
-                        temp_row.get("removed_sim_serial_no"),
-                        custom_serial_no
-                    )
-
-                    temp_row["removed_sim_mobile_no"] = append_value(
-                        temp_row.get("removed_sim_mobile_no"),
-                        custom_mobile_number
                     )
 
             # -------------------------------------------------
@@ -332,6 +308,7 @@ def get_data(filters=None):
         # =====================================================
 
         else:
+            installed_items_by_job.setdefault(row.job, set()).add(row.item)
 
             # -------------------------------------------------
             # GPS INSTALLED
@@ -342,11 +319,6 @@ def get_data(filters=None):
                 gps_imei = (
                     gps_item_details.get(row.item)
                     or ""
-                )
-
-                temp_row["gps_device_no"] = append_value(
-                    temp_row.get("gps_device_no"),
-                    row.item_name
                 )
 
                 temp_row["gps_imei_no"] = append_value(
@@ -369,16 +341,6 @@ def get_data(filters=None):
                         or ""
                     )
 
-                    custom_serial_no = (
-                        item_detail.get("custom_serial_no")
-                        or ""
-                    )
-
-                    custom_mobile_number = (
-                        item_detail.get("custom_mobile_number")
-                        or "Not Available"
-                    )
-
                     temp_row["sim_no"] = append_value(
                         temp_row.get("sim_no"),
                         row.item_name
@@ -387,16 +349,6 @@ def get_data(filters=None):
                     temp_row["type"] = append_value(
                         temp_row.get("type"),
                         custom_sim_type
-                    )
-
-                    temp_row["sim_serial_no"] = append_value(
-                        temp_row.get("sim_serial_no"),
-                        custom_serial_no
-                    )
-
-                    temp_row["sim_mobile_no"] = append_value(
-                        temp_row.get("sim_mobile_no"),
-                        custom_mobile_number
                     )
 
             # -------------------------------------------------
@@ -481,15 +433,6 @@ def get_data(filters=None):
                 ) or ""
 
                 temp_row[
-                    "new_vehicle_gps_device_no"
-                ] = append_value(
-                    temp_row.get(
-                        "new_vehicle_gps_device_no"
-                    ),
-                    item_name
-                )
-
-                temp_row[
                     "new_vehicle_gps_imei_no"
                 ] = append_value(
                     temp_row.get(
@@ -504,37 +447,11 @@ def get_data(filters=None):
 
             elif item_type == "SIM":
 
-                sim_detail = frappe.db.get_value(
+                sim_type = frappe.db.get_value(
                     "Item",
                     item_code,
-                    [
-                        "custom_sim_type",
-                        "custom_serial_no",
-                        "custom_mobile_number"
-                    ],
-                    as_dict=True
-                )
-
-                sim_type = ""
-                sim_serial_no = ""
-                sim_mobile_no = "Not Available"
-
-                if sim_detail:
-
-                    sim_type = (
-                        sim_detail.get("custom_sim_type")
-                        or ""
-                    )
-
-                    sim_serial_no = (
-                        sim_detail.get("custom_serial_no")
-                        or ""
-                    )
-
-                    sim_mobile_no = (
-                        sim_detail.get("custom_mobile_number")
-                        or "Not Available"
-                    )
+                    "custom_sim_type"
+                ) or ""
 
                 temp_row[
                     "new_vehicle_sim_no"
@@ -543,24 +460,6 @@ def get_data(filters=None):
                         "new_vehicle_sim_no"
                     ),
                     item_name
-                )
-
-                temp_row[
-                    "new_vehicle_sim_serial_no"
-                ] = append_value(
-                    temp_row.get(
-                        "new_vehicle_sim_serial_no"
-                    ),
-                    sim_serial_no
-                )
-
-                temp_row[
-                    "new_vehicle_sim_mobile_no"
-                ] = append_value(
-                    temp_row.get(
-                        "new_vehicle_sim_mobile_no"
-                    ),
-                    sim_mobile_no
                 )
 
                 temp_row[
@@ -588,6 +487,102 @@ def get_data(filters=None):
                 )
 
         final_data[job_name] = temp_row
+
+    # =========================================================
+    # CHECKUP JOB - AVAILABLE VEHICLE ITEMS
+    #
+    # Populate untouched/available items currently installed
+    # on the vehicle into the Installed columns for Checkup.
+    # =========================================================
+
+    checkup_jobs = [
+        job_name
+        for job_name, row in final_data.items()
+        if row.get("job_type") == "Checkup" and row.get("vehicle_no")
+    ]
+
+    if checkup_jobs:
+        checkup_vehicles = list({
+            final_data[j]["vehicle_no"]
+            for j in checkup_jobs
+            if final_data[j].get("vehicle_no")
+        })
+
+        if checkup_vehicles:
+            vehicle_installed_rows = frappe.db.get_all(
+                "Vehicle Item",
+                filters={
+                    "parent": ["in", checkup_vehicles],
+                    "status": "Installed"
+                },
+                fields=["parent", "item", "item_type"]
+            )
+
+            v_item_codes = list({
+                vi.item for vi in vehicle_installed_rows if vi.item
+            })
+
+            v_item_data = {}
+            if v_item_codes:
+                v_item_data = {
+                    i.name: i
+                    for i in frappe.get_all(
+                        "Item",
+                        filters={"name": ["in", v_item_codes]},
+                        fields=["name", "item_name", "custom_imei_no", "custom_sim_type"]
+                    )
+                }
+
+            vehicle_items_by_veh = {}
+            for vi in vehicle_installed_rows:
+                vehicle_items_by_veh.setdefault(vi.parent, []).append(vi)
+
+            for job_name in checkup_jobs:
+                temp_row = final_data[job_name]
+                veh = temp_row.get("vehicle_no")
+                if not veh or veh not in vehicle_items_by_veh:
+                    continue
+
+                already_installed = installed_items_by_job.setdefault(job_name, set())
+                removed_in_job = removed_items_by_job.get(job_name, set())
+
+                for vi in vehicle_items_by_veh[veh]:
+                    if not vi.item:
+                        continue
+                    if vi.item in already_installed or vi.item in removed_in_job:
+                        continue
+
+                    already_installed.add(vi.item)
+
+                    it_meta = v_item_data.get(vi.item) or {}
+                    it_name = it_meta.get("item_name") or vi.item
+
+                    if vi.item_type == "GPS Device":
+                        gps_imei = it_meta.get("custom_imei_no") or vi.item
+                        existing_imeis = (temp_row.get("gps_imei_no") or "").split(", ")
+                        if gps_imei not in existing_imeis:
+                            temp_row["gps_imei_no"] = append_value(
+                                temp_row.get("gps_imei_no"),
+                                gps_imei
+                            )
+                    elif vi.item_type == "SIM":
+                        existing_sims = (temp_row.get("sim_no") or "").split(", ")
+                        if it_name not in existing_sims:
+                            temp_row["sim_no"] = append_value(
+                                temp_row.get("sim_no"),
+                                it_name
+                            )
+                            temp_row["type"] = append_value(
+                                temp_row.get("type"),
+                                it_meta.get("custom_sim_type") or ""
+                            )
+                    else:
+                        existing_accs = (temp_row.get("accessories") or "").split(", ")
+                        if it_name not in existing_accs:
+                            temp_row["accessories"] = append_value(
+                                temp_row.get("accessories"),
+                                it_name
+                            )
 
     return list(final_data.values())
 
@@ -651,12 +646,6 @@ def get_columns(filters=None):
         # =====================================================
 
         {
-            "label": "GPS DEVICE NO",
-            "fieldname": "gps_device_no",
-            "fieldtype": "Data",
-            "width": 200
-        },
-        {
             "label": "GPS IMEI NO",
             "fieldname": "gps_imei_no",
             "fieldtype": "Data",
@@ -665,18 +654,6 @@ def get_columns(filters=None):
         {
             "label": "SIM NO",
             "fieldname": "sim_no",
-            "fieldtype": "Data",
-            "width": 150
-        },
-        {
-            "label": "SIM SERIAL NO",
-            "fieldname": "sim_serial_no",
-            "fieldtype": "Data",
-            "width": 150
-        },
-        {
-            "label": "SIM MOBILE NO",
-            "fieldname": "sim_mobile_no",
             "fieldtype": "Data",
             "width": 150
         },
@@ -698,12 +675,6 @@ def get_columns(filters=None):
         # =====================================================
 
         {
-            "label": "GPS DEVICE NO (Removed)",
-            "fieldname": "removed_gps_device_no",
-            "fieldtype": "Data",
-            "width": 200
-        },
-        {
             "label": "GPS IMEI NO (Removed)",
             "fieldname": "removed_gps_imei_no",
             "fieldtype": "Data",
@@ -712,18 +683,6 @@ def get_columns(filters=None):
         {
             "label": "SIM NO (Removed)",
             "fieldname": "removed_sim_no",
-            "fieldtype": "Data",
-            "width": 150
-        },
-        {
-            "label": "SIM SERIAL NO (Removed)",
-            "fieldname": "removed_sim_serial_no",
-            "fieldtype": "Data",
-            "width": 150
-        },
-        {
-            "label": "SIM MOBILE NO (Removed)",
-            "fieldname": "removed_sim_mobile_no",
             "fieldtype": "Data",
             "width": 150
         },
@@ -752,12 +711,6 @@ def get_columns(filters=None):
             "width": 150
         },
         {
-            "label": "NEW VEHICLE GPS DEVICE NO",
-            "fieldname": "new_vehicle_gps_device_no",
-            "fieldtype": "Data",
-            "width": 220
-        },
-        {
             "label": "NEW VEHICLE GPS IMEI NO",
             "fieldname": "new_vehicle_gps_imei_no",
             "fieldtype": "Data",
@@ -768,18 +721,6 @@ def get_columns(filters=None):
             "fieldname": "new_vehicle_sim_no",
             "fieldtype": "Data",
             "width": 180
-        },
-        {
-            "label": "NEW VEHICLE SIM SERIAL NO",
-            "fieldname": "new_vehicle_sim_serial_no",
-            "fieldtype": "Data",
-            "width": 220
-        },
-        {
-            "label": "NEW VEHICLE SIM MOBILE NO",
-            "fieldname": "new_vehicle_sim_mobile_no",
-            "fieldtype": "Data",
-            "width": 220
         },
         {
             "label": "NEW VEHICLE TYPE",
@@ -795,7 +736,7 @@ def get_columns(filters=None):
         },
 
         # =====================================================
-        # TECHNICIAN
+        # TECHNICIAN & REVIEWER
         # =====================================================
 
         {
@@ -803,6 +744,12 @@ def get_columns(filters=None):
             "fieldname": "technician_name",
             "fieldtype": "Link",
             "options": "Employee",
+            "width": 200
+        },
+        {
+            "label": "REVIEWER NAME",
+            "fieldname": "reviewer_name",
+            "fieldtype": "Data",
             "width": 200
         }
     ]

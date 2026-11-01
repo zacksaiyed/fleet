@@ -627,9 +627,27 @@ frappe.ui.form.on("Job", {
 		// SUPPORT TEAM + TECHNICIAN
 		if (is_support || is_tech) {
 			if (status === "In Progress") {
-				frm.add_custom_button(__("Mark as Done"), () =>
-					_job_action_with_comment(frm, "done", __("Done Comment"), "done_comment")
-				).addClass("btn-primary");
+				frm.add_custom_button(__("Mark as Done"), () => {
+					if (frm.doc.task_type === "Swap") {
+						if (!frm.doc.new_vehicle_number) {
+							frappe.msgprint(__("New Vehicle Number is mandatory before marking a Swap job as Done."));
+							return;
+						}
+						if (!frm.doc.swap_type) {
+							frappe.msgprint(__("New Vehicle Type is mandatory before marking a Swap job as Done."));
+							return;
+						}
+						if (!frm.doc.swap_make) {
+							frappe.msgprint(__("New Vehicle Make is mandatory before marking a Swap job as Done."));
+							return;
+						}
+						if (!frm.doc.swap_model) {
+							frappe.msgprint(__("New Vehicle Model is mandatory before marking a Swap job as Done."));
+							return;
+						}
+					}
+					_job_action_with_comment(frm, "done", __("Done Comment"), "done_comment");
+				}).addClass("btn-primary");
 			}
 
 			if (status === "On Hold") {
@@ -644,7 +662,7 @@ frappe.ui.form.on("Job", {
 			if (status === "In Review") {
 				frm.add_custom_button(__("Complete"), () => {
 					const proceed = () => {
-						if (["Installation", "Checkup"].includes(frm.doc.task_type)) {
+						if (["Installation", "Checkup", "Accessory", "Re-Installation", "Swap"].includes(frm.doc.task_type)) {
 							frappe.call({
 								method: "fleet.fleet.doctype.job.job.validate_installation_requirements",
 								args: { job: frm.doc.name },
