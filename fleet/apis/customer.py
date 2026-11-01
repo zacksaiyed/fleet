@@ -306,7 +306,6 @@ ALLOWED_OPERATORS = {
     "between",
 }
 
-
 def parse_customer_filters(filters):
     if not filters:
         return []
@@ -323,19 +322,38 @@ def parse_customer_filters(filters):
     if len(filters) > 20:
         frappe.throw(_("Maximum 20 filters are allowed."))
 
+    meta = frappe.get_meta("Customer")
+    valid_fields = set(meta.get_valid_columns())
+
+    allowed_operators = {
+        "=", "!=", "like", "not like",
+        "in", "not in", ">", ">=",
+        "<", "<=", "between", "is", "is not"
+    }
+
     validated = []
 
     for condition in filters:
-        if not isinstance(condition, list) or len(condition) != 3:
+        if not isinstance(condition, (list, tuple)):
+            frappe.throw(_("Invalid filter format."))
+
+        if len(condition) == 4:
+            doctype, fieldname, operator, value = condition
+
+            if doctype != "Customer":
+                frappe.throw(_("Invalid filter DocType."))
+
+        elif len(condition) == 3:
+            fieldname, operator, value = condition
+
+        else:
             frappe.throw(
                 _("Each filter must contain field, operator and value.")
             )
 
-        fieldname, operator, value = condition
-
-        if fieldname not in ALLOWED_CUSTOMER_FILTERS:
+        if fieldname not in valid_fields:
             frappe.throw(
-                _("Filtering by {0} is not allowed.").format(fieldname)
+                _("Invalid filter field: {0}").format(fieldname)
             )
 
         if not isinstance(operator, str):
@@ -343,19 +361,16 @@ def parse_customer_filters(filters):
 
         operator = operator.lower().strip()
 
-        if operator not in ALLOWED_OPERATORS:
+        if operator not in allowed_operators:
             frappe.throw(_("Unsupported filter operator."))
 
-        if operator in {"in", "not in", "between"}:
+        if operator in ("in", "not in", "between"):
             if not isinstance(value, list):
-                frappe.throw(
-                    _("This operator requires a list value.")
-                )
+                frappe.throw(_("This operator requires a list."))
 
             if operator == "between" and len(value) != 2:
-                frappe.throw(
-                    _("Between requires exactly two values.")
-                )
+                frappe.throw(_("Between requires two values."))
+
         elif isinstance(value, (list, dict)):
             frappe.throw(_("Invalid filter value."))
 
@@ -370,6 +385,8 @@ def list_with_vehicle_counts(
     filters=None,
     limit_page_length=20,
     start=0,
+    sort_by="modified",
+    sort_order="desc"
 ):
     require_admin()
 
@@ -383,8 +400,32 @@ def list_with_vehicle_counts(
 
     start = max(0, cint(get_value("start", start)))
 
+    # Dynamic sorting
+    sort_by = (
+        get_value("sort_by", sort_by) or "modified"
+    ).strip()
+
+    sort_order = (
+        get_value("sort_order", sort_order) or "desc"
+    ).strip().lower()
+
+    meta = frappe.get_meta("Customer")
+    valid_fields = set(meta.get_valid_columns())
+
+    if sort_by not in valid_fields:
+        frappe.throw(
+            _("Invalid sort field: {0}").format(sort_by)
+        )
+
+    if sort_order not in ("asc", "desc"):
+        frappe.throw(_("Sort order must be asc or desc."))
+
+    order_by = f"`{sort_by}` {sort_order}, `name` asc"
+
+    # Dynamic filters
     conditions = parse_customer_filters(filters)
 
+    # Existing search logic
     or_filters = []
 
     if txt:
@@ -393,14 +434,20 @@ def list_with_vehicle_counts(
             ["Customer", "customer_name", "like", f"%{txt}%"],
         ]
 
+    # Fetch customers
     rows = frappe.get_all(
         "Customer",
-        fields=["name", "customer_name","custom_tpin","customer_group"],
+        fields=[
+            "name",
+            "customer_name",
+            "custom_tpin",
+            "customer_group"
+        ],
         filters=conditions,
         or_filters=or_filters,
         limit_start=start,
         limit_page_length=limit_page_length + 1,
-        order_by="modified desc",
+        order_by=order_by,
     )
 
     has_more = len(rows) > limit_page_length
@@ -413,8 +460,8 @@ def list_with_vehicle_counts(
             "name": row.name,
             "customer_name": row.customer_name,
             "vehicle_count": get_vehicle_count(row.name),
-            "tpin":row.custom_tpin,
-            "customer_group":row.customer_group
+            "tpin": row.custom_tpin,
+            "customer_group": row.customer_group
         })
 
     return {
@@ -423,7 +470,6 @@ def list_with_vehicle_counts(
         "limit_page_length": limit_page_length,
         "has_more": has_more,
     }
-
 
 @frappe.whitelist(methods=["GET", "POST"])
 def vehicle_count(customer=None):
