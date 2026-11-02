@@ -428,8 +428,8 @@ def action_material_request(name, action, reject_reason=None):
     _admin()
     from frappe.model.workflow import apply_workflow, get_transitions
     doc = frappe.get_doc("Material Transfer", name)
-    if doc.purpose != "Material Request":
-        frappe.throw(_("This transfer is not a Material Request"))
+    # if doc.purpose != "Material Request":
+    #     frappe.throw(_("This transfer is not a Material Request"))
     doc.check_permission("write")
     expected = {"Initiated": {"Transfer Material", "Cancel"}, "Approval Pending": {"Approve", "Reject", "Cancel"}}
     if action not in expected.get(doc.workflow_state, set()):

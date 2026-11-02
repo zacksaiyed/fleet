@@ -664,31 +664,80 @@ def update_vehicle_item(vehicle=None, row_id=None, item_type=None, status=None, 
 @frappe.whitelist(methods=["POST"])
 def move_vehicle_to_customer(vehicle=None, customer=None):
     require_admin()
-    doc = frappe.get_doc("Vehicle", resolve_vehicle(value("vehicle", vehicle)))
+
+    doc = frappe.get_doc(
+        "Vehicle",
+        resolve_vehicle(value("vehicle", vehicle))
+    )
+
     new_customer = resolve_customer(value("customer", customer))
     old_customer = resolve_customer(doc.custom_customer)
+
     if old_customer == new_customer:
         frappe.throw(_("Vehicle already belongs to this Customer."))
+
     source = customer_warehouse(old_customer)
     target = customer_warehouse(new_customer)
-    installed = list(dict.fromkeys(r.item for r in doc.get("custom_vehicle_item") or [] if r.status == "Installed" and r.item))
+
+    installed = list(dict.fromkeys(
+        r.item
+        for r in doc.get("custom_vehicle_item") or []
+        if r.status == "Installed" and r.item
+    ))
+
     frappe.db.savepoint("mobile_move_vehicle")
+
     try:
-        entries = [stock_transfer(item, source, target, doc.name) for item in installed]
+        entries = [
+            stock_transfer(item, source, target, doc.name)
+            for item in installed
+        ]
+
         doc.custom_customer = new_customer
         save_vehicle(doc)
-        log = frappe.get_doc({"doctype": "Vehicle Transfer Log", "vehicle": doc.name, "customer": new_customer, "transfer_date": nowdate()})
+
+        log = frappe.get_doc({
+            "doctype": "Vehicle Transfer Log",
+            "vehicle": doc.name,
+            "customer": new_customer,
+            "transfer_date": nowdate()
+        })
         log.insert(ignore_permissions=True)
+
+        # Reload updated vehicle details
+        doc.reload()
+
+        # Use same payload as get_vehicle_details
+        vehicle_details = vehicle_payload(doc)
+
+        # Include comments in same format
+        vehicle_details["comments"] = frappe.get_all(
+            "Comment",
+            filters={
+                "reference_doctype": "Vehicle",
+                "reference_name": doc.name,
+                "comment_type": "Comment"
+            },
+            fields=[
+                "name",
+                "content",
+                "comment_by",
+                "creation"
+            ],
+            order_by="creation asc"
+        )
+
     except Exception:
         frappe.db.rollback(save_point="mobile_move_vehicle")
         raise
+
     return {
         "message": "Vehicle moved",
         "vehicle": doc.name,
         "customer": new_customer,
         "stock_entries": entries,
         "transfer_log": log.name,
-        "vehicle_details": doc.as_dict(),
+        "vehicle_details": vehicle_details
     }
 
 
