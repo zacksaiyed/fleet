@@ -49,6 +49,26 @@ def task_action(task, action, technician=None, reject_comment=None):
 		_assert_status(doc, "Open", "Task must be Open to Accept.")
 		if not (is_support or is_tech):
 			frappe.throw("Permission denied.")
+			
+		# --- NAYA CODE: Accept karte hi Material Transfer Approve karein ---
+		new_warehouse = _get_technician_warehouse(doc.custom_assign_to)
+		if new_warehouse:
+			# Naye warehouse ke liye Pending transfers dhundhe
+			pending_mts = frappe.get_all(
+				"Material Transfer",
+				filters={
+					"target": new_warehouse,
+					"docstatus": 0,
+					"workflow_state": "Approval Pending" 
+				},
+				fields=["name"]
+			)
+			for mt in pending_mts:
+				mt_doc = frappe.get_doc("Material Transfer", mt.name)
+				# Kyunki aapne Technician ko permission de di hai, ab ye error nahi dega
+				apply_workflow(mt_doc, "Approve")
+		# -------------------------------------------------------------------
+
 		doc.status = "Accepted"
 		msg = "Task accepted."
 
@@ -606,5 +626,3 @@ def create_jobs_from_dialog(task, job_rows):
 		task_doc.append("custom_task_jobs", row)
 	task_doc.save(ignore_permissions=True)
 	return {"created": created_count}
-
-
