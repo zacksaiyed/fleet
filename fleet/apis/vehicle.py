@@ -50,7 +50,6 @@
 # 	return get_vehicle_types()
 
 
-from bcms.building_construction_manufacturing_service.doctype import recommendation_of_members
 import json
 from contextlib import contextmanager
 
