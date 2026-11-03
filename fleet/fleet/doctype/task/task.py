@@ -67,6 +67,16 @@ def task_action(task, action, technician=None, reject_comment=None):
 				mt_doc = frappe.get_doc("Material Transfer", mt.name)
 				# Kyunki aapne Technician ko permission de di hai, ab ye error nahi dega
 				apply_workflow(mt_doc, "Approve")
+
+			tech_email = frappe.db.get_value("Employee", doc.custom_assign_to, "user_id")
+		if tech_email:
+			active_jobs = frappe.get_all(
+				"Job", 
+				filters={"task": doc.name, "status": ["not in", LOCKED_JOB_STATUSES]}, 
+				fields=["name"]
+			)
+			for j in active_jobs:
+				frappe.db.set_value("Job", j.name, "completed_by_technician", tech_email)
 		# -------------------------------------------------------------------
 
 		doc.status = "Accepted"
@@ -218,10 +228,12 @@ def _reassign_jobs(task_name, new_technician):
 	tech_warehouse = frappe.db.get_value(
 		"Warehouse", {"custom_employee": new_technician, "disabled": 0}, "name"
 	)
+	new_tech_email = frappe.db.get_value("Employee", new_technician, "user_id")
 	for j in jobs:
 		frappe.db.set_value("Job", j.name, {
 			"assigned_technician":  new_technician,
 			"technician_warehouse": tech_warehouse or None,
+			# "completed_by_technician": new_tech_email,
 		})
 
 
@@ -283,6 +295,7 @@ def _handle_task_reassignment(doc, old_technician, new_technician):
 	new_warehouse = _get_technician_warehouse(new_technician)
 
 	emp_name = frappe.db.get_value("Employee", new_technician, "employee_name")
+	new_tech_email = frappe.db.get_value("Employee", new_technician, "user_id")
 
 	for job in movable_jobs:
 		job_doc = frappe.get_doc("Job", job.name)
@@ -294,8 +307,10 @@ def _handle_task_reassignment(doc, old_technician, new_technician):
 		# Agar aapke Job form me technician_name ka field hai, toh usko bhi assign kar dein:
 		if job_doc.meta.has_field("technician_name"):
 			job_doc.technician_name = emp_name or new_technician
+		if job_doc.meta.has_field("completed_by_technician"):
+			# job_doc.completed_by_technician = new_tech_email
 			
-		job_doc.save(ignore_permissions=True)
+			job_doc.save(ignore_permissions=True)
 	_remove_moved_jobs_from_old_task(
 		doc,
 		[job.name for job in movable_jobs],
@@ -500,6 +515,7 @@ def on_update(doc, method=None):
 	tech_warehouse = frappe.db.get_value(
 		"Warehouse", {"custom_employee": doc.custom_assign_to, "disabled": 0}, "name"
 	)
+	new_tech_email = frappe.db.get_value("Employee", doc.custom_assign_to, "user_id")
 
 	jobs = frappe.get_all(
 		"Job",
@@ -514,6 +530,7 @@ def on_update(doc, method=None):
 		frappe.db.set_value("Job", j.name, {
 			"assigned_technician":  doc.custom_assign_to,
 			"technician_warehouse": tech_warehouse or None,
+			# "completed_by_technician": new_tech_email,
 		})
 
 
@@ -525,16 +542,25 @@ def create_jobs_from_dialog(task, job_rows):
 		job_rows = json.loads(job_rows)
 
 	task_doc = frappe.get_doc("Task", task)
-	technician = task_doc.custom_assign_to or None   # may be blank, jobs created without technician
+	technician = task_doc.custom_assign_to or None
+	
+	# --- 1. YEH NAYA VALIDATION ADD KAREIN ---
+	if not technician:
+		frappe.throw("Could not find Created By: User")
+	# -----------------------------------------
+
 	customer = task_doc.custom_customer
 	date = task_doc.custom_date
-	tech_warehouse = None
+	
+	# --- 2. TECHNICIAN KA EMAIL NIKALEIN ---
+	tech_user_email = frappe.db.get_value("Employee", technician, "user_id")
+	if not tech_user_email:
+		tech_user_email = frappe.session.user # agar employee me email na ho toh fallback
+	# ---------------------------------------
 
-	# only look up warehouse if technician is assigned
-	if technician:
-		tech_warehouse = frappe.db.get_value(
-			"Warehouse", {"custom_employee": technician, "disabled": 0}, "name"
-		)
+	tech_warehouse = frappe.db.get_value(
+		"Warehouse", {"custom_employee": technician, "disabled": 0}, "name"
+	)
 
 	# Pre-validate all vehicle numbers before creating any jobs
 	errors = []
@@ -595,6 +621,10 @@ def create_jobs_from_dialog(task, job_rows):
 			if customer:
 				parts.append(customer)
 
+			tech_user_email = frappe.session.user
+			if technician:
+				tech_user_email = frappe.db.get_value("Employee", technician, "user_id") or frappe.session.user
+
 			job = frappe.get_doc({
 				"doctype":              "Job",
 				"title":                " - ".join(parts),
@@ -610,6 +640,8 @@ def create_jobs_from_dialog(task, job_rows):
 				"model":                vehicle_model,
 				"color":                vehicle_color,
 				"type":                 vehicle_type,
+				"created_by":           tech_user_email,
+				"completed_by_technician": tech_user_email,
 			})
 			job.insert(ignore_permissions=True)
 			created_count += 1
