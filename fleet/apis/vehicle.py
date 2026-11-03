@@ -50,6 +50,7 @@
 # 	return get_vehicle_types()
 
 
+from bcms.building_construction_manufacturing_service.doctype import recommendation_of_members
 import json
 from contextlib import contextmanager
 
@@ -711,21 +712,23 @@ def move_vehicle_to_customer(vehicle=None, customer=None):
         vehicle_details = vehicle_payload(doc)
 
         # Include comments in same format
-        vehicle_details["comments"] = frappe.get_all(
+        comments = frappe.get_all(
             "Comment",
             filters={
                 "reference_doctype": "Vehicle",
                 "reference_name": doc.name,
                 "comment_type": "Comment"
             },
-            fields=[
-                "name",
-                "content",
-                "comment_by",
-                "creation"
-            ],
+            fields=["content"],
             order_by="creation asc"
         )
+
+        vehicle_details["comments"] = "\n".join(
+            comment.get("content", "")
+            for comment in comments
+            if comment.get("content")
+        )
+
 
     except Exception:
         frappe.db.rollback(save_point="mobile_move_vehicle")

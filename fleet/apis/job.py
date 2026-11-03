@@ -934,6 +934,9 @@ def create_job(task=None, task_type=None, vehicle_number=None, assigned_technici
         task_doc.append('custom_task_jobs', {'task_type': task_type, 'vehicle': vehicle_number, 'status': job.status, 'job': job.name})
         task_doc.save(ignore_permissions=True)
     return {'message': 'Job created successfully', 'job': _payload(job)}
+
+
+
 @frappe.whitelist(methods=["POST"])
 def update_job(
     name=None,
@@ -959,7 +962,7 @@ def update_job(
     require_admin()
 
     from frappe.utils import now_datetime
-    from frappe.utils.file_manager import save_file
+    from frappe.utils.file_manager import save_file, delete_file
 
     name = (
         name
@@ -981,6 +984,10 @@ def update_job(
             _("Completed or Cancelled Jobs cannot be updated.")
         )
 
+    # --------------------------------------------------
+    # Update Job fields
+    # --------------------------------------------------
+
     payload = {
         "task": task,
         "task_type": task_type,
@@ -998,17 +1005,23 @@ def update_job(
         "completion_comment": completion_comment,
     }
 
-    for fieldname, value in payload.items():
-        if value is None:
-            value = frappe.form_dict.get(fieldname)
+    for fieldname, field_value in payload.items():
 
-        if value is not None:
-            job_doc.set(fieldname, value)
+        if field_value is None:
+            field_value = frappe.form_dict.get(fieldname)
+
+        if field_value is not None:
+            job_doc.set(fieldname, field_value)
+
+    # --------------------------------------------------
+    # Update Job Items
+    # --------------------------------------------------
 
     if items is None:
         items = frappe.form_dict.get("items")
 
     if items is not None:
+
         if isinstance(items, str):
             try:
                 items = frappe.parse_json(items)
@@ -1044,22 +1057,46 @@ def update_job(
         job_doc.set("item_installed_removed", [])
 
         for row in items:
+
             if not isinstance(row, dict):
                 frappe.throw(_("Each item must be an object."))
 
             job_doc.append(
                 "item_installed_removed",
                 {
-                    key: value
-                    for key, value in row.items()
-                    if key in allowed_fields and key in valid_fields
+                    key: field_value
+                    for key, field_value in row.items()
+                    if key in allowed_fields
+                    and key in valid_fields
                 }
             )
+
+    # --------------------------------------------------
+    # Replace Job Images
+    # --------------------------------------------------
 
     if job_images is None:
         job_images = frappe.form_dict.get("job_images")
 
-    if job_images is not None:
+    uploaded_files = (
+        frappe.request.files.getlist("images")
+        if frappe.request
+        else []
+    )
+
+    replace_images = (
+        job_images is not None
+        or bool(uploaded_files)
+    )
+
+    uploaded = []
+    old_image_paths = []
+
+    if replace_images:
+
+        if job_images is None:
+            job_images = []
+
         if isinstance(job_images, str):
             try:
                 job_images = frappe.parse_json(job_images)
@@ -1072,6 +1109,19 @@ def update_job(
         for row in job_images:
             if not isinstance(row, dict):
                 frappe.throw(_("Each image must be an object."))
+
+        # Store old image paths before clearing the table.
+        old_image_paths = list(dict.fromkeys(
+            row.get("image")
+            for row in job_doc.get("job_images") or []
+            if row.get("image")
+        ))
+
+        # Clear existing image child rows.
+        job_doc.set("job_images", [])
+
+        # Add images received through JSON.
+        for row in job_images:
 
             image_path = row.get("image")
 
@@ -1086,61 +1136,119 @@ def update_job(
                 }
             )
 
-    uploaded = []
+        image_comment = (
+            comment
+            if comment is not None
+            else frappe.form_dict.get("comment")
+        ) or ""
 
-    uploaded_files = (
-        frappe.request.files.getlist("images")
-        if frappe.request
-        else []
-    )
+        # Add images received through multipart/form-data.
+        for idx, uploaded_file in enumerate(uploaded_files):
 
-    image_comment = (
-        comment
-        if comment is not None
-        else frappe.form_dict.get("comment")
-    ) or ""
+            image_bytes = uploaded_file.read()
 
-    for idx, uploaded_file in enumerate(uploaded_files):
+            if not image_bytes:
+                continue
 
-        image_bytes = uploaded_file.read()
-
-        if not image_bytes:
-            continue
-
-        filename = (
-            uploaded_file.filename
-            or f"job_{job_doc.name}_{now_datetime().strftime('%Y%m%d_%H%M%S')}_{idx}.jpg"
-        )
-
-        if not (
-            uploaded_file.mimetype
-            and uploaded_file.mimetype.startswith("image/")
-        ):
-            frappe.throw(
-                _("Only image files are allowed: {0}").format(filename)
+            filename = (
+                uploaded_file.filename
+                or (
+                    f"job_{job_doc.name}_"
+                    f"{now_datetime().strftime('%Y%m%d_%H%M%S')}_{idx}.jpg"
+                )
             )
 
-        file_doc = save_file(
-            filename,
-            image_bytes,
-            "Job",
-            job_doc.name,
-            is_private=0,
-        )
+            if not (
+                uploaded_file.mimetype
+                and uploaded_file.mimetype.startswith("image/")
+            ):
+                frappe.throw(
+                    _("Only image files are allowed: {0}").format(
+                        filename
+                    )
+                )
 
-        job_doc.append(
-            "job_images",
-            {
-                "image": file_doc.file_url,
-                "comment": image_comment,
-            }
-        )
+            file_doc = save_file(
+                filename,
+                image_bytes,
+                "Job",
+                job_doc.name,
+                is_private=0,
+            )
 
-        uploaded.append(file_doc.file_url)
+            job_doc.append(
+                "job_images",
+                {
+                    "image": file_doc.file_url,
+                    "comment": image_comment,
+                }
+            )
+
+            uploaded.append(file_doc.file_url)
+
+    # --------------------------------------------------
+    # Save Job
+    # --------------------------------------------------
 
     job_doc.save()
 
+    # --------------------------------------------------
+    # Delete Replaced Image Files
+    # --------------------------------------------------
+
+    if replace_images:
+
+        new_image_paths = {
+            row.get("image")
+            for row in job_doc.get("job_images") or []
+            if row.get("image")
+        }
+
+        for image_path in old_image_paths:
+
+            # Do not delete an image retained in the new payload.
+            if image_path in new_image_paths:
+                continue
+
+            # Only consider files owned by this Job.
+            file_records = frappe.get_all(
+                "File",
+                filters={
+                    "attached_to_doctype": "Job",
+                    "attached_to_name": job_doc.name,
+                    "file_url": image_path,
+                },
+                pluck="name",
+            )
+
+            for file_name in file_records:
+
+                # Avoid deleting files referenced by other
+                # File records. Frappe may deduplicate uploads.
+                other_file_exists = frappe.db.exists(
+                    "File",
+                    {
+                        "file_url": image_path,
+                        "name": ["!=", file_name],
+                    }
+                )
+
+                if other_file_exists:
+                    # Remove only this Job's File record.
+                    # Do not delete shared physical storage.
+                    frappe.delete_doc(
+                        "File",
+                        file_name,
+                        ignore_permissions=True,
+                    )
+                else:
+                    delete_file(file_name)
+
     job_doc.reload()
+
+    # --------------------------------------------------
+    # Prepare Image Response
+    # --------------------------------------------------
 
     site_url = frappe.utils.get_url().rstrip("/")
 
@@ -1164,6 +1272,10 @@ def update_job(
             }
         )
 
+    # --------------------------------------------------
+    # Prepare Items Response
+    # --------------------------------------------------
+
     items_response = []
 
     for row in job_doc.get("item_installed_removed") or []:
@@ -1176,17 +1288,25 @@ def update_job(
                 "item_type": row.get("item_type"),
                 "item_name": row.get("item_name"),
                 "brand": row.get("brand"),
-                "installed_or_removed": row.get("installed_or_removed"),
+                "installed_or_removed": row.get(
+                    "installed_or_removed"
+                ),
                 "destination": row.get("destination"),
                 "removal_reason": row.get("removal_reason"),
                 "replace_against": row.get("replace_against"),
                 "is_chargeable": row.get("is_chargeable"),
-                "chargeable_reason": row.get("chargeable_reason"),
+                "chargeable_reason": row.get(
+                    "chargeable_reason"
+                ),
                 "chargeable_reason_description": row.get(
                     "chargeable_reason_description"
                 ),
             }
         )
+
+    # --------------------------------------------------
+    # Return Response
+    # --------------------------------------------------
 
     return {
         "message": "Job updated successfully",
@@ -1199,7 +1319,9 @@ def update_job(
             "customer": job_doc.customer,
             "vehicle_number": job_doc.vehicle_number,
             "assigned_technician": job_doc.assigned_technician,
-            "technician_name": job_doc.get("technician_name"),
+            "technician_name": job_doc.get(
+                "technician_name"
+            ),
             "date": job_doc.date,
             "type": job_doc.type,
             "make": job_doc.make,
@@ -1207,12 +1329,15 @@ def update_job(
             "color": job_doc.color,
             "done_comment": job_doc.get("done_comment"),
             "hold_comment": job_doc.get("hold_comment"),
-            "completion_comment": job_doc.get("completion_comment"),
+            "completion_comment": job_doc.get(
+                "completion_comment"
+            ),
             "item_installed_removed": items_response,
             "job_images": images_response,
         },
         "uploaded_images": uploaded,
     }
+
 @frappe.whitelist(methods=["POST"])
 def upload_job_image(job, image_data=None, filename=None, comment=None):
 	return task_v2.upload_job_image(job=job, image_data=image_data, filename=filename, comment=comment)
