@@ -23,7 +23,6 @@ import frappe
 from frappe import _
 from frappe.utils import cint
 
-
 @frappe.whitelist(methods=["GET", "POST"])
 def get_my_tasks(
     status=None,
@@ -47,13 +46,14 @@ def get_my_tasks(
     customer_field = existing_field(
         "custom_customer", "customer"
     )
-    technician_field = existing_field(
-        "custom_technician", "custom_assigned_to",
-        "custom_employee", "custom_technician_name"
-    )
+
+    technician_field = "custom_assign_to"
+    technician_name_field = "custom_employee_name"
+
     date_field = existing_field(
         "exp_end_date", "custom_due_date", "due_date"
     )
+
     priority_field = existing_field(
         "priority", "custom_priority"
     )
@@ -69,10 +69,12 @@ def get_my_tasks(
     if customer_field:
         allowed_fields["customer"] = f"t.`{customer_field}`"
 
-    if technician_field:
+    if meta.has_field(technician_field):
         allowed_fields["technician"] = f"t.`{technician_field}`"
-        allowed_fields["technician_name"] = f"t.`{technician_field}`"
         allowed_fields["assign_to"] = f"t.`{technician_field}`"
+
+    if meta.has_field(technician_name_field):
+        allowed_fields["technician_name"] = f"t.`{technician_name_field}`"
 
     if date_field:
         allowed_fields["date"] = f"t.`{date_field}`"
@@ -179,9 +181,14 @@ def get_my_tasks(
                 f"t.`{customer_field}` LIKE %(search)s"
             )
 
-        if technician_field:
+        if meta.has_field(technician_field):
             search_conditions.append(
                 f"t.`{technician_field}` LIKE %(search)s"
+            )
+
+        if meta.has_field(technician_name_field):
+            search_conditions.append(
+                f"t.`{technician_name_field}` LIKE %(search)s"
             )
 
         if meta.has_field("subject"):
@@ -192,6 +199,7 @@ def get_my_tasks(
         conditions.append(
             "(" + " OR ".join(search_conditions) + ")"
         )
+
         params["search"] = f"%{str(search).strip()}%"
 
     base_where = (
@@ -199,7 +207,7 @@ def get_my_tasks(
         if conditions else ""
     )
 
-    # Counts are independent of the selected status tab.
+    # Counts are independent of selected status tab.
     count_rows = frappe.db.sql(
         """
         SELECT
@@ -214,21 +222,24 @@ def get_my_tasks(
     )
 
     counts = {
-        "all": 0,
-        "open": 0,
-        "accepted": 0,
-        "in_progress": 0,
-        "completed": 0,
+        "All": 0,
+        "Open": 0,
+        "Accepted": 0,
+        "In Progress": 0,
+        "In Review": 0,
+        "Completed": 0,
     }
 
     for row in count_rows:
         label = str(row.status or "").strip()
-        key = label.lower().replace(" ", "_").replace("-", "_")
+        total_count = cint(row.total)
 
-        counts[key] = cint(row.total)
-        counts["all"] += cint(row.total)
+        if label:
+            counts[label] = total_count
 
-    # Read configured Task statuses for the mobile tabs.
+        counts["All"] += total_count
+
+    # Read configured Task statuses for mobile tabs.
     status_options = []
 
     status_df = meta.get_field("status")
@@ -240,13 +251,17 @@ def get_my_tasks(
             if option.strip()
         ]
 
-    tabs = []
+    tabs = [
+        {
+            "status": "All",
+            "count": counts["All"]
+        }
+    ]
 
     for tab_status in status_options:
-        key = tab_status.lower().replace(" ", "_").replace("-", "_")
         tabs.append({
             "status": tab_status,
-            "count": counts.get(key, 0)
+            "count": counts.get(tab_status, 0)
         })
 
     if not status:
@@ -256,9 +271,11 @@ def get_my_tasks(
 
     if status and status.lower() != "all":
         conditions_with_status = list(conditions)
+
         conditions_with_status.append(
             "t.status = %(selected_status)s"
         )
+
         params["selected_status"] = status
 
         where = " WHERE " + " AND ".join(conditions_with_status)
@@ -289,12 +306,19 @@ def get_my_tasks(
     else:
         fields.append("NULL AS customer")
 
-    if technician_field:
+    if meta.has_field(technician_field):
         fields.append(
             f"t.`{technician_field}` AS technician"
         )
     else:
         fields.append("NULL AS technician")
+
+    if meta.has_field(technician_name_field):
+        fields.append(
+            f"t.`{technician_name_field}` AS technician_name"
+        )
+    else:
+        fields.append("NULL AS technician_name")
 
     if date_field:
         fields.append(
@@ -336,7 +360,6 @@ def get_my_tasks(
 
     for row in rows:
         customer_name = row.customer
-        technician_name = row.technician
 
         if row.customer and frappe.db.exists("Customer", row.customer):
             customer_name = (
@@ -344,20 +367,6 @@ def get_my_tasks(
                     "Customer", row.customer, "customer_name"
                 ) or row.customer
             )
-
-        if row.technician:
-            if frappe.db.exists("Employee", row.technician):
-                technician_name = (
-                    frappe.db.get_value(
-                        "Employee", row.technician, "employee_name"
-                    ) or row.technician
-                )
-            elif frappe.db.exists("User", row.technician):
-                technician_name = (
-                    frappe.db.get_value(
-                        "User", row.technician, "full_name"
-                    ) or row.technician
-                )
 
         tasks.append({
             "name": row.name,
@@ -367,7 +376,7 @@ def get_my_tasks(
             "status": row.status,
             "priority": row.priority,
             "technician": row.technician,
-            "technician_name": technician_name,
+            "technician_name": row.technician_name,
             "due_date": row.due_date,
             "creation": row.creation,
             "modified": row.modified,
@@ -386,7 +395,6 @@ def get_my_tasks(
         "sort_order": sort_order,
         "selected_status": status or "All",
     }
-
 
 def _error(http_status: int, code: str, message: str, data=None) -> dict:
     frappe.local.response["http_status_code"] = http_status

@@ -955,7 +955,7 @@ def update_job(
     hold_comment=None,
     completion_comment=None,
     items=None,
-    job_images=None,
+    images=None,
     comment=None,
     **kwargs
 ):
@@ -985,7 +985,7 @@ def update_job(
         )
 
     # --------------------------------------------------
-    # Update Job fields
+    # Update Job Fields
     # --------------------------------------------------
 
     payload = {
@@ -1075,8 +1075,20 @@ def update_job(
     # Replace Job Images
     # --------------------------------------------------
 
-    if job_images is None:
-        job_images = frappe.form_dict.get("job_images")
+    # Detect whether images was explicitly passed.
+    # Explicit null and [] both clear existing images.
+
+    images_provided = (
+        "images" in frappe.form_dict
+        or "images" in kwargs
+        or images is not None
+    )
+
+    if images is None and "images" in frappe.form_dict:
+        images = frappe.form_dict.get("images")
+
+    if images is None and "images" in kwargs:
+        images = kwargs.get("images")
 
     uploaded_files = (
         frappe.request.files.getlist("images")
@@ -1084,44 +1096,47 @@ def update_job(
         else []
     )
 
-    replace_images = (
-        job_images is not None
-        or bool(uploaded_files)
-    )
+    replace_images = images_provided or bool(uploaded_files)
 
     uploaded = []
     old_image_paths = []
 
     if replace_images:
 
-        if job_images is None:
-            job_images = []
+        # null means remove all existing images.
+        if images is None:
+            images = []
 
-        if isinstance(job_images, str):
+        if isinstance(images, str):
             try:
-                job_images = frappe.parse_json(job_images)
+                images = frappe.parse_json(images)
             except Exception:
-                frappe.throw(_("Invalid JSON in job_images."))
+                frappe.throw(_("Invalid JSON in images."))
 
-        if not isinstance(job_images, list):
-            frappe.throw(_("job_images must be a JSON array."))
+        if images is None:
+            images = []
 
-        for row in job_images:
+        if not isinstance(images, list):
+            frappe.throw(
+                _("images must be a JSON array or null.")
+            )
+
+        for row in images:
             if not isinstance(row, dict):
                 frappe.throw(_("Each image must be an object."))
 
-        # Store old image paths before clearing the table.
+        # Store old image paths before clearing.
         old_image_paths = list(dict.fromkeys(
             row.get("image")
             for row in job_doc.get("job_images") or []
             if row.get("image")
         ))
 
-        # Clear existing image child rows.
+        # Remove all existing child table rows.
         job_doc.set("job_images", [])
 
-        # Add images received through JSON.
-        for row in job_images:
+        # Append new images from JSON payload.
+        for row in images:
 
             image_path = row.get("image")
 
@@ -1142,7 +1157,7 @@ def update_job(
             else frappe.form_dict.get("comment")
         ) or ""
 
-        # Add images received through multipart/form-data.
+        # Append multipart uploaded image files.
         for idx, uploaded_file in enumerate(uploaded_files):
 
             image_bytes = uploaded_file.read()
@@ -1206,7 +1221,7 @@ def update_job(
 
         for image_path in old_image_paths:
 
-            # Do not delete an image retained in the new payload.
+            # Do not delete images retained in new payload.
             if image_path in new_image_paths:
                 continue
 
@@ -1224,7 +1239,7 @@ def update_job(
             for file_name in file_records:
 
                 # Avoid deleting files referenced by other
-                # File records. Frappe may deduplicate uploads.
+                # File records, as Frappe may deduplicate uploads.
                 other_file_exists = frappe.db.exists(
                     "File",
                     {
@@ -1234,8 +1249,6 @@ def update_job(
                 )
 
                 if other_file_exists:
-                    # Remove only this Job's File record.
-                    # Do not delete shared physical storage.
                     frappe.delete_doc(
                         "File",
                         file_name,
@@ -1337,6 +1350,7 @@ def update_job(
         },
         "uploaded_images": uploaded,
     }
+
 
 @frappe.whitelist(methods=["POST"])
 def upload_job_image(job, image_data=None, filename=None, comment=None):
