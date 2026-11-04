@@ -298,7 +298,6 @@
    "fieldtype": "Section Break"
   },
   {
-   "fetch_from": "assigned_technician.user_id",
    "fieldname": "completed_by_technician",
    "fieldtype": "Link",
    "label": "Completed By",
@@ -441,8 +440,6 @@
    "options": "Swap Items"
   },
   {
-   "default": "User",
-   "fetch_from": "assigned_technician.user_id",
    "fieldname": "created_by",
    "fieldtype": "Link",
    "label": "Created By",
