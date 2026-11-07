@@ -275,9 +275,10 @@ class Job(Document):
 				title=frappe._("Too Many SIMs")
 			)
 
-		# 6. Any other accessory (DASHCAM, Fuel Sensor, Temperature, or any other accessory)
+		# 6. Any other accessory (DASHCAM, or other single accessories)
+		# Fuel Sensor and Temperature are allowed to have multiple items on the vehicle
 		for itype, items_list in items_by_type.items():
-			if itype in ("GPS Device", "SIM"):
+			if itype in ("GPS Device", "SIM", "Fuel Sensor", "Temperature"):
 				continue
 			if len(items_list) > 1:
 				item_list = ", ".join(x["item"] for x in items_list)

@@ -92,10 +92,15 @@ def get_data(filters=None):
             ts.custom_customer as customer,
             j.vehicle_number as vehicle_no,
             j.new_vehicle_number as new_vehicle_number,
+            COALESCE(j.make, '') as make,
+            COALESCE(j.model, '') as model,
+            COALESCE(j.swap_make, '') as swap_make,
+            COALESCE(j.swap_model, '') as swap_model,
             COALESCE(jitm.item, '') AS item,
             COALESCE(jitm.item_name, '') AS item_name,
             COALESCE(jitm.installed_or_removed, '') AS installed_or_removed,
             COALESCE(jitm.item_type, '') AS item_type,
+            COALESCE(jitm.removal_reason, '') AS removal_reason,
             j.task_type as job_type,
             j.status as status,
             j.technician_name as technician_name,
@@ -132,6 +137,60 @@ def get_data(filters=None):
         debug=0
     )
 
+    # Fetch removal items from tabRemoval Items (for Removal jobs and any jobs using removal_items table)
+    job_names = list({row.job for row in data if row.job})
+    if job_names:
+        removal_items = frappe.db.sql(
+            """
+            SELECT
+                parent as job,
+                COALESCE(item, '') as item,
+                COALESCE(item_name, '') as item_name,
+                'Removed' as installed_or_removed,
+                COALESCE(item_type, '') as item_type,
+                COALESCE(removal_reason, '') as removal_reason
+            FROM
+                `tabRemoval Items`
+            WHERE
+                parent in %(job_names)s
+            """,
+            {"job_names": job_names},
+            as_dict=1
+        )
+        if removal_items:
+            job_meta_map = {}
+            for r in data:
+                if r.job and r.job not in job_meta_map:
+                    job_meta_map[r.job] = r
+
+            for ri in removal_items:
+                base = job_meta_map.get(ri.job)
+                if not base:
+                    continue
+                data.append(frappe._dict({
+                    "date_of_installation": base.date_of_installation,
+                    "in_review_date": base.in_review_date,
+                    "complete_date": base.complete_date,
+                    "job": ri.job,
+                    "customer": base.customer,
+                    "vehicle_no": base.vehicle_no,
+                    "new_vehicle_number": base.new_vehicle_number,
+                    "make": base.make,
+                    "model": base.model,
+                    "swap_make": base.swap_make,
+                    "swap_model": base.swap_model,
+                    "item": ri.item,
+                    "item_name": ri.item_name,
+                    "installed_or_removed": "Removed",
+                    "item_type": ri.item_type,
+                    "removal_reason": ri.removal_reason,
+                    "job_type": base.job_type,
+                    "status": base.status,
+                    "technician_name": base.technician_name,
+                    "completed_by_support": base.completed_by_support,
+                    "reviewer_name": base.reviewer_name,
+                }))
+
     # =========================================================
     # EXISTING JOB ITEM DETAILS
     # =========================================================
@@ -160,7 +219,9 @@ def get_data(filters=None):
                 },
                 [
                     "name",
-                    "custom_sim_type"
+                    "custom_sim_type",
+                    "custom_serial_no",
+                    "item_name"
                 ]
             )
         }
@@ -199,6 +260,8 @@ def get_data(filters=None):
             "job": row.job,
             "customer": row.customer,
             "vehicle_no": row.vehicle_no,
+            "brand": row.make or "",
+            "model": row.model or "",
             "job_type": row.job_type,
             "technician_name": row.technician_name,
             "reviewer_name": row.reviewer_name or row.completed_by_support or "",
@@ -216,10 +279,21 @@ def get_data(filters=None):
             "removed_sim_no": "",
             "removed_type": "",
             "removed_accessories": "",
+            "removal_reason": "",
 
             # New Vehicle / Swap
             "new_vehicle_number": (
                 row.new_vehicle_number
+                if row.job_type == "Swap"
+                else ""
+            ),
+            "new_vehicle_brand": (
+                row.swap_make
+                if row.job_type == "Swap"
+                else ""
+            ),
+            "new_vehicle_model": (
+                row.swap_model
                 if row.job_type == "Swap"
                 else ""
             ),
@@ -228,6 +302,22 @@ def get_data(filters=None):
             "new_vehicle_type": "",
             "new_vehicle_accessories": "",
         }
+
+        # Fallback Brand and Model from Vehicle if not set on Job
+        if row.vehicle_no and (not temp_row.get("brand") or not temp_row.get("model")):
+            v_data = frappe.db.get_value("Vehicle", row.vehicle_no, ["make", "model"], as_dict=True) or {}
+            if not temp_row.get("brand") and v_data.get("make"):
+                temp_row["brand"] = v_data.get("make")
+            if not temp_row.get("model") and v_data.get("model"):
+                temp_row["model"] = v_data.get("model")
+
+        if row.get("removal_reason"):
+            existing_reasons = (temp_row.get("removal_reason") or "").split(", ")
+            if row.get("removal_reason") not in existing_reasons:
+                temp_row["removal_reason"] = append_value(
+                    temp_row.get("removal_reason"),
+                    row.get("removal_reason")
+                )
 
         if not row.item:
             final_data[row.job] = temp_row
@@ -277,9 +367,14 @@ def get_data(filters=None):
                         or ""
                     )
 
+                    sim_serial = (
+                        item_detail.get("custom_serial_no")
+                        or ""
+                    ).strip() or row.item_name
+
                     temp_row["removed_sim_no"] = append_value(
                         temp_row.get("removed_sim_no"),
-                        row.item_name
+                        sim_serial
                     )
 
                     temp_row["removed_type"] = append_value(
@@ -341,9 +436,14 @@ def get_data(filters=None):
                         or ""
                     )
 
+                    sim_serial = (
+                        item_detail.get("custom_serial_no")
+                        or ""
+                    ).strip() or row.item_name
+
                     temp_row["sim_no"] = append_value(
                         temp_row.get("sim_no"),
-                        row.item_name
+                        sim_serial
                     )
 
                     temp_row["type"] = append_value(
@@ -389,6 +489,11 @@ def get_data(filters=None):
         temp_row = final_data[job_name]
 
         job_doc = frappe.get_doc("Job", job_name)
+
+        if getattr(job_doc, "swap_make", None) and not temp_row.get("new_vehicle_brand"):
+            temp_row["new_vehicle_brand"] = job_doc.swap_make
+        if getattr(job_doc, "swap_model", None) and not temp_row.get("new_vehicle_model"):
+            temp_row["new_vehicle_model"] = job_doc.swap_model
 
         new_vehicle_items = job_doc.get("items") or []
 
@@ -447,11 +552,15 @@ def get_data(filters=None):
 
             elif item_type == "SIM":
 
-                sim_type = frappe.db.get_value(
+                sim_data = frappe.db.get_value(
                     "Item",
                     item_code,
-                    "custom_sim_type"
-                ) or ""
+                    ["custom_sim_type", "custom_serial_no"],
+                    as_dict=True
+                ) or {}
+
+                sim_type = sim_data.get("custom_sim_type") or ""
+                sim_serial = (sim_data.get("custom_serial_no") or "").strip() or item_name
 
                 temp_row[
                     "new_vehicle_sim_no"
@@ -459,7 +568,7 @@ def get_data(filters=None):
                     temp_row.get(
                         "new_vehicle_sim_no"
                     ),
-                    item_name
+                    sim_serial
                 )
 
                 temp_row[
@@ -489,30 +598,30 @@ def get_data(filters=None):
         final_data[job_name] = temp_row
 
     # =========================================================
-    # CHECKUP JOB - AVAILABLE VEHICLE ITEMS
+    # VEHICLE AVAILABLE INSTALLED ITEMS (ALL JOB TYPES)
     #
     # Populate untouched/available items currently installed
-    # on the vehicle into the Installed columns for Checkup.
+    # on the vehicle into the Installed columns across all job types.
     # =========================================================
 
-    checkup_jobs = [
+    jobs_with_vehicle = [
         job_name
         for job_name, row in final_data.items()
-        if row.get("job_type") == "Checkup" and row.get("vehicle_no")
+        if row.get("vehicle_no")
     ]
 
-    if checkup_jobs:
-        checkup_vehicles = list({
+    if jobs_with_vehicle:
+        vehicles_list = list({
             final_data[j]["vehicle_no"]
-            for j in checkup_jobs
+            for j in jobs_with_vehicle
             if final_data[j].get("vehicle_no")
         })
 
-        if checkup_vehicles:
+        if vehicles_list:
             vehicle_installed_rows = frappe.db.get_all(
                 "Vehicle Item",
                 filters={
-                    "parent": ["in", checkup_vehicles],
+                    "parent": ["in", vehicles_list],
                     "status": "Installed"
                 },
                 fields=["parent", "item", "item_type"]
@@ -529,7 +638,7 @@ def get_data(filters=None):
                     for i in frappe.get_all(
                         "Item",
                         filters={"name": ["in", v_item_codes]},
-                        fields=["name", "item_name", "custom_imei_no", "custom_sim_type"]
+                        fields=["name", "item_name", "custom_imei_no", "custom_sim_type", "custom_serial_no"]
                     )
                 }
 
@@ -537,7 +646,7 @@ def get_data(filters=None):
             for vi in vehicle_installed_rows:
                 vehicle_items_by_veh.setdefault(vi.parent, []).append(vi)
 
-            for job_name in checkup_jobs:
+            for job_name in jobs_with_vehicle:
                 temp_row = final_data[job_name]
                 veh = temp_row.get("vehicle_no")
                 if not veh or veh not in vehicle_items_by_veh:
@@ -566,11 +675,12 @@ def get_data(filters=None):
                                 gps_imei
                             )
                     elif vi.item_type == "SIM":
+                        sim_serial = (it_meta.get("custom_serial_no") or "").strip() or it_name
                         existing_sims = (temp_row.get("sim_no") or "").split(", ")
-                        if it_name not in existing_sims:
+                        if sim_serial not in existing_sims:
                             temp_row["sim_no"] = append_value(
                                 temp_row.get("sim_no"),
-                                it_name
+                                sim_serial
                             )
                             temp_row["type"] = append_value(
                                 temp_row.get("type"),
@@ -629,6 +739,18 @@ def get_columns(filters=None):
             "width": 120
         },
         {
+            "label": "BRAND",
+            "fieldname": "brand",
+            "fieldtype": "Data",
+            "width": 120
+        },
+        {
+            "label": "MODEL",
+            "fieldname": "model",
+            "fieldtype": "Data",
+            "width": 120
+        },
+        {
             "label": "STATUS",
             "fieldname": "status",
             "fieldtype": "Data",
@@ -652,10 +774,10 @@ def get_columns(filters=None):
             "width": 200
         },
         {
-            "label": "SIM NO",
+            "label": "SIM SERIAL NUMBER",
             "fieldname": "sim_no",
             "fieldtype": "Data",
-            "width": 150
+            "width": 180
         },
         {
             "label": "TYPE",
@@ -681,10 +803,10 @@ def get_columns(filters=None):
             "width": 200
         },
         {
-            "label": "SIM NO (Removed)",
+            "label": "SIM SERIAL NUMBER (Removed)",
             "fieldname": "removed_sim_no",
             "fieldtype": "Data",
-            "width": 150
+            "width": 180
         },
         {
             "label": "TYPE (Removed)",
@@ -697,6 +819,12 @@ def get_columns(filters=None):
             "fieldname": "removed_accessories",
             "fieldtype": "Data",
             "width": 250
+        },
+        {
+            "label": "REMOVAL REASON",
+            "fieldname": "removal_reason",
+            "fieldtype": "Data",
+            "width": 200
         },
 
         # =====================================================
@@ -711,16 +839,28 @@ def get_columns(filters=None):
             "width": 150
         },
         {
+            "label": "NEW VEHICLE BRAND",
+            "fieldname": "new_vehicle_brand",
+            "fieldtype": "Data",
+            "width": 150
+        },
+        {
+            "label": "NEW VEHICLE MODEL",
+            "fieldname": "new_vehicle_model",
+            "fieldtype": "Data",
+            "width": 150
+        },
+        {
             "label": "NEW VEHICLE GPS IMEI NO",
             "fieldname": "new_vehicle_gps_imei_no",
             "fieldtype": "Data",
             "width": 220
         },
         {
-            "label": "NEW VEHICLE SIM NO",
+            "label": "NEW VEHICLE SIM SERIAL NUMBER",
             "fieldname": "new_vehicle_sim_no",
             "fieldtype": "Data",
-            "width": 180
+            "width": 200
         },
         {
             "label": "NEW VEHICLE TYPE",
