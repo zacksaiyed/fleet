@@ -1044,6 +1044,8 @@ def update_job(
 	new_color=None,
 
 	images=None,
+	new_images=None,
+	image_comment=None,
 
 	comment=None,
 
@@ -1279,206 +1281,112 @@ def update_job(
 			})
 
 	# --------------------------------------------------
-
-	# Replace Job Images
-
+	# Replace retained images and append new uploads
 	# --------------------------------------------------
 
-	# Detect whether images was explicitly passed.
-
-	# Explicit null and [] both clear existing images.
-
 	images_provided = (
-
 		"images" in frappe.form_dict
-
 		or "images" in kwargs
-
 		or images is not None
-
 	)
 
 	if images is None and "images" in frappe.form_dict:
-
 		images = frappe.form_dict.get("images")
-
 	if images is None and "images" in kwargs:
-
 		images = kwargs.get("images")
 
+	if new_images is None:
+		new_images = frappe.form_dict.get("new_images", kwargs.get("new_images"))
+
+	if image_comment is None:
+		image_comment = frappe.form_dict.get("image_comment", kwargs.get("image_comment"))
+	if image_comment is not None:
+		image_comment = str(image_comment)
+
+	# Existing images are JSON rows; new_images is multipart image files.
+	# Also accept a single uploaded file under the new_images key.
 	uploaded_files = (
-
-		frappe.request.files.getlist("images")
-
-		if frappe.request
-
-		else []
-
+		frappe.request.files.getlist("new_images")
+		if frappe.request else []
 	)
-
-	replace_images = images_provided or bool(uploaded_files)
-
 	uploaded = []
-
 	old_image_paths = []
 
-	if replace_images:
-
-		# null means remove all existing images.
-
-		if images is None:
-
-			images = []
-
+	if images_provided:
 		if isinstance(images, str):
-
 			try:
-
 				images = frappe.parse_json(images)
-
 			except Exception:
-
 				frappe.throw(_("Invalid JSON in images."))
-
 		if images is None:
-
 			images = []
-
 		if not isinstance(images, list):
+			frappe.throw(_("images must be a JSON array or null."))
 
-			frappe.throw(
-
-				_("images must be a JSON array or null.")
-
-			)
-
-		for row in images:
-
-			if not isinstance(row, dict):
-
-				frappe.throw(_("Each image must be an object."))
-
-		# Store old image paths before clearing.
-
-		old_image_paths = list(dict.fromkeys(
-
-			row.get("image")
-
+		# Prevent adding arbitrary image paths not already present on this Job.
+		current_rows = {
+			row.get("image"): row
 			for row in job_doc.get("job_images") or []
-
 			if row.get("image")
-
-		))
-
-		# Remove all existing child table rows.
-
+		}
+		old_image_paths = list(current_rows)
 		job_doc.set("job_images", [])
-
-		# Append new images from JSON payload.
-
 		for row in images:
-
+			if not isinstance(row, dict):
+				frappe.throw(_("Each image must be an object."))
 			image_path = row.get("image")
-
 			if not image_path:
-
 				continue
+			if image_path not in current_rows:
+				frappe.throw(_("Image {0} does not belong to this Job.").format(image_path))
+			job_doc.append("job_images", {
+				"image": image_path,
+				"comment": (image_comment if image_comment is not None else (row.get("comment", current_rows[image_path].get("comment")) or "")),
+			})
 
-			job_doc.append(
+	# Accept optional JSON paths for new_images as well as multipart uploads.
+	if new_images is not None:
+		if isinstance(new_images, str):
+			try:
+				new_images = frappe.parse_json(new_images)
+			except Exception:
+				frappe.throw(_("Invalid JSON in new_images."))
+		if new_images is None:
+			new_images = []
+		if not isinstance(new_images, list):
+			frappe.throw(_("new_images must be a JSON array."))
+		for row in new_images:
+			if not isinstance(row, dict) or not row.get("image"):
+				frappe.throw(_("Each new_images row must contain an image URL."))
+			job_doc.append("job_images", {
+				"image": row["image"],
+				"comment": (image_comment if image_comment is not None else (row.get("comment") or "")),
+			})
 
-				"job_images",
+	upload_comment = image_comment if image_comment is not None else ""
 
-				{
+	for idx, uploaded_file in enumerate(uploaded_files):
+		image_bytes = uploaded_file.read()
+		if not image_bytes:
+			continue
+		filename = uploaded_file.filename or (
+			f"job_{job_doc.name}_{now_datetime().strftime('%Y%m%d_%H%M%S')}_{idx}.jpg"
+		)
+		if not (uploaded_file.mimetype and uploaded_file.mimetype.startswith("image/")):
+			frappe.throw(_("Only image files are allowed: {0}").format(filename))
+		file_doc = save_file(
+			filename, image_bytes, "Job", job_doc.name, is_private=0
+		)
+		job_doc.append("job_images", {
+			"image": file_doc.file_url,
+			"comment": upload_comment,
+		})
+		uploaded.append(file_doc.file_url)
 
-					"image": image_path,
-
-					"comment": row.get("comment") or "",
-
-				}
-
-			)
-
-		image_comment = (
-
-			comment
-
-			if comment is not None
-
-			else frappe.form_dict.get("comment")
-
-		) or ""
-
-		# Append multipart uploaded image files.
-
-		for idx, uploaded_file in enumerate(uploaded_files):
-
-			image_bytes = uploaded_file.read()
-
-			if not image_bytes:
-
-				continue
-
-			filename = (
-
-				uploaded_file.filename
-
-				or (
-
-					f"job_{job_doc.name}_"
-
-					f"{now_datetime().strftime('%Y%m%d_%H%M%S')}_{idx}.jpg"
-
-				)
-
-			)
-
-			if not (
-
-				uploaded_file.mimetype
-
-				and uploaded_file.mimetype.startswith("image/")
-
-			):
-
-				frappe.throw(
-
-					_("Only image files are allowed: {0}").format(
-
-						filename
-
-					)
-
-				)
-
-			file_doc = save_file(
-
-				filename,
-
-				image_bytes,
-
-				"Job",
-
-				job_doc.name,
-
-				is_private=0,
-
-			)
-
-			job_doc.append(
-
-				"job_images",
-
-				{
-
-					"image": file_doc.file_url,
-
-					"comment": image_comment,
-
-				}
-
-			)
-
-			uploaded.append(file_doc.file_url)
+	# Apply one comment to every final image, including retained rows.
+	if image_comment is not None:
+		for image_row in job_doc.get("job_images") or []:
+			image_row.comment = image_comment
 
 	# --------------------------------------------------
 
@@ -1494,7 +1402,7 @@ def update_job(
 
 	# --------------------------------------------------
 
-	if replace_images:
+	if images_provided:
 
 		new_image_paths = {
 
@@ -1606,7 +1514,7 @@ def update_job(
 
 				),
 
-				"comment": row.get("comment") or "",
+				"comment": (image_comment if image_comment is not None else (row.get("comment") or "")),
 
 			}
 
@@ -1743,6 +1651,7 @@ def update_job(
 
 	}
 
+	
 @frappe.whitelist(methods=["GET", "POST"])
 def get_swap_item_options(job=None, source=None):
 	"""Available installed old-vehicle items or unlocked technician stock."""

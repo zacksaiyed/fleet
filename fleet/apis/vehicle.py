@@ -324,7 +324,6 @@ def list_vehicles(txt=None, filters=None, start=0, limit_page_length=20):
         data["customer_name"] = frappe.db.get_value("Customer", r.custom_customer, "customer_name") if r.custom_customer else None
         result.append(data)
     return {"vehicles": result, "start": start, "limit_page_length": limit, "has_more": len(rows) > limit}
-
 @frappe.whitelist(methods=["POST"])
 def create_vehicle(
     license_plate=None,
@@ -341,6 +340,9 @@ def create_vehicle(
 ):
     require_admin()
 
+    from datetime import datetime
+    from frappe.utils import nowdate
+
     plate = required(
         value("license_plate", license_plate),
         "License Plate"
@@ -352,7 +354,10 @@ def create_vehicle(
 
     if (
         frappe.db.exists("Vehicle", plate)
-        or frappe.db.exists("Vehicle", {"license_plate": plate})
+        or frappe.db.exists(
+            "Vehicle",
+            {"license_plate": plate}
+        )
     ):
         frappe.throw(_("Vehicle already exists."))
 
@@ -386,24 +391,155 @@ def create_vehicle(
         if field_value is not None:
             doc.set(fieldname, field_value)
 
-    # Vehicle Items and Stock Transfer functionality disabled.
-    # items = parse_json(value("items", items), "items") or []
-    # Item validation, installation and stock transfers
-    # can be re-enabled when required.
+    # Vehicle Items
+    items = parse_json(
+        value("items", items),
+        "items"
+    ) or []
 
-    frappe.db.savepoint("mobile_create_vehicle")
+    if not isinstance(items, list):
+        frappe.throw(_("items must be a list."))
+
+    seen = set()
+    prepared = []
+
+    for entry in items:
+
+        if not isinstance(entry, dict):
+            frappe.throw(
+                _("Every Vehicle Item must be an object.")
+            )
+
+        item, item_type, status = validate_vehicle_item_input(
+            entry.get("item"),
+            entry.get("item_type"),
+            entry.get("status")
+        )
+
+        if item in seen:
+            frappe.throw(
+                _("Item {0} is repeated in the request.").format(item)
+            )
+
+        seen.add(item)
+
+        if status == "Installed" and installed_elsewhere(
+            item, plate
+        ):
+            frappe.throw(
+                _(
+                    "Item {0} is already installed on another Vehicle."
+                ).format(item)
+            )
+
+        source = (
+            item_current_store(item)
+            if status == "Installed"
+            else None
+        )
+
+        # Date of Installation - DD-MM-YY
+        installation_date = entry.get(
+            "date_of_installation"
+        )
+
+        if installation_date:
+            try:
+                installation_date = datetime.strptime(
+                    str(installation_date).strip(),
+                    "%d-%m-%y"
+                ).strftime("%Y-%m-%d")
+
+            except ValueError:
+                frappe.throw(
+                    _(
+                        "Invalid Date of Installation for Item {0}. "
+                        "Use DD-MM-YY format."
+                    ).format(item)
+                )
+
+        elif status == "Installed":
+            installation_date = nowdate()
+
+        prepared.append(
+            (
+                item,
+                item_type,
+                status,
+                source,
+                installation_date
+            )
+        )
+
+    target = (
+        customer_warehouse(customer)
+        if any(
+            x[2] == "Installed"
+            for x in prepared
+        )
+        else None
+    )
+
+    frappe.db.savepoint(
+        "mobile_create_vehicle_with_items"
+    )
 
     try:
         save_vehicle(doc, insert=True)
 
+        entries = []
+
+        for (
+            item,
+            item_type,
+            status,
+            source,
+            installation_date
+        ) in prepared:
+
+            stock_entry = (
+                stock_transfer(
+                    item,
+                    source,
+                    target,
+                    doc.name
+                )
+                if status == "Installed"
+                else None
+            )
+
+            row_data = {
+                "item": item,
+                "item_type": item_type,
+                "status": status
+            }
+
+            if installation_date:
+                row_data[
+                    "date_of_installation"
+                ] = installation_date
+
+            doc.append(
+                "custom_vehicle_item",
+                row_data
+            )
+
+            if stock_entry:
+                entries.append(stock_entry)
+
+        if prepared:
+            save_vehicle(doc)
+
     except Exception:
-        frappe.db.rollback(save_point="mobile_create_vehicle")
+        frappe.db.rollback(
+            save_point="mobile_create_vehicle_with_items"
+        )
         raise
 
     return {
         "message": "Vehicle created successfully",
         "vehicle": vehicle_payload(doc),
-        "stock_entries": []
+        "stock_entries": entries
     }
 
 @frappe.whitelist(methods=["GET", "POST"])
