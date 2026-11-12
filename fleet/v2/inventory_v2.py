@@ -47,17 +47,56 @@ def _get_tech_warehouse(employee):
 
 
 def _get_store_warehouse():
-    """Return the store/main warehouse. First by type, then by name pattern."""
+    """Return the store/main warehouse. First by config/company, then by type, then by name pattern."""
+    try:
+        from fleet.fleet.doctype.material_transfer.material_transfer import _get_material_transfer_warehouse_config
+        cfg = _get_material_transfer_warehouse_config()
+        if cfg and cfg.get("store_warehouse"):
+            wh_name = cfg.get("store_warehouse")
+            wh = frappe.db.get_value(
+                "Warehouse",
+                {"name": wh_name, "disabled": 0},
+                ["name", "warehouse_name"],
+                as_dict=True,
+            )
+            if wh:
+                return wh
+    except Exception:
+        pass
+
     wh = frappe.db.get_value(
         "Warehouse",
         {"warehouse_type": ["in", ["Store", "Stores"]], "disabled": 0},
         ["name", "warehouse_name"],
         as_dict=True,
     )
+    if not wh:
+        wh = frappe.db.get_value(
+            "Warehouse",
+            {"warehouse_name": ["like", "%Store%"], "disabled": 0, "is_group": 0},
+            ["name", "warehouse_name"],
+            as_dict=True,
+        )
+    if not wh:
+        wh = frappe.db.get_value(
+            "Warehouse",
+            {"name": ["like", "%Store%"], "disabled": 0, "is_group": 0},
+            ["name", "warehouse_name"],
+            as_dict=True,
+        )
     return wh
 
 
 def _is_store_warehouse(warehouse):
+    if not warehouse:
+        return False
+    try:
+        from fleet.fleet.doctype.material_transfer.material_transfer import _get_material_transfer_warehouse_config
+        cfg = _get_material_transfer_warehouse_config()
+        if cfg and cfg.get("store_warehouse") == warehouse:
+            return True
+    except Exception:
+        pass
     wh_type = frappe.db.get_value("Warehouse", warehouse, "warehouse_type") or ""
     if wh_type.lower() in ("store", "stores"):
         return True
@@ -1085,12 +1124,12 @@ def get_transfer(name):
 # 5. Create a material transfer
 
 @frappe.whitelist()
-def create_transfer(purpose, items, target=None):
+def create_transfer(purpose=None, items=None, target=None):
     """
     POST /api/method/fleet.mobile_api.inventory.create_transfer
 
     Body:
-        purpose — Material Request / Material Issue / Material Handover (required)
+        purpose — Material Request / Material Issue / Material Handover (optional)
         items   — JSON array of item codes: ["ITEM-001", "ITEM-002"] (required)
         target  — target warehouse name
                   Required only for Material Handover.
@@ -1121,16 +1160,21 @@ def create_transfer(purpose, items, target=None):
         "msg": "Material Transfer created. Call submit_transfer to send for approval."
     }
     """
+    purpose = purpose or frappe.form_dict.get("purpose")
+    store = _get_store_warehouse()
+    store_warehouse = store.name if store else None
 
     if not purpose:
-        return _error(
-            400,
-            "MISSING_PARAMS",
-            "purpose is required."
-        )
+        if target and target != store_warehouse and not _is_store_warehouse(target):
+            purpose = "Material Handover"
+        else:
+            purpose = "Material Request"
 
     if isinstance(items, str):
-        items = json.loads(items)
+        try:
+            items = json.loads(items)
+        except Exception:
+            return _error(400, "INVALID_FORMAT", "items must be a valid JSON array.")
 
     if not items:
         return _error(
@@ -1233,7 +1277,9 @@ def create_transfer(purpose, items, target=None):
             "actual_qty",
         ) or 0
 
-        if frappe.utils.flt(qty) < 1:
+        curr_wh = frappe.db.get_value("Item", item_code, "custom_current_warehouse")
+
+        if frappe.utils.flt(qty) < 1 and curr_wh != source:
             errors.append(item_code)
 
         else:
