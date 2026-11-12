@@ -106,62 +106,6 @@ def _is_store_warehouse(warehouse):
     return not custom_employee and "store" in wh_name.lower()
 
 
-def _resolve_item(raw_item):
-    """
-    Resolve raw_item (which can be item_code, item_name, serial number, IMEI, sensor number)
-    to the actual Item master name (item_code) and its details.
-    """
-    if not raw_item:
-        return None, None
-
-    if isinstance(raw_item, dict):
-        raw_val = raw_item.get("item") or raw_item.get("item_code") or raw_item.get("item_name")
-    else:
-        raw_val = raw_item
-
-    identifier = str(raw_val).strip()
-
-    # 1. Exact match on Item name (primary key)
-    info = frappe.db.get_value(
-        "Item",
-        identifier,
-        ["name", "item_name", "custom_item_type", "brand", "custom_current_warehouse"],
-        as_dict=True,
-    )
-    if info:
-        return info.name, info
-
-    # 2. Match on Item.item_name
-    info = frappe.db.get_value(
-        "Item",
-        {"item_name": identifier},
-        ["name", "item_name", "custom_item_type", "brand", "custom_current_warehouse"],
-        as_dict=True,
-    )
-    if info:
-        return info.name, info
-
-    # 3. Match on custom tracking fields (sensor unique number, IMEI, temp serial, serial no)
-    for field in (
-        "custom_sensor_unique_number",
-        "custom_imei_no",
-        "custom_temperature_serial_number",
-        "custom_serial_no",
-        "custom_dashcam_unique_number",
-    ):
-        info = frappe.db.get_value(
-            "Item",
-            {field: identifier},
-            ["name", "item_name", "custom_item_type", "brand", "custom_current_warehouse"],
-            as_dict=True,
-        )
-        if info:
-            return info.name, info
-
-    # 4. Fallback if not found in Item master
-    return identifier, None
-
-
 # 1. Technician warehouse inventory grouped by item type
 @frappe.whitelist()
 def get_my_warehouse_inventory():
@@ -1323,45 +1267,36 @@ def create_transfer(purpose=None, items=None, target=None):
     errors = []
     item_details = []
 
-    for raw_item in items:
-        actual_code, info = _resolve_item(raw_item)
-        display_label = raw_item if isinstance(raw_item, str) else (actual_code or str(raw_item))
-
-        if not actual_code:
-            errors.append(display_label)
-            continue
-
+    for item_code in items:
         qty = frappe.db.get_value(
             "Bin",
             {
-                "item_code": actual_code,
+                "item_code": item_code,
                 "warehouse": source
             },
             "actual_qty",
         ) or 0
 
-        curr_wh = info.custom_current_warehouse if info else frappe.db.get_value("Item", actual_code, "custom_current_warehouse")
+        curr_wh = frappe.db.get_value("Item", item_code, "custom_current_warehouse")
 
         if frappe.utils.flt(qty) < 1 and curr_wh != source:
-            errors.append(display_label)
+            errors.append(item_code)
 
         else:
-            if not info:
-                info = frappe.db.get_value(
-                    "Item",
-                    actual_code,
-                    [
-                        "name",
-                        "item_name",
-                        "custom_item_type",
-                        "brand"
-                    ],
-                    as_dict=True,
-                )
+            info = frappe.db.get_value(
+                "Item",
+                item_code,
+                [
+                    "item_name",
+                    "custom_item_type",
+                    "brand"
+                ],
+                as_dict=True,
+            )
 
             item_details.append({
-                "item": actual_code,
-                "item_name": info.item_name if info else actual_code,
+                "item": item_code,
+                "item_name": info.item_name if info else item_code,
                 "item_type": info.custom_item_type if info else None,
                 "brand": info.brand if info else None,
             })

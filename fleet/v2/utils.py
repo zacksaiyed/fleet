@@ -1,5 +1,11 @@
 import frappe
-from fleet.v2.inventory_v2 import _get_auth, _error
+from fleet.v2.inventory_v2 import (
+	_get_auth,
+	_error,
+	_get_store_warehouse,
+	_is_store_warehouse,
+	_get_tech_warehouse,
+)
 
 @frappe.whitelist(allow_guest=True)
 def get_vehicle_types():
@@ -46,60 +52,61 @@ def get_item(item_code):
 	# GET TECHNICIAN'S OWN WAREHOUSE
 	# ---------------------------------------------------------
 
-	own_warehouse = frappe.db.get_value(
-		"Warehouse",
-		{
-			"custom_employee": employee,
-			"disabled": 0,
-		},
-		"name",
-	)
+	own_warehouse = _get_tech_warehouse(employee) if employee else None
 
 	# ---------------------------------------------------------
 	# GET STORES WAREHOUSE
 	# ---------------------------------------------------------
 
-	stores_warehouse = frappe.db.get_value(
-		"Warehouse",
-		{
-			"warehouse_name": "Stores",
-			"disabled": 0,
-		},
-		"name",
-	)
-
-	item = frappe.db.get_value(
-		"Item",
-		{
-			"item_code": item_code,
-			"disabled": 0,
-			"custom_is_locked": 0,
-		},
-		[
-			"name",
-			"item_code",
-			"item_name",
-			"custom_item_type",
-			"custom_current_warehouse",
-		],
-		as_dict=True,
-	)
+	store = _get_store_warehouse()
+	stores_warehouse = store.name if store else None
 
 	# ---------------------------------------------------------
-	# ITEM NOT AVAILABLE
+	# FETCH ITEM
+	# Check by both name and item_code, handling NULL custom_is_locked
 	# ---------------------------------------------------------
 
-	if not item:
+	item_rows = frappe.db.sql("""
+		SELECT
+			name,
+			item_code,
+			item_name,
+			custom_item_type,
+			custom_current_warehouse,
+			COALESCE(custom_is_locked, 0) AS custom_is_locked,
+			COALESCE(disabled, 0) AS disabled
+		FROM `tabItem`
+		WHERE name = %(code)s OR item_code = %(code)s
+		LIMIT 1
+	""", {"code": item_code}, as_dict=True)
+
+	if not item_rows:
 		return {
 			"status": "error",
-			"code": "ITEM_NOT_AVAILABLE",
-			"message": "Item not available."
+			"code": "ITEM_NOT_FOUND",
+			"message": f"Item '{item_code}' not found."
+		}
+
+	item = item_rows[0]
+
+	if item.disabled:
+		return {
+			"status": "error",
+			"code": "ITEM_DISABLED",
+			"message": f"Item '{item_code}' is disabled."
+		}
+
+	if item.custom_is_locked:
+		return {
+			"status": "error",
+			"code": "ITEM_LOCKED",
+			"message": f"Item '{item_code}' is currently locked in an active transfer."
 		}
 
 	# ---------------------------------------------------------
 	# ALLOWED WAREHOUSES
 	#
-	# 1. Stores
+	# 1. Stores (Stores - TT, etc.)
 	# 2. Logged-in technician's own warehouse
 	# ---------------------------------------------------------
 
@@ -108,10 +115,54 @@ def get_item(item_code):
 	if stores_warehouse:
 		allowed_warehouses.append(stores_warehouse)
 
-	if own_warehouse:
+	if own_warehouse and own_warehouse not in allowed_warehouses:
 		allowed_warehouses.append(own_warehouse)
 
-	if item.custom_current_warehouse not in allowed_warehouses:
+	# Determine current warehouse: check Item field, or check Bin actual_qty
+	current_wh = item.custom_current_warehouse
+
+	is_allowed = False
+	if current_wh and (current_wh in allowed_warehouses or _is_store_warehouse(current_wh)):
+		is_allowed = True
+	else:
+		# Fallback: check if actual stock exists in Stores or Own warehouse via Bin
+		bin_rows = frappe.db.sql("""
+			SELECT warehouse
+			FROM `tabBin`
+			WHERE item_code = %(code)s
+			  AND actual_qty > 0
+			  AND warehouse IN %(allowed)s
+			LIMIT 1
+		""", {
+			"code": item.name,
+			"allowed": tuple(allowed_warehouses) if allowed_warehouses else ("__none__",),
+		}, as_dict=True)
+
+		if bin_rows:
+			current_wh = bin_rows[0].warehouse
+			is_allowed = True
+		else:
+			# Also check if it's in any store warehouse by type/name
+			store_bin = frappe.db.sql("""
+				SELECT b.warehouse
+				FROM `tabBin` b
+				JOIN `tabWarehouse` w ON w.name = b.warehouse
+				WHERE b.item_code = %(code)s
+				  AND b.actual_qty > 0
+				  AND w.disabled = 0
+				  AND (
+				      w.warehouse_type IN ('Store', 'Stores')
+				      OR w.warehouse_name LIKE '%Store%'
+				      OR w.name LIKE '%Store%'
+				  )
+				LIMIT 1
+			""", {"code": item.name}, as_dict=True)
+
+			if store_bin:
+				current_wh = store_bin[0].warehouse
+				is_allowed = True
+
+	if not is_allowed:
 		return {
 			"status": "error",
 			"code": "ITEM_NOT_AVAILABLE",
@@ -127,10 +178,10 @@ def get_item(item_code):
 		"code": "ITEM_AVAILABLE",
 		"message": "Item found.",
 		"item": {
-			"item_code": item.item_code,
+			"item_code": item.item_code or item.name,
 			"item_name": item.item_name,
 			"item_type": item.custom_item_type,
-			"current_warehouse": item.custom_current_warehouse,
+			"current_warehouse": current_wh,
 		}
 	}
 
