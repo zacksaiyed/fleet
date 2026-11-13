@@ -346,27 +346,27 @@ def get_active_material_transfer_for_item(item_code):
 @frappe.whitelist()
 def get_material_permissions():
     employee, err = _get_auth()
-    
+
     if err:
         return err
-    
+
     emp = frappe.db.get_value(
         "Employee",
         employee,
         [
-            "designation", 
+            "designation",
             "custom_allow_material_return_creation_from_apps",
             "custom_allow_material_request_creation_from_apps"
         ],
         as_dict=True,
     )
-    
+
     if not emp or emp.designation != "Technician":
         return {
             "allow_return": False,
             "allow_request": False
         }
-    
+
     return {
         "allow_return": bool(emp.custom_allow_material_return_creation_from_apps),
         "allow_request": bool(emp.custom_allow_material_request_creation_from_apps)
@@ -376,7 +376,7 @@ def update_customer_vehicle_count(doc, method):
     if doc.custom_customer:
         count = frappe.db.count("Vehicle", {"custom_customer": doc.custom_customer})
         frappe.db.set_value("Customer", doc.custom_customer, "custom_vehicle_count", count, update_modified=False)
-    
+
     if method == "on_update":
         doc_before_save = doc.get_doc_before_save()
         if doc_before_save and doc_before_save.custom_customer and doc_before_save.custom_customer != doc.custom_customer:

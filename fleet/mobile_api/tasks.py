@@ -1105,6 +1105,7 @@ def update_job(
     color: str | None = None,
     type: str | None = None,
     set_items=None,
+    **kwargs
 ) -> dict:
     """
     POST /api/method/fleet.mobile_api.tasks.update_job
@@ -1129,6 +1130,27 @@ def update_job(
     """
     if not job:
         return _error(400, "MISSING_PARAMS", "job is required.")
+
+    job_type = frappe.db.get_value("Job", job, "task_type")
+    if job_type == "Swap" or kwargs.get("new_vehicle_number") or kwargs.get("asset_mapping") or kwargs.get("new_assets"):
+        from fleet.v2 import task_v2
+        data = dict(frappe.form_dict)
+        data.pop("cmd", None)
+        data.update(kwargs)
+        data["job"] = job
+        if vehicle_number is not None:
+            data["vehicle_number"] = vehicle_number
+        if make is not None:
+            data["make"] = make
+        if model is not None:
+            data["model"] = model
+        if color is not None:
+            data["color"] = color
+        if type is not None:
+            data["type"] = type
+        if set_items is not None:
+            data["set_items"] = set_items
+        return task_v2.update_job(**data)
 
     # normalize empty strings → None so optional fields are treated as absent
     type           = type or None

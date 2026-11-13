@@ -2443,9 +2443,13 @@ def update_job(
     if job_doc.task_type == "Swap":
 
         # OLD VEHICLE
+        if vehicle_number is None:
+            vehicle_number = kwargs.get("vehicle_number")
+
+        raw_vehicle_number = vehicle_number or job_doc.vehicle_number or ""
 
         old_vehicle_number = (
-            (job_doc.vehicle_number or "")
+            str(raw_vehicle_number)
             .replace(" ", "")
             .upper()
             .strip()
@@ -2468,12 +2472,25 @@ def update_job(
             as_dict=True,
         )
 
+        if not old_vehicle and str(raw_vehicle_number).strip():
+            old_vehicle = frappe.db.get_value(
+                "Vehicle",
+                str(raw_vehicle_number).strip(),
+                [
+                    "name",
+                    "custom_customer",
+                ],
+                as_dict=True,
+            )
+
         if not old_vehicle:
             return _error(
                 404,
                 "OLD_VEHICLE_NOT_FOUND",
                 f"Old Vehicle {old_vehicle_number} was not found."
             )
+
+        job_doc.vehicle_number = old_vehicle.name
 
         if (
             old_vehicle.custom_customer

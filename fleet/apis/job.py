@@ -369,7 +369,7 @@ def action_v2(name=None, job_name=None, action=None, **kwargs):
 		if frappe.form_dict.get("done_comment") is not None:
 			payload["done_comment"] = frappe.form_dict.get("done_comment")
 		# pass
-		
+
 
 	job.update(payload)
 	job.save()
@@ -1651,7 +1651,7 @@ def update_job(
 
 	}
 
-	
+
 @frappe.whitelist(methods=["GET", "POST"])
 def get_swap_item_options(job=None, source=None):
 	"""Available installed old-vehicle items or unlocked technician stock."""
