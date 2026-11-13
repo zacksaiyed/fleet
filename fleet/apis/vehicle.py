@@ -324,6 +324,7 @@ def list_vehicles(txt=None, filters=None, start=0, limit_page_length=20):
         data["customer_name"] = frappe.db.get_value("Customer", r.custom_customer, "customer_name") if r.custom_customer else None
         result.append(data)
     return {"vehicles": result, "start": start, "limit_page_length": limit, "has_more": len(rows) > limit}
+
 @frappe.whitelist(methods=["POST"])
 def create_vehicle(
     license_plate=None,
@@ -361,6 +362,22 @@ def create_vehicle(
     ):
         frappe.throw(_("Vehicle already exists."))
 
+    last_billed_date = value(
+        "last_billed_upto_date",
+        last_billed_upto_date
+    )
+
+    if last_billed_date:
+        try:
+            last_billed_date = datetime.strptime(
+                str(last_billed_date).strip(),
+                "%d-%m-%Y"
+            ).strftime("%Y-%m-%d")
+        except ValueError:
+            frappe.throw(
+                _("Invalid Last Billed Upto Date. Use DD-MM-YYYY format.")
+            )
+
     doc = frappe.new_doc("Vehicle")
 
     doc.license_plate = plate
@@ -375,10 +392,7 @@ def create_vehicle(
         "make": value("make", make),
         "model": value("model", model),
         "fuel_type": value("fuel_type", fuel_type),
-        "custom_last_billed_upto_date": value(
-            "last_billed_upto_date",
-            last_billed_upto_date
-        ),
+        "custom_last_billed_upto_date": last_billed_date,
         "custom_cleaned_license_plate_number": value(
             "cleaned_license_plate_number",
             cleaned_license_plate_number

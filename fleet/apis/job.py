@@ -1002,7 +1002,6 @@ def create_job(task=None, task_type=None, vehicle_number=None, assigned_technici
 	return {'message': 'Job created successfully', 'job': _payload(job)}
 
 @frappe.whitelist(methods=["POST"])
-
 def update_job(
 
 	name=None,
