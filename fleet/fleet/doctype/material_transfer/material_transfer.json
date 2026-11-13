@@ -130,7 +130,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Purpose",
-   "options": "\nMaterial Issue\nMaterial Request\nMaterial Return\nMaterial Handover\nCustomer to Store\nCustomer to Technician\nMaterial Restore\nStore to Customer\nStore to Damage\nStore to Lost",
+   "options": "\nMaterial Issue\nMaterial Request\nMaterial Return\nMaterial Handover\nCustomer to Store\nCustomer to Technician\nMaterial Restore\nStore to Customer\nStore to Damage\nStore to Lost\nTechnician to customer",
    "reqd": 1
   },
   {
