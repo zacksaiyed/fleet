@@ -481,10 +481,19 @@ def get_job(job: str) -> dict:
     if not job_doc:
         return _error(404, "NOT_FOUND", "Job not found or you are not assigned to it.")
 
+    item_fields = ["name", "item", "item_name", "item_type", "brand", "installed_or_removed"]
+    try:
+        physical_cols = {col[0] for col in frappe.db.sql("DESCRIBE `tabJob Item`")}
+    except Exception:
+        physical_cols = set()
+    for col in ["destination", "removal_reason"]:
+        if col in physical_cols and col not in item_fields:
+            item_fields.append(col)
+
     items = frappe.db.get_all(
         "Job Item",
         filters={"parent": job_doc.name},
-        fields=["name", "item", "item_name", "item_type", "brand", "installed_or_removed"],
+        fields=item_fields,
         order_by="idx asc",
     )
 
@@ -529,10 +538,12 @@ def get_job(job: str) -> dict:
 
         item_row = {
             "name":                r.name,
-            "item_code":                r.item,
+            "item_code":           r.item,
             "item_name":           r.item_name,
             "brand":               r.brand,
             "installed_or_removed": r.installed_or_removed,
+            "destination":         r.get("destination") if job_doc.task_type == "Removal" else None,
+            "removal_reason":      r.get("removal_reason") if (job_doc.task_type == "Removal" and r.get("destination") == "Customer") else None,
         }
 
         extra_field = _TYPE_EXTRA.get(key)
@@ -1094,6 +1105,7 @@ def update_job(
     color: str | None = None,
     type: str | None = None,
     set_items=None,
+    **kwargs
 ) -> dict:
     """
     POST /api/method/fleet.mobile_api.tasks.update_job
@@ -1118,6 +1130,27 @@ def update_job(
     """
     if not job:
         return _error(400, "MISSING_PARAMS", "job is required.")
+
+    job_type = frappe.db.get_value("Job", job, "task_type")
+    if job_type == "Swap" or kwargs.get("new_vehicle_number") or kwargs.get("asset_mapping") or kwargs.get("new_assets"):
+        from fleet.v2 import task_v2
+        data = dict(frappe.form_dict)
+        data.pop("cmd", None)
+        data.update(kwargs)
+        data["job"] = job
+        if vehicle_number is not None:
+            data["vehicle_number"] = vehicle_number
+        if make is not None:
+            data["make"] = make
+        if model is not None:
+            data["model"] = model
+        if color is not None:
+            data["color"] = color
+        if type is not None:
+            data["type"] = type
+        if set_items is not None:
+            data["set_items"] = set_items
+        return task_v2.update_job(**data)
 
     # normalize empty strings → None so optional fields are treated as absent
     type           = type or None
@@ -1194,12 +1227,24 @@ def update_job(
             if not fetched:
                 return _error(404, "NOT_FOUND", f"Item {item_code} not found.")
 
+            dest = None
+            if job_doc.task_type == "Removal":
+                raw_dest = r.get("destination") or r.get("move_to") or r.get("dest")
+                if raw_dest:
+                    raw_dest_str = str(raw_dest).strip()
+                    if raw_dest_str.lower() in ("customer", "customer warehouse", "cust"):
+                        dest = "Customer"
+                    else:
+                        dest = "Technician"
+
             job_doc.append("item_installed_removed", {
                 "item":                 item_code,
                 "item_name":            fetched.item_name,
                 "item_type":            fetched.custom_item_type,
                 "brand":                fetched.brand,
                 "installed_or_removed": r.get("installed_or_removed", "Installed"),
+                "destination":          dest if job_doc.task_type == "Removal" else None,
+                "removal_reason":       ((r.get("removal_reason") or "").strip() or None) if (job_doc.task_type == "Removal" and dest == "Customer") else None,
             })
 
         # First item update advances job from Pending → In Progress
@@ -1426,19 +1471,21 @@ def mark_job_done(job: str, done_comment: str) -> dict:
 
 
 @frappe.whitelist()
-def job_action(job: str, action: str, comment: str = None) -> dict:
+def job_action(job: str, action: str, comment: str = None, hold_until_date: str = None) -> dict:
     """
     POST /api/method/fleet.mobile_api.tasks.job_action
     Headers:
         Cookie: sid=<logged_in_user_sid>
     Body:
-        job     — job name (e.g. JOB-2026-03-000001)
-        action  — "done" | "reopen"
-        comment — required when action is "done"
+        job             — job name (e.g. JOB-2026-03-000001)
+        action          — "done" | "hold" | "reopen"
+        comment         — required when action is "done" or "hold"
+        hold_until_date — optional (defaults automatically to now + 24 hours)
 
     Technician-facing actions only. Support handles hold/complete/cancel.
 
     Transitions:
+        hold   : Pending / In Progress → On Hold for 24 hours (comment required)
         done   : Pending / On Hold → In Review  (comment required)
         reopen : On Hold → Pending
     """
@@ -1463,7 +1510,7 @@ def job_action(job: str, action: str, comment: str = None) -> dict:
 
     from fleet.fleet.doctype.job.job import job_action as _job_action
     try:
-        result = _job_action(job=job, action=action, comment=comment)
+        result = _job_action(job=job, action=action, comment=comment, hold_until_date=hold_until_date)
     except frappe.ValidationError as e:
         return _error(400, "VALIDATION_ERROR", str(e))
     return {"status": "success", **result}
@@ -1505,25 +1552,70 @@ def _post_job_update_message(job_doc, employee, changed_scalars: dict, set_items
 
     lines = ["**Updated**"]
 
-    for field, label in _SCALAR_LABELS.items():
-        if field in changed_scalars:
-            val = changed_scalars[field] or "—"
-            lines.append(f"{label}: {val}")
+    veh = job_doc.vehicle_number or changed_scalars.get("vehicle_number")
+    veh_name = (
+        veh
+        if (veh and frappe.db.exists("Vehicle", veh))
+        else (frappe.db.get_value("Vehicle", {"license_plate": veh}, "name") if veh else None)
+    )
+    veh_data = frappe.db.get_value("Vehicle", veh_name, ["make", "model", "color", "custom_vehicle_type"], as_dict=True) if veh_name else {}
 
-    # Fetch currently installed items on the vehicle
-    if job_doc.vehicle_number and frappe.db.exists("Vehicle", job_doc.vehicle_number):
+    if veh:
+        lines.append(f"Vehicle: {veh}")
+    make = (job_doc.make or changed_scalars.get("make") or (veh_data.get("make") if veh_data else "") or "").strip()
+    if make:
+        lines.append(f"Make: {make}")
+    model = (job_doc.model or changed_scalars.get("model") or (veh_data.get("model") if veh_data else "") or "").strip()
+    if model:
+        lines.append(f"Model: {model}")
+    color = (job_doc.color or changed_scalars.get("color") or (veh_data.get("color") if veh_data else "") or "").strip()
+    if color:
+        lines.append(f"Color: {color}")
+    veh_type = (job_doc.type or changed_scalars.get("type") or (veh_data.get("custom_vehicle_type") if veh_data else "") or "").strip()
+    if veh_type:
+        lines.append(f"Type: {veh_type}")
+
+    # Fetch currently installed/available items on the vehicle
+    if veh_name:
         veh_items = frappe.db.get_all(
             "Vehicle Item",
-            filters={"parent": job_doc.vehicle_number, "status": "Installed"},
+            filters={"parent": veh_name, "status": "Installed"},
             fields=["item", "item_type"]
         )
-        if veh_items:
+        veh_codes = {vi.item for vi in veh_items if vi.item}
+
+        if job_doc.task_type == "Checkup":
+            for row in (job_doc.item_installed_removed or []):
+                old_code = getattr(row, "replace_against", None) or (row.item if row.installed_or_removed == "Removed" else None)
+                if old_code and old_code not in veh_codes:
+                    itype = frappe.db.get_value("Item", old_code, "custom_item_type") or getattr(row, "item_type", None) or "Item"
+                    veh_items.append(frappe._dict({"item": old_code, "item_type": itype}))
+                    veh_codes.add(old_code)
+            for row in (getattr(job_doc, "removal_items", None) or []):
+                if row.item and row.item not in veh_codes:
+                    itype = row.item_type or frappe.db.get_value("Item", row.item, "custom_item_type") or "Item"
+                    veh_items.append(frappe._dict({"item": row.item, "item_type": itype}))
+                    veh_codes.add(row.item)
+
+            new_installed_codes = {
+                r.item for r in (job_doc.item_installed_removed or [])
+                if r.installed_or_removed == "Installed" and r.item
+            }
+            display_veh_items = [vi for vi in veh_items if vi.item not in new_installed_codes]
+        else:
+            removed_codes = {
+                r.item for r in (job_doc.item_installed_removed or [])
+                if r.installed_or_removed == "Removed" and r.item
+            }
+            display_veh_items = [vi for vi in veh_items if vi.item not in removed_codes]
+
+        if display_veh_items:
             lines.append("")
             lines.append("Item:")
-            for idx, row in enumerate(veh_items):
+            for idx, row in enumerate(display_veh_items):
                 if idx > 0:
                     lines.append("")
-                item_type = row.item_type or "Item"
+                item_type = row.item_type or frappe.db.get_value("Item", row.item, "custom_item_type") or "Item"
                 item_code = row.item or "—"
                 brand     = frappe.db.get_value("Item", item_code, "brand") or "—"
                 if item_type == "SIM":
@@ -1532,7 +1624,6 @@ def _post_job_update_message(job_doc, employee, changed_scalars: dict, set_items
                     serial_no = details.get("custom_serial_no") or "—"
                     mobile_no = details.get("custom_mobile_number") or "—"
                     lines.append(f"  {item_type}: {item_code} - {brand}")
-                    # lines.append(f"  SIM Serial No: {serial_no}")
                     lines.append(f"  SIM Mobile No: {mobile_no}")
                     lines.append(f"  SIM Type: {sim_type}")
                 else:
@@ -1557,7 +1648,6 @@ def _post_job_update_message(job_doc, employee, changed_scalars: dict, set_items
                     serial_no = details.get("custom_serial_no") or "—"
                     mobile_no = details.get("custom_mobile_number") or "—"
                     lines.append(f"  {item_type}: {item_code} - {brand}")
-                    # lines.append(f"  SIM Serial No: {serial_no}")
                     lines.append(f"  SIM Mobile No: {mobile_no}")
                     lines.append(f"  SIM Type: {sim_type}")
                 else:
@@ -1573,6 +1663,8 @@ def _post_job_update_message(job_doc, employee, changed_scalars: dict, set_items
                 item_code = row.item or "—"
                 brand     = row.brand or "—"
                 lines.append(f"  {item_type}: {item_code} - {brand}")
+                if getattr(row, "removal_reason", None) and getattr(row, "destination", None) == "Customer":
+                    lines.append(f"  Removal Reason: {row.removal_reason}")
 
     if len(lines) == 1:   # only "Updated" header, nothing to report
         return

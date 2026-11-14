@@ -9,7 +9,9 @@
   "item",
   "item_name",
   "item_type",
-  "brand"
+  "brand",
+  "return_type",
+  "warehouse"
  ],
  "fields": [
   {
@@ -45,13 +47,29 @@
    "label": "Brand",
    "options": "Brand",
    "read_only": 1
+  },
+  {
+   "depends_on": "eval:parent.purpose == \"Material Return\"",
+   "fieldname": "return_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Return Type",
+   "options": "\nStore\nDamage\nLost",
+   "read_only_depends_on": "eval:parent.purpose != \"Material Return\""
+  },
+  {
+   "depends_on": "eval:parent.purpose == \"Material Return\"",
+   "fieldname": "warehouse",
+   "fieldtype": "Link",
+   "label": "Warehouse",
+   "options": "Warehouse"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2026-03-09 15:19:29.051036",
+ "modified": "2026-08-26 19:41:09.169427",
  "modified_by": "Administrator",
  "module": "Fleet",
  "name": "Material Transfer Item",

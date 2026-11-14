@@ -2,6 +2,22 @@ import frappe
 from frappe import _
 from fleet.custom_py.item_warehouse import update_item_warehouse
 
+@frappe.whitelist()
+def get_group_by_count(doctype, current_filters, field):
+    """Include every Vehicle customer in the sidebar, retaining read permissions."""
+    if doctype != "Vehicle" or field != "custom_customer":
+        from frappe.desk.listview import get_group_by_count as standard_get_group_by_count
+
+        return standard_get_group_by_count(doctype, current_filters, field)
+
+    return frappe.get_list(
+        "Vehicle",
+        filters=frappe.parse_json(current_filters) or [],
+        group_by="`tabVehicle`.custom_customer",
+        fields=["count(*) as count", "`custom_customer` as name"],
+        order_by="count desc, custom_customer asc",
+        limit_page_length=0,
+    )
 
 def validate_vehicle(doc, method=None):
     if doc.license_plate:
@@ -9,20 +25,41 @@ def validate_vehicle(doc, method=None):
         doc.license_plate = normalized
         if doc.is_new():
             doc.name = normalized
-            # set_parent_in_children() runs before validate, so child rows already
-            # have the pre-normalization name as their parent. Re-sync them here.
+            
             for df in doc.meta.get_table_fields():
                 for row in doc.get(df.fieldname) or []:
                     row.parent = normalized
 
+    # --- YAHAN SE NAYA CODE ADD KAREIN ---
+    if doc.get("custom_vehicle_item"):
+        for row in doc.custom_vehicle_item:
+            if row.item:
+                item_data = frappe.db.get_value("Item", row.item, ["custom_mac_id", "custom_mobile_number", "custom_item_type"], as_dict=True)
+                if item_data:
+                    type_val = str(item_data.get("custom_item_type") or row.get("item_type") or "").strip().upper()
+                    if type_val == "SIM":
+                        row.custom_device_id = item_data.get("custom_mobile_number")
+                    else:
+                        row.custom_device_id = item_data.get("custom_mac_id")
+    # --- YAHAN TAK ---
+
     _remove_duplicate_vehicle_items(doc)
     _check_installed_items_exist(doc)
     _check_item_not_installed_elsewhere(doc)
+    update_vechile_status(doc)
 
     # Re-index all child table rows to ensure consecutive numbering (idx)
     for i, row in enumerate(doc.get("custom_vehicle_item") or []):
         row.idx = i + 1
-
+def update_vechile_status(doc):
+    if not doc.custom_vehicle_item:
+        return
+    for row in doc.custom_vehicle_item:
+        if row.has_value_changed("status"):
+            if row.status == "Installed":
+                row.date_of_installation = frappe.utils.nowdate()
+            elif row.status == "Removed":
+                row.date_of_removal = frappe.utils.nowdate()
 
 def _check_installed_items_exist(doc):
     """Block save if an Installed item doesn't exist in the Item master."""
@@ -310,7 +347,7 @@ def _create_vehicle_import_stock_entry(items, store_warehouse, customer_warehous
             for item_code in items
         ],
     })
-    
+
     # Set explicit local timezone posting date and time
     now_dt = frappe.utils.now_datetime()
     stock_entry.posting_date = now_dt.strftime("%Y-%m-%d")
@@ -363,30 +400,32 @@ def bulk_transfer_vehicle_items():
 
 
 def capture_pre_save_warehouses(doc, method=None):
-    if _is_data_import(doc) or not doc.custom_customer or frappe.flags.in_job:
+    if _is_data_import(doc) or not doc.custom_customer or frappe.flags.in_job or doc.flags.updated_from_job_document:
         return
-    
+
     # Validate that newly installed items are in the Store warehouse
     store_warehouse = _get_store_warehouse()
+
+
     if store_warehouse:
         installed_items, removed_items = get_installed_and_removed_items(doc)
+
         for item in installed_items:
             current_wh = frappe.db.get_value("Item", item, "custom_current_warehouse")
-            
             # If the item is already in the customer's warehouse, it means it was already moved/installed, so skip validation.
             customer_warehouse = None
             if doc.custom_customer:
                 customer_warehouse = frappe.db.get_value("Warehouse", {"custom_customer_name": doc.custom_customer}, "name")
-            
+
             if current_wh and customer_warehouse and current_wh == customer_warehouse:
                 continue
 
-            if current_wh and current_wh != store_warehouse:
+            if current_wh and current_wh != store_warehouse :
                 frappe.throw(
                     _("Item {0} is currently in warehouse {1}. It must be in {2} to be installed.")
                     .format(item, current_wh, store_warehouse)
                 )
-            
+
             # Check physical stock in Store warehouse
             actual_qty = frappe.db.get_value("Bin", {"item_code": item, "warehouse": store_warehouse}, "actual_qty") or 0
             if actual_qty <= 0:
@@ -427,7 +466,7 @@ def handle_manual_installation_on_update(doc, method=None):
 
 def get_installed_and_removed_items(doc):
     before = doc.get_doc_before_save()
-    
+
     # Map of item -> status in the current document
     current_items = {}
     for row in doc.get("custom_vehicle_item") or []:
@@ -493,11 +532,11 @@ def _process_manual_stock_transfers(doc):
     for item in installed_items:
         # Get the pre-save warehouse or query database/fallback to store warehouse
         from_wh = pre_save_warehouses.get(item) or frappe.db.get_value("Item", item, "custom_current_warehouse") or store_warehouse
-        
+
         # If it's already in the customer warehouse, no transfer is needed
         if from_wh == customer_warehouse:
             continue
-            
+
         key = (from_wh, customer_warehouse)
         if key not in transfers:
             transfers[key] = []
@@ -507,7 +546,7 @@ def _process_manual_stock_transfers(doc):
     for item in removed_items:
         # Get the actual current warehouse of the item
         current_wh = frappe.db.get_value("Item", item, "custom_current_warehouse") or customer_warehouse
-        
+
         # If it's already in the target store warehouse, no transfer is needed
         if current_wh == store_warehouse:
             continue
@@ -518,7 +557,7 @@ def _process_manual_stock_transfers(doc):
             # No physical stock to transfer. Just update the field directly, skip stock entry.
             update_item_warehouse(item, store_warehouse)
             continue
-            
+
         key = (current_wh, store_warehouse)
         if key not in transfers:
             transfers[key] = []
@@ -670,7 +709,7 @@ def move_to_another_customer(vehicle_name, new_customer):
 					for item_code in items
 				],
 			})
-			
+
 			# Set explicit local timezone posting date and time
 			now_dt = frappe.utils.now_datetime()
 			stock_entry.posting_date = now_dt.strftime("%Y-%m-%d")

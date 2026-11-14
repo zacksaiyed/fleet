@@ -1,123 +1,123 @@
-frappe.pages['Technician Activity'] = frappe.pages['Technician Activity'] || {};
+frappe.pages['Technician Activity'] = frappe.pages['technician_activity'] || {};
 
-frappe.pages['Technician Activity'].on_page_load = function(wrapper) {
-    var page = frappe.ui.make_app_page({
-        parent: wrapper,
-        title: 'Technician Activity',
-        single_column: true
-    });
+frappe.pages['Technician Activity'].on_page_load = function (wrapper) {
+	var page = frappe.ui.make_app_page({
+		parent: wrapper,
+		title: 'Technician Activity',
+		single_column: true
+	});
 
-    wrapper.page = page;
+	wrapper.page = page;
 
-    wrapper.date_field = page.add_field({
-        fieldname: 'selected_date',
-        label: 'Select Date',
-        fieldtype: 'Date',
-        default: frappe.datetime.get_today(), 
-        change: function() {
-            let new_date = wrapper.date_field.get_value();
-            if(new_date) {
-                wrapper.load_data(new_date, false); 
-            }
-        }
-    });
+	wrapper.date_field = page.add_field({
+		fieldname: 'selected_date',
+		label: 'Select Date',
+		fieldtype: 'Date',
+		default: frappe.datetime.get_today(),
+		change: function () {
+			let new_date = wrapper.date_field.get_value();
+			if (new_date) {
+				wrapper.load_data(new_date, false);
+			}
+		}
+	});
 
-    wrapper.tech_field = page.add_field({
-        fieldname: 'technicians',
-        label: 'Select Technicians',
-        fieldtype: 'MultiSelectList',
-        placeholder: 'All Active Technicians',
-        get_data: function(txt) {
-            return frappe.db.get_list('Employee', {
-                filters: {
-                    status: 'Active',
-                    designation: 'Technician'
-                },
-                fields: ['name', 'employee_name'],
-                order_by: 'employee_name asc',
-                // frappe.db.get_list defaults to 20 unless limit is explicit.
-                limit: 0
-            }).then(r => {
-                let options = r.map(emp => ({
-                    value: emp.name,
-                    label: `${emp.employee_name} (${emp.name})`,
-                    description: ''
-                }));
-                
-                // Search filtering logic if user types in the dropdown
-                if (txt) {
-                    return options.filter(opt => 
-                        opt.label.toLowerCase().includes(txt.toLowerCase()) || 
-                        opt.value.toLowerCase().includes(txt.toLowerCase())
-                    );
-                }
-                return options;
-            });
-        },
-        change: function() {
-            let new_date = wrapper.date_field.get_value();
-            if(new_date) {
-                wrapper.load_data(new_date, false); 
-            }
-        }
-    });
+	wrapper.tech_field = page.add_field({
+		fieldname: 'technicians',
+		label: 'Select Technicians',
+		fieldtype: 'MultiSelectList',
+		placeholder: 'All Active Technicians',
+		get_data: function (txt) {
+			return frappe.db.get_list('Employee', {
+				filters: {
+					status: 'Active',
+					designation: 'Technician'
+				},
+				fields: ['name', 'employee_name'],
+				order_by: 'employee_name asc',
+				// frappe.db.get_list defaults to 20 unless limit is explicit.
+				limit: 0
+			}).then(r => {
+				let options = r.map(emp => ({
+					value: emp.name,
+					label: `${emp.employee_name} (${emp.name})`,
+					description: ''
+				}));
 
-    wrapper.$container = $(`<div class="grid-container" style="padding: 15px; overflow-x: auto;"></div>`).appendTo(page.main);
+				// Search filtering logic if user types in the dropdown
+				if (txt) {
+					return options.filter(opt =>
+						opt.label.toLowerCase().includes(txt.toLowerCase()) ||
+						opt.value.toLowerCase().includes(txt.toLowerCase())
+					);
+				}
+				return options;
+			});
+		},
+		change: function () {
+			let new_date = wrapper.date_field.get_value();
+			if (new_date) {
+				wrapper.load_data(new_date, false);
+			}
+		}
+	});
 
-    wrapper.load_data = function(filter_date, is_background = false) {
-        if (!is_background) {
-            wrapper.$container.html('<p class="text-muted">Loading Technician Data for ' + filter_date + '...</p>');
-        }
+	wrapper.$container = $(`<div class="grid-container" style="padding: 15px; overflow-x: auto;"></div>`).appendTo(page.main);
 
-        // --- NEW CODE ADDED HERE: Filter Setup ---
-        let emp_filters = {
-            status: 'Active',
-            designation: 'Technician'
-        };
+	wrapper.load_data = function (filter_date, is_background = false) {
+		if (!is_background) {
+			wrapper.$container.html('<p class="text-muted">Loading Technician Data for ' + filter_date + '...</p>');
+		}
 
-        // Fetch selected values from the new MultiSelect field
-        let selected_techs = wrapper.tech_field.get_value();
-        
-        // If the user selected any technician, add them to the filter
-        if (selected_techs && selected_techs.length > 0) {
-            // MultiSelectList usually returns an array of selected names
-            let tech_array = typeof selected_techs === 'string' ? selected_techs.split(',') : selected_techs;
-            emp_filters.name = ['in', tech_array];
-        }
-        // --- END NEW CODE ---
+		// --- NEW CODE ADDED HERE: Filter Setup ---
+		let emp_filters = {
+			status: 'Active',
+			designation: 'Technician'
+		};
 
-        frappe.call({
-            method: 'frappe.client.get_list',
-            args: {
-                doctype: 'Employee',
-                filters: emp_filters, // <-- UPDATED to use the dynamic emp_filters variable
-                fields: ['name', 'employee_name'],
-                limit_page_length: 0
-            },
-            callback: function(emp_res) {
-                let employees = emp_res.message || [];
+		// Fetch selected values from the new MultiSelect field
+		let selected_techs = wrapper.tech_field.get_value();
 
-                frappe.call({
-                    method: 'frappe.client.get_list',
-                    args: {
-                        doctype: 'Job Message',
-                        filters: {
-                            creation: ['like', filter_date + '%'] 
-                        },
-                        fields: ['sender_name', 'creation'],
-                        limit_page_length: 0
-                    },
-                    callback: function(msg_res) {
-                        let messages = msg_res.message || [];
-                        wrapper.render_technician_grid(wrapper.$container, employees, messages);
-                    }
-                });
-            }
-        });
-    };
+		// If the user selected any technician, add them to the filter
+		if (selected_techs && selected_techs.length > 0) {
+			// MultiSelectList usually returns an array of selected names
+			let tech_array = typeof selected_techs === 'string' ? selected_techs.split(',') : selected_techs;
+			emp_filters.name = ['in', tech_array];
+		}
+		// --- END NEW CODE ---
 
-    wrapper.render_technician_grid = function($container, employees, messages) {
-        let html = `
+		frappe.call({
+			method: 'frappe.client.get_list',
+			args: {
+				doctype: 'Employee',
+				filters: emp_filters, // <-- UPDATED to use the dynamic emp_filters variable
+				fields: ['name', 'employee_name'],
+				limit_page_length: 0
+			},
+			callback: function (emp_res) {
+				let employees = emp_res.message || [];
+
+				frappe.call({
+					method: 'frappe.client.get_list',
+					args: {
+						doctype: 'Job Message',
+						filters: {
+							creation: ['like', filter_date + '%']
+						},
+						fields: ['sender_name', 'creation'],
+						limit_page_length: 0
+					},
+					callback: function (msg_res) {
+						let messages = msg_res.message || [];
+						wrapper.render_technician_grid(wrapper.$container, employees, messages);
+					}
+				});
+			}
+		});
+	};
+
+	wrapper.render_technician_grid = function ($container, employees, messages) {
+		let html = `
         <style>
             .tech-table { 
                 width: 100%; 
@@ -162,94 +162,94 @@ frappe.pages['Technician Activity'].on_page_load = function(wrapper) {
             <thead>
                 <tr>
                     <th class="tech-name">Technician</th>`;
-        
-        for(let h = 8; h <= 19; h++) {
-            let display_h = h;
-            let ampm = 'am';
 
-            if (h === 12) {
-                display_h = 12; ampm = 'pm';
-            } else if (h > 12) {
-                display_h = h - 12; ampm = 'pm';
-            }
-            
-            html += `<th colspan="4">${display_h}${ampm}</th>`;
-        }
-        
-        html += `</tr></thead><tbody>`;
+		for (let h = 8; h <= 19; h++) {
+			let display_h = h;
+			let ampm = 'am';
 
-        if (employees.length === 0) {
-            // --- NEW CODE: Display a friendly message if no technicians match the filter ---
-            html += `<tr><td colspan="49" style="text-align: center; padding: 10px;">No technicians found for the selected filter.</td></tr>`;
-        } else {
-            employees.forEach(emp => {
-                html += `<tr><td class="tech-name">${emp.employee_name}</td>`;
-                
-                for(let h = 8; h <= 19; h++) {
-                    [0, 15, 30, 45].forEach(min => {
-                        let slot_messages = messages.filter(msg => {
-                            if(msg.sender_name === emp.employee_name) {
-                                
-                                let user_local_time = frappe.datetime.str_to_user(msg.creation);
-                                let msg_time = frappe.datetime.str_to_obj(user_local_time);
-                                
-                                let msg_h = msg_time.getHours();
-                                let msg_m = msg_time.getMinutes();
-                                
-                                if(msg_h === h && msg_m >= min && msg_m < min + 15) {
-                                    return true;
-                                }
-                            }
-                            return false;
-                        });
-                        
-                        let msg_count = slot_messages.length;
-                        
-                        if(msg_count > 0) {
-                            let lightness = 85 - (msg_count * 5); 
-                            if (lightness < 35) { lightness = 35; }
-                            let bg_color = `hsl(86, 56%, ${lightness}%)`;
+			if (h === 12) {
+				display_h = 12; ampm = 'pm';
+			} else if (h > 12) {
+				display_h = h - 12; ampm = 'pm';
+			}
 
-                            html += `<td class="box-green" style="background-color: ${bg_color};" title="${msg_count} Message(s)"></td>`;
-                        } else {
-                            html += `<td class="box-white"></td>`;
-                        }
-                    });
-                }
-                html += `</tr>`;
-            });
-        }
+			html += `<th colspan="4">${display_h}${ampm}</th>`;
+		}
 
-        html += `</tbody></table>`;
-        $container.html(html);
-    };
+		html += `</tr></thead><tbody>`;
+
+		if (employees.length === 0) {
+			// --- NEW CODE: Display a friendly message if no technicians match the filter ---
+			html += `<tr><td colspan="49" style="text-align: center; padding: 10px;">No technicians found for the selected filter.</td></tr>`;
+		} else {
+			employees.forEach(emp => {
+				html += `<tr><td class="tech-name">${emp.employee_name}</td>`;
+
+				for (let h = 8; h <= 19; h++) {
+					[0, 15, 30, 45].forEach(min => {
+						let slot_messages = messages.filter(msg => {
+							if (msg.sender_name === emp.employee_name) {
+
+								let user_local_time = frappe.datetime.str_to_user(msg.creation);
+								let msg_time = frappe.datetime.str_to_obj(user_local_time);
+
+								let msg_h = msg_time.getHours();
+								let msg_m = msg_time.getMinutes();
+
+								if (msg_h === h && msg_m >= min && msg_m < min + 15) {
+									return true;
+								}
+							}
+							return false;
+						});
+
+						let msg_count = slot_messages.length;
+
+						if (msg_count > 0) {
+							let lightness = 85 - (msg_count * 5);
+							if (lightness < 35) { lightness = 35; }
+							let bg_color = `hsl(86, 56%, ${lightness}%)`;
+
+							html += `<td class="box-green" style="background-color: ${bg_color};" title="${msg_count} Message(s)"></td>`;
+						} else {
+							html += `<td class="box-white"></td>`;
+						}
+					});
+				}
+				html += `</tr>`;
+			});
+		}
+
+		html += `</tbody></table>`;
+		$container.html(html);
+	};
 };
 
-frappe.pages['Technician Activity'].on_page_show = function(wrapper) {
-    $('body').addClass('full-width');
+frappe.pages['Technician Activity'].on_page_show = function (wrapper) {
+	$('body').addClass('full-width');
 
-    if(wrapper.date_field) {
-        wrapper.load_data(wrapper.date_field.get_value(), false);
-    }
+	if (wrapper.date_field) {
+		wrapper.load_data(wrapper.date_field.get_value(), false);
+	}
 
-    wrapper.refresh_interval = setInterval(function() {
-        if(wrapper.date_field && wrapper.date_field.get_value() === frappe.datetime.get_today()) {
-            wrapper.load_data(wrapper.date_field.get_value(), true); 
-        }
-    }, 30000); 
+	wrapper.refresh_interval = setInterval(function () {
+		if (wrapper.date_field && wrapper.date_field.get_value() === frappe.datetime.get_today()) {
+			wrapper.load_data(wrapper.date_field.get_value(), true);
+		}
+	}, 30000);
 };
 
-frappe.pages['Technician Activity'].on_page_hide = function(wrapper) {
-    $('body').removeClass('full-width');
+frappe.pages['Technician Activity'].on_page_hide = function (wrapper) {
+	$('body').removeClass('full-width');
 
-    if(wrapper.refresh_interval) {
-        clearInterval(wrapper.refresh_interval);
-    }
+	if (wrapper.refresh_interval) {
+		clearInterval(wrapper.refresh_interval);
+	}
 };
 
-frappe.router.on('change', function() {
-    let current_route = frappe.get_route();
-    if (current_route && current_route[0] !== 'Technician Activity') {
-        $('body').removeClass('full-width');
-    }
+frappe.router.on('change', function () {
+	let current_route = frappe.get_route();
+	if (current_route && current_route[0] !== 'Technician Activity') {
+		$('body').removeClass('full-width');
+	}
 });

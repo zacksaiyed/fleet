@@ -1,0 +1,1729 @@
+# import frappe
+# from frappe.utils import cint, get_url, today
+
+# from fleet.apis._helpers import parse_json_field, require_login
+
+
+# @frappe.whitelist(methods=["POST"])
+# def list_v2(status=None, task=None, txt=None, page_length=20, start=0):
+# 	require_login()
+# 	status = (status or frappe.form_dict.get("status") or "").strip()
+# 	task = (task or frappe.form_dict.get("task") or "").strip()
+# 	txt = (txt or frappe.form_dict.get("txt") or "").strip()
+# 	page_length = cint(page_length or frappe.form_dict.get("page_length") or 20)
+# 	start = cint(start or frappe.form_dict.get("start") or 0)
+# 	page_length = max(1, min(page_length, 100))
+# 	start = max(0, start)
+
+# 	erp_statuses = ["Pending", "In Progress", "In Review", "On Hold", "Completed", "Cancelled"]
+# 	status_counts = {st: frappe.db.count("Job", {"status": st}) for st in erp_statuses}
+# 	chip_counts = {
+# 		"Open": status_counts.get("Pending", 0),
+# 		"Accepted": status_counts.get("In Review", 0),
+# 		"In progress": status_counts.get("In Progress", 0),
+# 		"Completed": status_counts.get("Completed", 0),
+# 	}
+
+# 	filters = []
+# 	if status:
+# 		filters.append(["status", "=", status])
+# 	if task:
+# 		filters.append(["task", "=", task])
+
+# 	fields = [
+# 		"name",
+# 		"status",
+# 		"customer",
+# 		"vehicle_number",
+# 		"task_type",
+# 		"technician_name",
+# 		"creation",
+# 	]
+
+# 	kwargs = {
+# 		"fields": fields,
+# 		"limit_start": start,
+# 		"limit_page_length": page_length,
+# 		"order_by": "creation desc",
+# 	}
+# 	if txt:
+# 		like = f"%{txt}%"
+# 		kwargs["or_filters"] = [
+# 			["name", "like", like],
+# 			["customer", "like", like],
+# 			["vehicle_number", "like", like],
+# 			["technician_name", "like", like],
+# 		]
+# 	if filters:
+# 		kwargs["filters"] = filters
+
+# 	jobs = frappe.get_all("Job", **kwargs)
+
+# 	return {"chip_counts": chip_counts, "status_counts": status_counts, "jobs": jobs}
+
+
+# @frappe.whitelist(methods=["POST"])
+# def fleet_job_list_v2(**kwargs):
+# 	return list_v2(**kwargs)
+
+
+# @frappe.whitelist(methods=["POST"])
+# def create_v2(task=None, task_type=None, vehicle_number=None, customer=None, **kwargs):
+# 	require_login()
+# 	task = (task or frappe.form_dict.get("task") or "").strip()
+# 	task_type = (task_type or frappe.form_dict.get("task_type") or "").strip()
+# 	vehicle_number = (vehicle_number or frappe.form_dict.get("vehicle_number") or "").strip()
+# 	customer = (customer or frappe.form_dict.get("customer") or "").strip()
+# 	if not task or not task_type or not vehicle_number or not customer:
+# 		frappe.throw("task, task_type, vehicle_number, and customer are required")
+
+# 	doc = frappe.get_doc(
+# 		{
+# 			"doctype": "Job",
+# 			"task": task,
+# 			"task_type": task_type,
+# 			"vehicle_number": vehicle_number,
+# 			"customer": customer,
+# 			"assigned_technician": frappe.form_dict.get("assigned_technician"),
+# 			"date": frappe.form_dict.get("date") or today(),
+# 			"status": frappe.form_dict.get("status") or "Pending",
+# 			"title": frappe.form_dict.get("title") or f"{task_type} - {customer}",
+# 		}
+# 	)
+# 	doc.insert()
+# 	return {"ok": True, "name": doc.name, "status": doc.status, "task": doc.task, "vehicle_number": doc.vehicle_number}
+
+
+# @frappe.whitelist(methods=["POST"])
+# def fleet_job_create_v2(**kwargs):
+# 	return create_v2(**kwargs)
+
+
+# @frappe.whitelist(methods=["POST"])
+# def save_v2(name=None, job_name=None, **kwargs):
+# 	require_login()
+# 	name = (name or job_name or frappe.form_dict.get("name") or frappe.form_dict.get("job_name") or "").strip()
+# 	if not name:
+# 		frappe.throw("name is required")
+
+# 	job = frappe.get_doc("Job", name)
+# 	payload = {}
+
+# 	vehicle = parse_json_field(frappe.form_dict.get("vehicle"))
+# 	if vehicle:
+# 		for key in ("vehicle_number", "type", "make", "model", "color"):
+# 			if vehicle.get(key) is not None:
+# 				payload[key] = vehicle.get(key)
+
+# 	for key in ("vehicle_number", "type", "make", "model", "color"):
+# 		if frappe.form_dict.get(key) is not None:
+# 			payload[key] = frappe.form_dict.get(key)
+
+# 	items = parse_json_field(frappe.form_dict.get("item_installed_removed"))
+# 	if items is not None:
+# 		payload["item_installed_removed"] = items
+
+# 	images = parse_json_field(frappe.form_dict.get("job_images"))
+# 	if images is not None:
+# 		payload["job_images"] = images
+
+# 	for key in ("done_comment", "completion_comment", "hold_comment"):
+# 		if frappe.form_dict.get(key) is not None:
+# 			payload[key] = frappe.form_dict.get(key)
+
+# 	if not payload:
+# 		frappe.throw("Nothing to save — send vehicle, item_installed_removed, job_images, and/or comments")
+
+# 	job.update(payload)
+# 	job.save()
+# 	return {"ok": True, "name": job.name, "status": job.status}
+
+
+# @frappe.whitelist(methods=["POST"])
+# def fleet_job_save_v2(**kwargs):
+# 	return save_v2(**kwargs)
+
+
+
+
+# @frappe.whitelist(methods=["POST"])
+# def detail_v2(name=None, job_name=None):
+# 	require_login()
+# 	name = (name or job_name or frappe.form_dict.get("name") or frappe.form_dict.get("job_name") or "").strip()
+# 	if not name:
+# 		frappe.throw("name is required")
+# 	if not frappe.db.exists("Job", name):
+# 		frappe.throw(f"Job {name} not found")
+
+# 	job = frappe.get_doc("Job", name)
+# 	site = get_url()
+
+# 	header = {
+# 		"name": job.name,
+# 		"status": job.status,
+# 		"creation": job.creation,
+# 		"date": job.get("date"),
+# 		"title": job.get("title"),
+# 		"task_type": job.get("task_type"),
+# 		"task": job.get("task"),
+# 		"customer": job.get("customer"),
+# 		"technician_name": job.get("technician_name"),
+# 		"assigned_technician": job.get("assigned_technician"),
+# 		"is_chargeable": job.get("is_chargeable"),
+# 	}
+
+# 	vehicle = {
+# 		"vehicle_number": job.get("vehicle_number"),
+# 		"type": job.get("type"),
+# 		"make": job.get("make"),
+# 		"model": job.get("model"),
+# 		"color": job.get("color"),
+# 	}
+
+# 	items = []
+# 	for row in job.get("item_installed_removed") or []:
+# 		items.append(
+# 			{
+# 				"name": row.get("name"),
+# 				"idx": row.get("idx"),
+# 				"installed_or_removed": row.get("installed_or_removed"),
+# 				"item": row.get("item"),
+# 				"item_type": row.get("item_type"),
+# 				"item_name": row.get("item_name"),
+# 				"brand": row.get("brand"),
+# 			}
+# 		)
+
+# 	job_images = []
+# 	for row in job.get("job_images") or []:
+# 		img = row.get("image") or ""
+# 		image_url = site + img if img and img.startswith("/") else img
+# 		job_images.append(
+# 			{
+# 				"name": row.get("name"),
+# 				"idx": row.get("idx"),
+# 				"image": img,
+# 				"image_url": image_url,
+# 				"comment": row.get("comment") or "",
+# 			}
+# 		)
+
+# 	st = job.status or ""
+# 	locked = st in ("Completed", "Cancelled")
+# 	actions = {
+# 		"hold": st in ("Pending", "In Progress", "In Review") and not locked,
+# 		"complete": st not in ("Completed", "Cancelled"),
+# 		"cancel": st not in ("Completed", "Cancelled"),
+# 		"reassign": st not in ("Completed", "Cancelled"),
+# 	}
+
+# 	return {
+# 		"header": header,
+# 		"vehicle": vehicle,
+# 		"item_installed_removed": items,
+# 		"job_images": job_images,
+# 		"actions": actions,
+# 	}
+
+
+# @frappe.whitelist(methods=["POST"])
+# def fleet_job_detail_v2(**kwargs):
+# 	return detail_v2(**kwargs)
+
+
+
+"""Job APIs for the Fleet Administrator interface.
+
+Install as fleet/apis/job.py. Existing technician APIs are not modified.
+"""
+import json
+import frappe
+from frappe import _
+from frappe.utils import cint, get_url, today
+from fleet.apis._helpers import require_login
+
+
+from fleet.v2 import task_v2
+
+ADMIN_ROLE = "Administrator"
+
+def require_admin():
+	require_login()
+	if ADMIN_ROLE not in frappe.get_roles(frappe.session.user):
+		frappe.throw(_("Only Admin can perform this action."), frappe.PermissionError)
+
+
+
+
+@frappe.whitelist(methods=["POST"])
+def fleet_job_action_v2(**kwargs):
+	return action_v2(**kwargs)
+
+DIRECTIONS = {
+	'Installation': ('Installed',),
+	'Checkup': ('Installed', 'Removed'),
+	'Removal': ('Removed',),
+	'Accessory': ('Installed',),
+	'Re-Installation': ('Installed',),
+}
+
+
+def _admin():
+	if frappe.session.user == 'Guest' or 'Administrator' not in frappe.get_roles(frappe.session.user):
+		frappe.throw(_('Only Administrator can perform this action.'), frappe.PermissionError)
+
+
+@frappe.whitelist()
+def mark_job_done(name: str, done_comment: str) -> dict:
+    """
+    Deprecated — use job_action(action="done", comment=...) instead.
+    Kept for backward compatibility.
+    """
+    return job_action(job=name, action="done", comment=done_comment)
+
+
+
+def _error(http_status: int, code: str, message: str, data=None) -> dict:
+    frappe.local.response["http_status_code"] = http_status
+
+    resp = {
+        "status": "error",
+        "code": code,
+        "message": message
+    }
+
+    if data is not None:
+        resp["data"] = data
+
+    return resp
+
+@frappe.whitelist()
+def job_action(job: str, action: str, comment: str = None, hold_until_date: str = None) -> dict:
+    """
+    POST /api/method/fleet.v2.task_v2.job_action
+    Headers:
+        Cookie: sid=<logged_in_user_sid>
+    Body:
+        job             — job name (e.g. JOB-2026-03-000001)
+        action          — "done" | "hold" | "reopen"
+        comment         — required when action is "done" or "hold"
+        hold_until_date — optional (defaults automatically to now + 24 hours)
+
+    Technician-facing actions only. Support handles hold/complete/cancel.
+
+    Transitions:
+        hold   : Pending / In Progress → On Hold for 24 hours (comment required)
+        done   : Pending / On Hold → In Review  (comment required)
+        reopen : On Hold → Pending
+    """
+    if not job:
+        return _error(400, "MISSING_PARAMS", "job is required.")
+
+    if action not in ("done", "hold", "reopen"):
+        return _error(400, "INVALID_PARAMS", "action must be 'done', 'hold', or 'reopen'.")
+
+    if action in ("done", "hold") and not comment:
+        return _error(400, "MISSING_PARAMS", f"comment is required when action is '{action}'.")
+
+
+    from fleet.fleet.doctype.job.job import job_action as _job_action
+    try:
+        result = _job_action(job=job, action=action, comment=comment, hold_until_date=hold_until_date)
+    except frappe.ValidationError as e:
+        return _error(400, "VALIDATION_ERROR", str(e))
+    return {"status": "success", **result}
+
+
+
+@frappe.whitelist(methods=["POST"])
+def action_v2(name=None, job_name=None, action=None, **kwargs):
+	require_login()
+	name = (name or job_name or frappe.form_dict.get("name") or frappe.form_dict.get("job_name") or "").strip()
+	action = (action or frappe.form_dict.get("action") or "").strip().lower()
+	if not name:
+		frappe.throw("name is required")
+	if action not in ("hold", "complete", "cancel", "reassign","done"):
+		frappe.throw("action must be hold, complete, cancel, or reassign")
+
+	job = frappe.get_doc("Job", name)
+	payload = {}
+
+	if action == "hold":
+		payload["status"] = "On Hold"
+		if frappe.form_dict.get("hold_comment") is not None:
+			payload["hold_comment"] = frappe.form_dict.get("hold_comment")
+		if frappe.form_dict.get("hold_until") is not None:
+			payload["hold_until"] = frappe.form_dict.get("hold_until")
+	elif action == "complete":
+		payload["status"] = "Completed"
+		if frappe.form_dict.get("completion_comment") is not None:
+			payload["completion_comment"] = frappe.form_dict.get("completion_comment")
+	elif action == "cancel":
+		payload["status"] = "Cancelled"
+	elif action == "reassign":
+		tech = (frappe.form_dict.get("assigned_technician") or "").strip()
+		if not tech:
+			frappe.throw("assigned_technician is required for reassign")
+		payload["assigned_technician"] = tech
+	elif action == "done":
+		if frappe.form_dict.get("done_comment") is not None:
+			payload["done_comment"] = frappe.form_dict.get("done_comment")
+		# pass
+
+
+	job.update(payload)
+	job.save()
+	return {"ok": True, "name": job.name, "status": job.status, "action": action}
+
+
+def _arg(key, default=None):
+	return frappe.form_dict.get(key, default)
+
+
+def _json(value, field):
+	if isinstance(value, str):
+		try:
+			value = json.loads(value)
+		except (TypeError, ValueError):
+			frappe.throw(_('Invalid JSON in {0}').format(field))
+	return value
+
+
+def _rows(value, field):
+	value = _json(value, field)
+	if not isinstance(value, list):
+		frappe.throw(_('{0} must be a list').format(field))
+	if not all(isinstance(row, dict) for row in value):
+		frappe.throw(_('{0} must contain objects').format(field))
+	return value
+
+
+def _fields(doctype):
+	return {f.fieldname for f in frappe.get_meta(doctype).fields}
+
+
+def _warehouse_for_technician(employee):
+	if not employee:
+		return None
+	return frappe.db.get_value('Warehouse', {'custom_employee': employee, 'disabled': 0}, 'name')
+
+
+def _warehouse_for_customer(customer):
+	if not customer:
+		return None
+	return frappe.db.get_value('Warehouse', {'custom_customer_name': customer, 'disabled': 0}, 'name')
+
+
+def _check_vehicle(number, customer, task_type):
+	if not number:
+		return None
+	number = str(number).replace(' ', '').upper()
+	vehicle = frappe.db.get_value('Vehicle', number, ['name', 'custom_customer', 'make', 'model', 'color', 'custom_vehicle_type'], as_dict=True)
+	if task_type == 'Installation' and vehicle:
+		frappe.throw(_('Installation requires a new vehicle number.'))
+	if task_type != 'Installation' and not vehicle:
+		frappe.throw(_('Vehicle {0} does not exist.').format(number))
+	if vehicle and customer and vehicle.custom_customer != customer:
+		frappe.throw(_('Vehicle belongs to another customer.'))
+	return vehicle
+
+
+def _item_details(code):
+	item = frappe.db.get_value('Item', code, ['name', 'item_name', 'custom_item_type', 'brand', 'disabled'], as_dict=True)
+	if not item or cint(item.disabled):
+		frappe.throw(_('Item {0} is missing or disabled.').format(code))
+	return item
+
+
+def _set_items(job, rows):
+	allowed = DIRECTIONS.get(job.task_type, ('Installed', 'Removed'))
+	warehouse = job.get('technician_warehouse')
+	vehicle = (job.vehicle_number or '').replace(' ', '').upper()
+	existing = {r.item for r in (job.get('item_installed_removed') or []) if r.item}
+	seen = set()
+	prepared = []
+	permitted_fields = _fields('Job Item')
+	for row in rows:
+		code = row.get('item') or row.get('item_code')
+		direction = row.get('installed_or_removed')
+		if not code or direction not in allowed:
+			frappe.throw(_('Item and a valid installed_or_removed are required. Allowed: {0}').format(', '.join(allowed)))
+		if code in seen:
+			frappe.throw(_('Duplicate item: {0}').format(code))
+		seen.add(code)
+		item = _item_details(code)
+		if direction == 'Installed' and job.task_type != 'Re-Installation':
+			if not warehouse:
+				frappe.throw(_('Technician warehouse is required to install items.'))
+			qty = frappe.db.get_value('Bin', {'item_code': code, 'warehouse': warehouse}, 'actual_qty') or 0
+			if qty <= 0:
+				frappe.throw(_('Item {0} is not available in technician warehouse.').format(code))
+			# Existing rows on this same job may be retained.
+			other = frappe.db.sql('''SELECT ji.parent FROM `tabJob Item` ji
+				INNER JOIN `tabJob` j ON j.name = ji.parent
+				WHERE ji.item=%s AND ji.installed_or_removed='Installed'
+				AND ji.parent!=%s AND j.status NOT IN ('Cancelled','Completed') LIMIT 1''', (code, job.name), as_dict=True)
+			if other:
+				frappe.throw(_('Item {0} is selected in another active job.').format(code))
+			pending = frappe.db.sql('''SELECT mt.name FROM `tabMaterial Transfer Item` mti
+				INNER JOIN `tabMaterial Transfer` mt ON mt.name=mti.parent
+				WHERE mti.item=%s AND mt.source=%s
+				AND mt.workflow_state='Approval Pending' AND mt.docstatus<2 LIMIT 1''', (code, warehouse), as_dict=True)
+			if pending:
+				frappe.throw(_('Item {0} is in an approval-pending transfer.').format(code))
+		if direction == 'Removed' or job.task_type == 'Re-Installation':
+			installed = frappe.db.exists('Vehicle Item', {'parent': vehicle, 'item': code, 'status': 'Installed'})
+			if not installed:
+				frappe.throw(_('Item {0} is not installed on vehicle {1}.').format(code, vehicle))
+		data = {'item': code, 'installed_or_removed': direction, 'item_name': item.item_name,
+				'item_type': item.custom_item_type, 'brand': item.brand}
+		for extra in ('destination', 'removal_reason', 'replace_against', 'replaced_item', 'is_chargeable', 'chargeable_reason', 'chargeable_reason_description'):
+			if extra in row and extra in permitted_fields:
+				data[extra] = row[extra]
+		prepared.append({k: v for k, v in data.items() if k in permitted_fields})
+	job.set('item_installed_removed', [])
+	for data in prepared:
+		job.append('item_installed_removed', data)
+
+
+
+@frappe.whitelist(methods=["GET", "POST"])
+def get_job_item_options(job=None, direction=None):
+	_admin()
+
+	job = _arg("job", job) or _arg("name")
+	direction = _arg("direction", direction)
+
+	if not job:
+		frappe.throw(_("job is required."))
+
+	doc = frappe.get_doc("Job", job)
+	task_type = doc.task_type or ""
+
+	extra_fields = {
+		"GPS Device": "custom_imei_no",
+		"SIM": "custom_sim_type",
+		"Fuel Sensor": "custom_sensor_unique_number",
+		"Temperature": "custom_temperature_serial_number",
+		"Dashcam": "custom_dashcam_unique_number",
+	}
+
+	icons = {
+		r.name: r.icon
+		for r in frappe.get_all(
+			"Item Type",
+			fields=["name", "icon"]
+		)
+	}
+
+	def group_items(rows):
+		groups = {}
+
+		for row in rows:
+			item_type = row.get("item_type") or "Uncategorized"
+
+			if item_type not in groups:
+				groups[item_type] = {
+					"item_type": item_type,
+					"icon": icons.get(item_type),
+					"total_qty": 0,
+					"items": [],
+				}
+
+			groups[item_type]["total_qty"] += 1
+			groups[item_type]["items"].append(row)
+
+		return list(groups.values())
+
+	def format_items(rows, selected=None):
+		selected = selected or set()
+		result = []
+
+		for r in rows:
+			data = {
+				"item": r.item,
+				"item_name": r.item_name,
+				"item_type": r.item_type,
+				"brand": r.brand,
+				"selected": r.item in selected,
+			}
+
+			if "qty" in r:
+				data["qty"] = r.qty
+
+			extra = extra_fields.get(r.item_type)
+
+			if extra:
+				data[extra] = r.get(extra)
+
+			result.append(data)
+
+		return result
+
+	def get_warehouse_items(warehouse, selected=None):
+		if not warehouse:
+			return []
+
+		selected = selected or set()
+
+		rows = frappe.db.sql(
+			"""
+			SELECT
+				i.name AS item,
+				i.item_name,
+				i.custom_item_type AS item_type,
+				i.brand,
+				i.custom_imei_no,
+				i.custom_sim_type,
+				i.custom_sensor_unique_number,
+				i.custom_temperature_serial_number,
+				i.custom_dashcam_unique_number,
+				b.actual_qty AS qty,
+				i.custom_is_locked
+			FROM `tabBin` b
+			INNER JOIN `tabItem` i
+				ON i.name = b.item_code
+			WHERE b.warehouse = %(warehouse)s
+			  AND b.actual_qty > 0
+			  AND i.disabled = 0
+			  AND COALESCE(i.custom_is_locked, 0) = 0
+			  AND NOT EXISTS (
+				  SELECT 1
+				  FROM `tabJob Item` ji
+				  INNER JOIN `tabJob` j
+					  ON j.name = ji.parent
+				  WHERE ji.item = i.name
+					AND ji.installed_or_removed = 'Installed'
+					AND j.name != %(job)s
+					AND j.status NOT IN ('Cancelled', 'Completed')
+			  )
+			  AND NOT EXISTS (
+				  SELECT 1
+				  FROM `tabMaterial Transfer Item` mti
+				  INNER JOIN `tabMaterial Transfer` mt
+					  ON mt.name = mti.parent
+				  WHERE mti.item = i.name
+					AND mt.source = %(warehouse)s
+					AND mt.workflow_state = 'Approval Pending'
+					AND mt.docstatus < 2
+			  )
+			ORDER BY i.custom_item_type, i.item_name
+			""",
+			{
+				"warehouse": warehouse,
+				"job": doc.name,
+			},
+			as_dict=True,
+		)
+
+		return format_items(rows, selected)
+
+	def get_vehicle_items(selected=None):
+		vehicle_number = (
+			(doc.vehicle_number or "")
+			.replace(" ", "")
+			.upper()
+			.strip()
+		)
+
+		if not vehicle_number:
+			frappe.throw(_("Vehicle number is required."))
+
+		vehicle = frappe.db.get_value(
+			"Vehicle",
+			vehicle_number,
+			["name", "custom_customer"],
+			as_dict=True,
+		)
+
+		if not vehicle:
+			frappe.throw(
+				_("Vehicle {0} not found.").format(vehicle_number)
+			)
+
+		if (
+			vehicle.custom_customer
+			and doc.customer
+			and vehicle.custom_customer != doc.customer
+		):
+			frappe.throw(
+				_("Vehicle belongs to another customer.")
+			)
+
+		rows = frappe.db.sql(
+			"""
+			SELECT
+				vi.item,
+				i.item_name,
+				COALESCE(
+					vi.item_type,
+					i.custom_item_type
+				) AS item_type,
+				i.brand,
+				i.custom_imei_no,
+				i.custom_sim_type,
+				i.custom_sensor_unique_number,
+				i.custom_temperature_serial_number,
+				i.custom_dashcam_unique_number
+			FROM `tabVehicle Item` vi
+			INNER JOIN `tabItem` i
+				ON i.name = vi.item
+			WHERE vi.parent = %(vehicle)s
+			  AND vi.status = 'Installed'
+			  AND i.disabled = 0
+			ORDER BY vi.idx ASC
+			""",
+			{"vehicle": vehicle.name},
+			as_dict=True,
+		)
+
+		return format_items(rows, selected)
+
+	selected_installed = {
+		r.item
+		for r in doc.get("item_installed_removed") or []
+		if r.item and r.installed_or_removed == "Installed"
+	}
+
+	selected_removed = {
+		r.item
+		for r in doc.get("item_installed_removed") or []
+		if r.item and r.installed_or_removed == "Removed"
+	}
+
+	warehouse = (
+		doc.get("technician_warehouse")
+		or _warehouse_for_technician(doc.assigned_technician)
+	)
+
+	if task_type == "Swap":
+		swap_rows = doc.get("items") or []
+
+		old_to_new = {
+			r.items
+			for r in swap_rows
+			if r.items and r.source == "Old Vehicle"
+		}
+
+		technician_selected = {
+			r.items
+			for r in swap_rows
+			if r.items and r.source == "Technician"
+		}
+
+		vehicle_items = get_vehicle_items()
+
+		for item in vehicle_items:
+			item["move_to"] = (
+				"New Vehicle"
+				if item["item"] in old_to_new
+				else "My Assets"
+			)
+			item["move_to_options"] = [
+				"My Assets",
+				"New Vehicle",
+			]
+
+		technician_items = get_warehouse_items(
+			warehouse,
+			technician_selected,
+		)
+
+		return {
+			"status": "success",
+			"job_type": "Swap",
+			"vehicle": {
+				"vehicle_number": doc.vehicle_number,
+				"move_to_options": [
+					"My Assets",
+					"New Vehicle",
+				],
+				"groups": group_items(vehicle_items),
+			},
+			"technician": {
+				"warehouse": warehouse,
+				"groups": group_items(technician_items),
+			},
+		}
+
+	if task_type == "Re-Installation":
+		items = get_vehicle_items(selected_installed)
+
+		return {
+			"status": "success",
+			"job_type": task_type,
+			"direction": "Installed",
+			"allowed_directions": ["Installed"],
+			"vehicle_number": doc.vehicle_number,
+			"groups": group_items(items),
+		}
+
+	allowed = DIRECTIONS.get(
+		task_type,
+		("Installed", "Removed"),
+	)
+
+	if not direction:
+		if len(allowed) == 1:
+			direction = allowed[0]
+		else:
+			frappe.throw(
+				_("direction is required. Allowed: {0}").format(
+					", ".join(allowed)
+				)
+			)
+
+	if direction not in allowed:
+		frappe.throw(
+			_("Invalid direction. Allowed: {0}").format(
+				", ".join(allowed)
+			)
+		)
+
+	if direction == "Installed":
+		items = get_warehouse_items(
+			warehouse,
+			selected_installed,
+		)
+	else:
+		items = get_vehicle_items(selected_removed)
+
+	response = {
+		"status": "success",
+		"job_type": task_type,
+		"direction": direction,
+		"allowed_directions": list(allowed),
+		"groups": group_items(items),
+	}
+
+	if task_type == "Removal":
+		response["destination_options"] = [
+			"Customer",
+			"Technician",
+		]
+		response["move_to_options"] = [
+			"Customer",
+			"Technician",
+		]
+
+	return response
+
+
+def _set_images(job, rows):
+	allowed = _fields('Job Image')
+	existing = {r.name: r for r in job.get('job_images') or []}
+	new_rows = []
+	for row in rows:
+		path = row.get('image') or row.get('image_url')
+		if not path:
+			frappe.throw(_('Each image must have an image path.'))
+		if not isinstance(path, str) or not (path.startswith('/files/') or path.startswith('/private/files/')):
+			frappe.throw(_('Image must be a Frappe file path under /files/ or /private/files/.'))
+		file_doc = frappe.db.get_value('File', {'file_url': path}, ['name', 'attached_to_doctype', 'attached_to_name', 'is_private'], as_dict=True)
+		if not file_doc:
+			frappe.throw(_('File does not exist: {0}').format(path))
+		if file_doc.attached_to_doctype and (file_doc.attached_to_doctype != 'Job' or file_doc.attached_to_name != job.name):
+			frappe.throw(_('Image belongs to a different document: {0}').format(path))
+		if file_doc.is_private and file_doc.attached_to_name != job.name:
+			frappe.throw(_('Private image must be attached to this Job first.'))
+		data = {'image': path}
+		if 'comment' in allowed:
+			data['comment'] = row.get('comment', '')
+		new_rows.append(data)
+	job.set('job_images', [])
+	for data in new_rows:
+		job.append('job_images', data)
+
+
+def _payload(job):
+	site = get_url().rstrip('/')
+	return {
+		'name': job.name, 'title': job.title, 'status': job.status, 'task': job.task,
+		'task_type': job.task_type, 'customer': job.customer, 'vehicle_number': job.vehicle_number,
+		'assigned_technician': job.assigned_technician, 'technician_name': job.get('technician_name'),
+		'date': job.date, 'type': job.type, 'make': job.make, 'model': job.model, 'color': job.color,
+		'done_comment': job.get('done_comment'), 'hold_comment': job.get('hold_comment'),
+		'completion_comment': job.get('completion_comment'),
+		'item_installed_removed': [r.as_dict() for r in job.get('item_installed_removed') or []],
+		'job_images': [dict(name=r.name, image=r.image,
+							image_url=(site + r.image if r.image and r.image.startswith('/') else r.image),
+							comment=r.get('comment') or '') for r in job.get('job_images') or []],
+	}
+
+
+@frappe.whitelist(methods=["GET", "POST"])
+def list_jobs(
+	status=None,
+	task=None,
+	txt=None,
+	page_length=20,
+	start=0,
+	filters=None,
+	sort_by="creation",
+	sort_order="desc"
+):
+	_admin()
+
+	from fleet.apis.list_filter_utils import (
+		parse_filters,
+		get_order_by,
+		get_pagination
+	)
+
+	status = _arg("status", status)
+	task = _arg("task", task)
+	txt = (_arg("txt", txt) or "").strip()
+	filters = _arg("filters", filters)
+
+	sort_by = _arg("sort_by", sort_by)
+	sort_order = _arg("sort_order", sort_order)
+
+	start, page_length = get_pagination(
+		_arg("start", start),
+		_arg("page_length", page_length)
+	)
+
+	conditions = parse_filters("Job", filters)
+
+	if status:
+		conditions.append(["status", "=", status])
+
+	if task:
+		conditions.append(["task", "=", task])
+
+	order_by = get_order_by(
+		"Job", sort_by, sort_order, default="creation"
+	)
+
+	statuses = [
+		"Pending", "In Progress", "In Review",
+		"On Hold", "Completed", "Cancelled"
+	]
+
+	counts = {
+		s: frappe.db.count("Job", {"status": s})
+		for s in statuses
+	}
+
+	or_filters = []
+
+	if txt:
+		or_filters = [
+			[field, "like", f"%{txt}%"]
+			for field in (
+				"name", "title", "customer",
+				"vehicle_number", "technician_name"
+			)
+		]
+
+	rows = frappe.get_list(
+		"Job",
+		fields=[
+			"name",
+			"title",
+			"status",
+			"task",
+			"task_type",
+			"customer",
+			"vehicle_number",
+			"technician_name",
+			"assigned_technician",
+			"creation"
+		],
+		filters=conditions,
+		or_filters=or_filters,
+		order_by=order_by,
+		start=start,
+		page_length=page_length + 1
+	)
+
+	has_more = len(rows) > page_length
+	jobs = rows[:page_length]
+
+	return {
+		"chip_counts": {
+			"Open": counts["Pending"],
+			"Accepted": counts["In Review"],
+			"In progress": counts["In Progress"],
+			"Completed": counts["Completed"]
+		},
+		"status_counts": counts,
+		"jobs": jobs,
+		"start": start,
+		"page_length": page_length,
+		"has_more": has_more
+	}
+
+@frappe.whitelist(methods=['GET', 'POST'])
+def job_details(name=None):
+	_admin()
+	name = _arg('name', name) or _arg('job')
+	if not name:
+		frappe.throw(_('Job name is required.'))
+	return {'job': _payload(frappe.get_doc('Job', name))}
+
+
+@frappe.whitelist(methods=['POST'])
+def create_job(task=None, task_type=None, vehicle_number=None, assigned_technician=None, items=None, job_images=None, **kwargs):
+	_admin()
+	task = _arg('task', task)
+	task_type = _arg('task_type', task_type)
+	vehicle_number = _arg('vehicle_number', vehicle_number)
+	assigned_technician = _arg('assigned_technician', assigned_technician)
+	if not task or not task_type or not vehicle_number:
+		frappe.throw(_('task, task_type and vehicle_number are required.'))
+	if not frappe.db.exists('Task Type', task_type):
+		frappe.throw(_('Invalid Task Type.'))
+	task_doc = frappe.get_doc('Task', task)
+	customer = task_doc.get('custom_customer')
+	if not customer:
+		frappe.throw(_('Task has no customer.'))
+	vehicle_number = str(vehicle_number).replace(' ', '').upper()
+	vehicle = _check_vehicle(vehicle_number, customer, task_type)
+	if assigned_technician and not frappe.db.exists('Employee', assigned_technician):
+		frappe.throw(_('Invalid assigned technician.'))
+	values = {'doctype': 'Job', 'task': task, 'task_type': task_type, 'title': _arg('title') or f'{task_type} - {customer}', 'status': _arg('status') or 'Pending', 'customer': customer, 'vehicle_number': vehicle_number, 'assigned_technician': assigned_technician, 'technician_warehouse': _warehouse_for_technician(assigned_technician), 'customer_warehouse': _warehouse_for_customer(customer), 'date': _arg('date') or task_doc.get('custom_date') or today(), 'make': vehicle.make if vehicle else _arg('make'), 'model': vehicle.model if vehicle else _arg('model'), 'type': vehicle.custom_vehicle_type if vehicle else _arg('type'), 'color': vehicle.color if vehicle else _arg('color')}
+	for field in ('is_chargeable', 'done_comment', 'hold_comment', 'completion_comment'):
+		if _arg(field) is not None:
+			values[field] = _arg(field)
+	job = frappe.get_doc(values)
+	if items is None:
+		items = _arg('items', _arg('item_installed_removed'))
+	if job_images is None:
+		job_images = _arg('job_images')
+	if items is not None:
+		_set_items(job, _rows(items, 'items'))
+	if job_images is not None:
+		_set_images(job, _rows(job_images, 'job_images'))
+	job.insert(ignore_permissions=True)
+	if 'custom_task_jobs' in _fields('Task'):
+		task_doc.append('custom_task_jobs', {'task_type': task_type, 'vehicle': vehicle_number, 'status': job.status, 'job': job.name})
+		task_doc.save(ignore_permissions=True)
+	return {'message': 'Job created successfully', 'job': _payload(job)}
+
+@frappe.whitelist(methods=["POST"])
+def update_job(
+
+	name=None,
+
+	task=None,
+
+	task_type=None,
+
+	vehicle_number=None,
+	new_vehicle_number=None,
+
+	assigned_technician=None,
+
+	title=None,
+
+	status=None,
+
+	date=None,
+
+	make=None,
+
+	model=None,
+
+	type=None,
+
+	color=None,
+
+	done_comment=None,
+
+	hold_comment=None,
+
+	completion_comment=None,
+
+	items=None,
+	swap_items=None,
+	new_type=None,
+	new_make=None,
+	new_model=None,
+	new_color=None,
+
+	images=None,
+	new_images=None,
+	image_comment=None,
+
+	comment=None,
+
+	**kwargs
+
+):
+
+	require_admin()
+
+	from frappe.utils import now_datetime
+
+	from frappe.utils.file_manager import save_file, delete_file
+
+	name = (
+
+		name
+
+		or frappe.form_dict.get("name")
+
+		or frappe.form_dict.get("job_name")
+
+		or ""
+
+	).strip()
+
+	if not name:
+
+		frappe.throw(_("Job name is required."))
+
+	if not frappe.db.exists("Job", name):
+
+		frappe.throw(_("Job {0} not found.").format(name))
+
+	job_doc = frappe.get_doc("Job", name)
+
+	if job_doc.status in ("Completed", "Cancelled"):
+
+		frappe.throw(
+
+			_("Completed or Cancelled Jobs cannot be updated.")
+
+		)
+
+	# --------------------------------------------------
+
+	# Update Job Fields
+
+	# --------------------------------------------------
+
+	payload = {
+
+		"task": task,
+
+		"task_type": task_type,
+
+		"vehicle_number": vehicle_number,
+		"new_vehicle_number": new_vehicle_number,
+
+		"assigned_technician": assigned_technician,
+
+		"title": title,
+
+		"status": status,
+
+		"date": date,
+
+		"make": make,
+
+		"model": model,
+
+		"type": type,
+
+		"color": color,
+		"swap_type": new_type,
+		"swap_make": new_make,
+		"swap_model": new_model,
+		"swap_color": new_color,
+
+		"done_comment": done_comment,
+
+		"hold_comment": hold_comment,
+
+		"completion_comment": completion_comment,
+
+	}
+
+	for fieldname, field_value in payload.items():
+
+		if field_value is None:
+
+			field_value = frappe.form_dict.get(fieldname)
+
+		if field_value is not None:
+
+			job_doc.set(fieldname, field_value)
+
+	# --------------------------------------------------
+
+	# Update Job Items
+
+	# --------------------------------------------------
+
+	if items is None:
+
+		items = frappe.form_dict.get("items")
+
+	if items is not None:
+
+		if isinstance(items, str):
+
+			try:
+
+				items = frappe.parse_json(items)
+
+			except Exception:
+
+				frappe.throw(_("Invalid JSON in items."))
+
+		if not isinstance(items, list):
+
+			frappe.throw(_("items must be a JSON array."))
+
+		allowed_fields = {
+
+			"item",
+
+			"item_type",
+
+			"item_name",
+
+			"brand",
+
+			"installed_or_removed",
+
+			"destination",
+
+			"removal_reason",
+
+			"replace_against",
+
+			"is_chargeable",
+
+			"chargeable_reason",
+
+			"chargeable_reason_description",
+
+		}
+
+		child_doctype = job_doc.meta.get_field(
+
+			"item_installed_removed"
+
+		).options
+
+		valid_fields = {
+
+			field.fieldname
+
+			for field in frappe.get_meta(child_doctype).fields
+
+		}
+
+		job_doc.set("item_installed_removed", [])
+
+		for row in items:
+
+			if not isinstance(row, dict):
+
+				frappe.throw(_("Each item must be an object."))
+
+			job_doc.append(
+
+				"item_installed_removed",
+
+				{
+
+					key: field_value
+
+					for key, field_value in row.items()
+
+					if key in allowed_fields
+
+					and key in valid_fields
+
+				}
+
+			)
+
+	# --------------------------------------------------
+	# Swap Job Items (only for Swap Jobs)
+	# --------------------------------------------------
+
+	if swap_items is None:
+		swap_items = frappe.form_dict.get("swap_items")
+
+	if swap_items is not None:
+		if job_doc.task_type != "Swap":
+			frappe.throw(_("swap_items is supported only for Swap Jobs."))
+
+		if isinstance(swap_items, str):
+			try:
+				swap_items = frappe.parse_json(swap_items)
+			except Exception:
+				frappe.throw(_("Invalid JSON in swap_items."))
+
+		if not isinstance(swap_items, list):
+			frappe.throw(_("swap_items must be a JSON array."))
+
+		swap_table_field = job_doc.meta.get_field("items")
+		if not swap_table_field or swap_table_field.fieldtype != "Table":
+			frappe.throw(_("Job items child table is not configured."))
+
+		swap_valid_fields = {
+			field.fieldname
+			for field in frappe.get_meta(swap_table_field.options).fields
+		}
+		swap_allowed_fields = {
+			"items", "source", "item_type", "item_name", "brand"
+		}
+		job_doc.set("items", [])
+
+		for row in swap_items:
+			if not isinstance(row, dict):
+				frappe.throw(_("Each swap item must be an object."))
+			if not row.get("items"):
+				frappe.throw(_("items is required in each swap_items row."))
+			if row.get("source") not in ("Old Vehicle", "Technician"):
+				frappe.throw(_("Invalid swap item source."))
+			job_doc.append("items", {
+				key: value
+				for key, value in row.items()
+				if key in swap_allowed_fields and key in swap_valid_fields
+			})
+
+	# --------------------------------------------------
+	# Replace retained images and append new uploads
+	# --------------------------------------------------
+
+	images_provided = (
+		"images" in frappe.form_dict
+		or "images" in kwargs
+		or images is not None
+	)
+
+	if images is None and "images" in frappe.form_dict:
+		images = frappe.form_dict.get("images")
+	if images is None and "images" in kwargs:
+		images = kwargs.get("images")
+
+	if new_images is None:
+		new_images = frappe.form_dict.get("new_images", kwargs.get("new_images"))
+
+	if image_comment is None:
+		image_comment = frappe.form_dict.get("image_comment", kwargs.get("image_comment"))
+	if image_comment is not None:
+		image_comment = str(image_comment)
+
+	# Existing images are JSON rows; new_images is multipart image files.
+	# Also accept a single uploaded file under the new_images key.
+	uploaded_files = (
+		frappe.request.files.getlist("new_images")
+		if frappe.request else []
+	)
+	uploaded = []
+	old_image_paths = []
+
+	if images_provided:
+		if isinstance(images, str):
+			try:
+				images = frappe.parse_json(images)
+			except Exception:
+				frappe.throw(_("Invalid JSON in images."))
+		if images is None:
+			images = []
+		if not isinstance(images, list):
+			frappe.throw(_("images must be a JSON array or null."))
+
+		# Prevent adding arbitrary image paths not already present on this Job.
+		current_rows = {
+			row.get("image"): row
+			for row in job_doc.get("job_images") or []
+			if row.get("image")
+		}
+		old_image_paths = list(current_rows)
+		job_doc.set("job_images", [])
+		for row in images:
+			if not isinstance(row, dict):
+				frappe.throw(_("Each image must be an object."))
+			image_path = row.get("image")
+			if not image_path:
+				continue
+			if image_path not in current_rows:
+				frappe.throw(_("Image {0} does not belong to this Job.").format(image_path))
+			job_doc.append("job_images", {
+				"image": image_path,
+				"comment": (image_comment if image_comment is not None else (row.get("comment", current_rows[image_path].get("comment")) or "")),
+			})
+
+	# Accept optional JSON paths for new_images as well as multipart uploads.
+	if new_images is not None:
+		if isinstance(new_images, str):
+			try:
+				new_images = frappe.parse_json(new_images)
+			except Exception:
+				frappe.throw(_("Invalid JSON in new_images."))
+		if new_images is None:
+			new_images = []
+		if not isinstance(new_images, list):
+			frappe.throw(_("new_images must be a JSON array."))
+		for row in new_images:
+			if not isinstance(row, dict) or not row.get("image"):
+				frappe.throw(_("Each new_images row must contain an image URL."))
+			job_doc.append("job_images", {
+				"image": row["image"],
+				"comment": (image_comment if image_comment is not None else (row.get("comment") or "")),
+			})
+
+	upload_comment = image_comment if image_comment is not None else ""
+
+	for idx, uploaded_file in enumerate(uploaded_files):
+		image_bytes = uploaded_file.read()
+		if not image_bytes:
+			continue
+		filename = uploaded_file.filename or (
+			f"job_{job_doc.name}_{now_datetime().strftime('%Y%m%d_%H%M%S')}_{idx}.jpg"
+		)
+		if not (uploaded_file.mimetype and uploaded_file.mimetype.startswith("image/")):
+			frappe.throw(_("Only image files are allowed: {0}").format(filename))
+		file_doc = save_file(
+			filename, image_bytes, "Job", job_doc.name, is_private=0
+		)
+		job_doc.append("job_images", {
+			"image": file_doc.file_url,
+			"comment": upload_comment,
+		})
+		uploaded.append(file_doc.file_url)
+
+	# Apply one comment to every final image, including retained rows.
+	if image_comment is not None:
+		for image_row in job_doc.get("job_images") or []:
+			image_row.comment = image_comment
+
+	# --------------------------------------------------
+
+	# Save Job
+
+	# --------------------------------------------------
+
+	job_doc.save()
+
+	# --------------------------------------------------
+
+	# Delete Replaced Image Files
+
+	# --------------------------------------------------
+
+	if images_provided:
+
+		new_image_paths = {
+
+			row.get("image")
+
+			for row in job_doc.get("job_images") or []
+
+			if row.get("image")
+
+		}
+
+		for image_path in old_image_paths:
+
+			# Do not delete images retained in new payload.
+
+			if image_path in new_image_paths:
+
+				continue
+
+			# Only consider files owned by this Job.
+
+			file_records = frappe.get_all(
+
+				"File",
+
+				filters={
+
+					"attached_to_doctype": "Job",
+
+					"attached_to_name": job_doc.name,
+
+					"file_url": image_path,
+
+				},
+
+				pluck="name",
+
+			)
+
+			for file_name in file_records:
+
+				# Avoid deleting files referenced by other
+
+				# File records, as Frappe may deduplicate uploads.
+
+				other_file_exists = frappe.db.exists(
+
+					"File",
+
+					{
+
+						"file_url": image_path,
+
+						"name": ["!=", file_name],
+
+					}
+
+				)
+
+				if other_file_exists:
+
+					frappe.delete_doc(
+
+						"File",
+
+						file_name,
+
+						ignore_permissions=True,
+
+					)
+
+				else:
+
+					delete_file(file_name)
+
+	job_doc.reload()
+
+	# --------------------------------------------------
+
+	# Prepare Image Response
+
+	# --------------------------------------------------
+
+	site_url = frappe.utils.get_url().rstrip("/")
+
+	images_response = []
+
+	for row in job_doc.get("job_images") or []:
+
+		image_path = row.get("image") or ""
+
+		images_response.append(
+
+			{
+
+				"name": row.name,
+
+				"idx": row.idx,
+
+				"image": image_path,
+
+				"image_url": (
+
+					site_url + image_path
+
+					if image_path.startswith("/")
+
+					else image_path
+
+				),
+
+				"comment": (image_comment if image_comment is not None else (row.get("comment") or "")),
+
+			}
+
+		)
+
+	# --------------------------------------------------
+
+	# Prepare Items Response
+
+	# --------------------------------------------------
+
+	items_response = []
+
+	for row in job_doc.get("item_installed_removed") or []:
+
+		items_response.append(
+
+			{
+
+				"name": row.name,
+
+				"idx": row.idx,
+
+				"item": row.get("item"),
+
+				"item_type": row.get("item_type"),
+
+				"item_name": row.get("item_name"),
+
+				"brand": row.get("brand"),
+
+				"installed_or_removed": row.get(
+
+					"installed_or_removed"
+
+				),
+
+				"destination": row.get("destination"),
+
+				"removal_reason": row.get("removal_reason"),
+
+				"replace_against": row.get("replace_against"),
+
+				"is_chargeable": row.get("is_chargeable"),
+
+				"chargeable_reason": row.get(
+
+					"chargeable_reason"
+
+				),
+
+				"chargeable_reason_description": row.get(
+
+					"chargeable_reason_description"
+
+				),
+
+			}
+
+		)
+
+	# --------------------------------------------------
+
+	# Return Response
+
+	# --------------------------------------------------
+
+	return {
+
+		"message": "Job updated successfully",
+
+		"job": {
+
+			"name": job_doc.name,
+
+			"title": job_doc.title,
+
+			"status": job_doc.status,
+
+			"task": job_doc.task,
+
+			"task_type": job_doc.task_type,
+
+			"customer": job_doc.customer,
+
+			"vehicle_number": job_doc.vehicle_number,
+			"new_vehicle_number": job_doc.get("new_vehicle_number"),
+
+			"assigned_technician": job_doc.assigned_technician,
+
+			"technician_name": job_doc.get(
+
+				"technician_name"
+
+			),
+
+			"date": job_doc.date,
+
+			"type": job_doc.type,
+
+			"make": job_doc.make,
+
+			"model": job_doc.model,
+
+			"color": job_doc.color,
+			"new_type": job_doc.get("swap_type"),
+			"new_make": job_doc.get("swap_make"),
+			"new_model": job_doc.get("swap_model"),
+			"new_color": job_doc.get("swap_color"),
+			"swap_items": [
+				{"name": row.name, "idx": row.idx, "source": row.get("source"),
+				 "items": row.get("items"), "item_type": row.get("item_type"),
+				 "item_name": row.get("item_name"), "brand": row.get("brand")}
+				for row in job_doc.get("items") or []
+			],
+
+			"done_comment": job_doc.get("done_comment"),
+
+			"hold_comment": job_doc.get("hold_comment"),
+
+			"completion_comment": job_doc.get(
+
+				"completion_comment"
+
+			),
+
+			"item_installed_removed": items_response,
+
+			"job_images": images_response,
+
+		},
+
+		"uploaded_images": uploaded,
+
+	}
+
+
+@frappe.whitelist(methods=["GET", "POST"])
+def get_swap_item_options(job=None, source=None):
+	"""Available installed old-vehicle items or unlocked technician stock."""
+	require_admin()
+	job = job or frappe.form_dict.get("job")
+	source = source or frappe.form_dict.get("source")
+	if not job:
+		frappe.throw(_("job is required."))
+	if source not in ("Old Vehicle", "Technician"):
+		frappe.throw(_("source must be Old Vehicle or Technician."))
+
+	doc = frappe.get_doc("Job", job)
+	if doc.task_type != "Swap":
+		frappe.throw(_("This API supports Swap Jobs only."))
+
+	if source == "Old Vehicle":
+		if not doc.vehicle_number:
+			frappe.throw(_("Old vehicle number is required on the Job."))
+		vehicle = frappe.get_doc("Vehicle", doc.vehicle_number)
+		if vehicle.custom_customer != doc.customer:
+			frappe.throw(_("Old vehicle does not belong to Job customer."))
+		codes = list(dict.fromkeys(
+			row.item for row in vehicle.get("custom_vehicle_item") or []
+			if row.item and row.status == "Installed"
+		))
+		details = {}
+		if codes:
+			details = {
+				row.name: row
+				for row in frappe.get_all(
+					"Item", filters={"name": ["in", codes], "disabled": 0},
+					fields=["name", "item_name", "custom_item_type", "brand"],
+				)
+			}
+		result = [
+			{"item": code, "items": code, "source": "Old Vehicle",
+			 "item_name": details[code].item_name,
+			 "item_type": details[code].custom_item_type,
+			 "brand": details[code].brand}
+			for code in codes if code in details
+		]
+		return {"status": "success", "job": doc.name, "source": source,
+				"vehicle_number": vehicle.name, "total": len(result), "items": result}
+
+	warehouse = (
+		doc.get("technician_warehouse")
+		or _warehouse_for_technician(doc.assigned_technician)
+	)
+	if not warehouse:
+		frappe.throw(_("Technician warehouse is not configured."))
+
+	rows = frappe.db.sql("""
+		SELECT i.name AS item, i.item_name,
+			   i.custom_item_type AS item_type, i.brand,
+			   b.actual_qty AS qty
+		FROM `tabBin` b
+		INNER JOIN `tabItem` i ON i.name = b.item_code
+		WHERE b.warehouse = %(warehouse)s
+		  AND b.actual_qty > 0
+		  AND i.disabled = 0
+		  AND COALESCE(i.custom_is_locked, 0) = 0
+		ORDER BY i.custom_item_type, i.item_name
+	""", {"warehouse": warehouse}, as_dict=True)
+	result = [
+		{"item": row.item, "items": row.item, "source": "Technician",
+		 "item_name": row.item_name, "item_type": row.item_type,
+		 "brand": row.brand, "qty": row.qty}
+		for row in rows
+	]
+	return {"status": "success", "job": doc.name, "source": source,
+			"warehouse": warehouse, "total": len(result), "items": result}
+
+@frappe.whitelist(methods=["POST"])
+def upload_job_image(job, image_data=None, filename=None, comment=None):
+	return task_v2.upload_job_image(job=job, image_data=image_data, filename=filename, comment=comment)
+

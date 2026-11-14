@@ -4,27 +4,15 @@
  "docstatus": 0,
  "doctype": "Page",
  "idx": 0,
- "modified": "2026-09-11 20:57:11.717610",
+ "modified": "2026-09-18 20:16:27.225122",
  "modified_by": "Administrator",
  "module": "Fleet",
  "name": "technician_activity",
  "owner": "Administrator",
- "page_name": "Technician Activity",
+ "page_name": "technician_activity",
  "roles": [
   {
    "role": "Fleet Administrator"
-  },
-  {
-   "role": "Administrator"
-  },
-  {
-   "role": "System Manager"
-  },
-  {
-   "role": "Fleet Manager"
-  },
-  {
-   "role": "Support Team"
   }
  ],
  "script": null,

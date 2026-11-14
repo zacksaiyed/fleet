@@ -1,7 +1,25 @@
+frappe.dom.set_style(`
+	.hide-replace-against [data-fieldname="replace_against"] {
+		display: none !important;
+	}
+	.hide-removal-reason [data-fieldname="removal_reason"] {
+		display: none !important;
+	}
+`);
+
 frappe.ui.form.on("Job Item", {
 	item(frm, cdt, cdn) {
 		const row = locals[cdt][cdn];
 		if (!row.item) return;
+
+		if (
+			frm.doc.task_type !== "Re-Installation"
+			&& ["In Progress", "In Review"].includes(frm.doc.status)
+			&& row.item
+			&& row.installed_or_removed === "Installed"
+		) {
+			set_item_lock(row.item, true);
+		}
 
 		const duplicate = (frm.doc.item_installed_removed || []).find(
 			r => r.item === row.item && r.name !== cdn
@@ -13,8 +31,12 @@ frappe.ui.form.on("Job Item", {
 			return;
 		}
 
-		// Cross-job check: only for items being installed
-		if (row.installed_or_removed !== "Removed") {
+		// Cross-job check for normal installations.
+		// Re-Installation intentionally reuses an item already installed on this vehicle.
+		if (
+			row.installed_or_removed !== "Removed"
+			&& frm.doc.task_type !== "Re-Installation"
+		) {
 			frappe.call({
 				method: "fleet.fleet.doctype.job.job.check_item_available",
 				args: { item: row.item, current_job: frm.doc.name },
@@ -30,6 +52,53 @@ frappe.ui.form.on("Job Item", {
 				},
 			});
 		}
+		if (frm.doc.task_type === "Removal" || row.installed_or_removed === "Removed") {
+			frappe.model.set_value(cdt, cdn, "is_chargeable", 0);
+			frappe.model.set_value(cdt, cdn, "chargeable_reason", "");
+			frappe.model.set_value(cdt, cdn, "chargeable_reason_description", "");
+			frappe.model.set_value(cdt, cdn, "replace_against", null);
+		} else if (row.installed_or_removed === "Installed") {
+			frappe.model.set_value(cdt, cdn, "is_chargeable", 1);
+		}
+
+		if (frm.doc.task_type !== "Checkup" || row.installed_or_removed !== "Installed") {
+			frappe.model.set_value(cdt, cdn, "replace_against", null);
+		}
+		if (frm.doc.task_type !== "Removal") {
+			frappe.model.set_value(cdt, cdn, "removal_reason", null);
+		}
+	},
+	item_installed_removed_add(frm, cdt, cdn) {
+		if (frm.doc.task_type === "Removal") {
+			frappe.model.set_value(cdt, cdn, "installed_or_removed", "Removed");
+			frappe.model.set_value(cdt, cdn, "is_chargeable", 0);
+		} else {
+			frappe.model.set_value(cdt, cdn, "installed_or_removed", "Installed");
+			frappe.model.set_value(cdt, cdn, "is_chargeable", 1);
+		}
+		if (frm.doc.task_type !== "Checkup") {
+			frappe.model.set_value(cdt, cdn, "replace_against", null);
+		}
+		if (frm.doc.task_type !== "Removal") {
+			frappe.model.set_value(cdt, cdn, "removal_reason", null);
+		}
+	},
+	item_installed_removed_remove(frm, cdt, cdn) {
+		const row = locals[cdt][cdn];
+
+		if (
+			frm.doc.task_type !== "Re-Installation"
+			&& ["In Progress", "In Review"].includes(frm.doc.status)
+			&& row.item
+			&& row.installed_or_removed === "Installed"
+		) {
+			frappe.db.set_value(
+				"Item",
+				row.item,
+				"custom_is_locked",
+				0
+			);
+		}
 	},
 
 	installed_or_removed(frm, cdt, cdn) {
@@ -37,7 +106,7 @@ frappe.ui.form.on("Job Item", {
 		const val = row.installed_or_removed;
 		const task_type = frm.doc.task_type;
 
-		const install_only_types = ["Installation", "Accessory"];
+		const install_only_types = ["Installation", "Accessory", "Re-Installation"];
 		const remove_only_types = ["Removal"];
 
 		if (install_only_types.includes(task_type)) {
@@ -55,9 +124,146 @@ frappe.ui.form.on("Job Item", {
 				return;
 			}
 		}
-		// Checkup, Swapping, etc. → both values allowed
+		if (val === "Installed") {
+			if (task_type !== "Removal") {
+				frappe.model.set_value(cdt, cdn, "is_chargeable", 1);
+			} else {
+				frappe.model.set_value(cdt, cdn, "is_chargeable", 0);
+			}
+		} else if (val === "Removed") {
+			frappe.model.set_value(cdt, cdn, "is_chargeable", 0);
+			frappe.model.set_value(cdt, cdn, "chargeable_reason", "");
+			frappe.model.set_value(cdt, cdn, "chargeable_reason_description", "");
+		}
+
+		if (val !== "Installed" || frm.doc.task_type !== "Checkup") {
+			frappe.model.set_value(cdt, cdn, "replace_against", null);
+		}
+		if (frm.doc.task_type !== "Removal") {
+			frappe.model.set_value(cdt, cdn, "removal_reason", null);
+		}
 
 		frappe.model.set_value(cdt, cdn, "item", null);
+	},
+
+	replace_against(frm, cdt, cdn) {
+		const row = locals[cdt][cdn];
+		if (!row) return;
+
+		if (frm.doc.task_type !== "Checkup" || row.installed_or_removed !== "Installed") {
+			if (row.replace_against) {
+				frappe.model.set_value(cdt, cdn, "replace_against", null);
+			}
+			return;
+		}
+
+		if (row.replace_against && row.installed_or_removed === "Installed") {
+			const old_item = row.replace_against;
+			const already_removed = (frm.doc.item_installed_removed || []).some(
+				r => r.item === old_item && r.installed_or_removed === "Removed"
+			);
+			if (!already_removed) {
+				frappe.db.get_value("Item", old_item, ["name", "item_name", "custom_item_type", "brand"], (item_data) => {
+					if (item_data) {
+						const rem = frm.add_child("item_installed_removed");
+						rem.item = old_item;
+						rem.item_name = item_data.item_name || "";
+						rem.item_type = item_data.custom_item_type || "";
+						rem.brand = item_data.brand || "";
+						rem.installed_or_removed = "Removed";
+						rem.is_chargeable = 0;
+						rem.replace_against = null;
+						rem.chargeable_reason = "";
+						rem.chargeable_reason_description = "";
+						frm.refresh_field("item_installed_removed");
+					}
+				});
+			}
+		}
+	},
+});
+
+frappe.ui.form.on("Removal Items", {
+	destination(frm, cdt, cdn) {
+		const row = locals[cdt][cdn];
+		if (!row) return;
+		if (frm.doc.task_type === "Removal") {
+			frappe.model.set_value(cdt, cdn, "warehouse", frm.doc.technician_warehouse || "");
+		} else {
+			if (row.destination === "Customer") {
+				frappe.model.set_value(cdt, cdn, "warehouse", frm.doc.customer_warehouse || "");
+			} else {
+				frappe.model.set_value(cdt, cdn, "warehouse", frm.doc.technician_warehouse || "");
+			}
+		}
+		if (row.destination !== "Customer") {
+			frappe.model.set_value(cdt, cdn, "removal_reason", "");
+		}
+		if (frm.doc.item_installed_removed) {
+			const item_row = frm.doc.item_installed_removed.find(r => r.item === row.item);
+			if (item_row) {
+				frappe.model.set_value(item_row.doctype, item_row.name, "destination", row.destination);
+				if (row.destination !== "Customer") {
+					frappe.model.set_value(item_row.doctype, item_row.name, "removal_reason", "");
+				}
+			}
+		}
+	},
+	removal_reason(frm, cdt, cdn) {
+		const row = locals[cdt][cdn];
+		if (!row) return;
+		if (frm.doc.item_installed_removed) {
+			const item_row = frm.doc.item_installed_removed.find(r => r.item === row.item);
+			if (item_row) {
+				frappe.model.set_value(item_row.doctype, item_row.name, "removal_reason", row.removal_reason || "");
+			}
+		}
+	}
+});
+
+frappe.ui.form.on("Job Item", {
+	destination(frm, cdt, cdn) {
+		const row = locals[cdt][cdn];
+		if (!row) return;
+		if (row.destination !== "Customer") {
+			frappe.model.set_value(cdt, cdn, "removal_reason", "");
+		}
+		if (frm.doc.removal_items) {
+			const rem_row = frm.doc.removal_items.find(r => r.item === row.item);
+			if (rem_row) {
+				frappe.model.set_value(rem_row.doctype, rem_row.name, "destination", row.destination);
+				const wh = frm.doc.task_type === "Removal"
+					? frm.doc.technician_warehouse
+					: (row.destination === "Customer" ? frm.doc.customer_warehouse : frm.doc.technician_warehouse);
+				frappe.model.set_value(rem_row.doctype, rem_row.name, "warehouse", wh || "");
+				if (row.destination !== "Customer") {
+					frappe.model.set_value(rem_row.doctype, rem_row.name, "removal_reason", "");
+				}
+			}
+		}
+	},
+	removal_reason(frm, cdt, cdn) {
+		const row = locals[cdt][cdn];
+		if (!row) return;
+		if (frm.doc.removal_items) {
+			const rem_row = frm.doc.removal_items.find(r => r.item === row.item);
+			if (rem_row) {
+				frappe.model.set_value(rem_row.doctype, rem_row.name, "removal_reason", row.removal_reason || "");
+			}
+		}
+	}
+});
+
+frappe.ui.form.on("Job Image", {
+	image(frm, cdt, cdn) {
+		render_job_images(frm);
+		if (!frm.is_new()) {
+			frappe.db.get_value("Job", frm.doc.name, "modified", (r) => {
+				if (r && r.modified) {
+					frm.doc.modified = r.modified;
+				}
+			});
+		}
 	},
 });
 
@@ -115,40 +321,252 @@ function _attachVehicleNumberMask(frm) {
 }
 
 frappe.ui.form.on("Job", {
+	before_save(frm) {
+		if (!frm.is_new()) {
+			return frappe.db.get_value("Job", frm.doc.name, "modified").then((r) => {
+				if (r && r.message && r.message.modified) {
+					frm.doc.modified = r.message.modified;
+				}
+			});
+		}
+	},
+
+	onload_post_render(frm) {
+		_toggle_replace_against(frm);
+		_toggle_removal_reason(frm);
+	},
 
 	refresh(frm) {
 		_attachVehicleNumberMask(frm);
+		render_vehicle_items(frm);
+        
+		function render_copy_buttons_in_grid(frm) {
+			
+			let $installed_wrapper = frm.fields_dict.item_installed_removed.$wrapper;
+			if ($installed_wrapper) {
+				$installed_wrapper.find('.grid-row [data-fieldname="item"], .grid-row [data-fieldname="item_name"], .grid-row [data-fieldname="custom_device_id"]').each(function() {
+					
+					if ($(this).closest('.grid-heading-row').length > 0 || $(this).closest('.grid-row-check').length > 0) return;
+
+					let $staticArea = $(this).find('.static-area');
+					if ($staticArea.length === 0) return;
+
+					let val = $staticArea.text().trim();
+					
+					if (!val) {
+						$(this).find('.custom-copy-icon').remove();
+						$(this).css('padding-right', '');
+						return;
+					}
+
+					if (val && $(this).find('.custom-copy-icon').length === 0) {
+						$(this).css({'position': 'relative', 'padding-right': '25px'});
+						
+						let iconBtn = document.createElement('a');
+						iconBtn.className = 'custom-copy-icon text-muted';
+						iconBtn.style.cssText = 'position: absolute; right: 5px; top: 50%; transform: translateY(-50%); cursor: pointer; z-index: 100; color: #8D99A6; display: flex; align-items: center; justify-content: center;';
+						iconBtn.title = "Copy";
+						iconBtn.innerHTML = '<svg style="width: 14px; height: 14px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
+						
+						iconBtn.addEventListener('click', function(e) {
+							e.stopPropagation(); 
+							e.preventDefault();
+							frappe.utils.copy_to_clipboard(val);
+							frappe.show_alert({message: val + ' Copied!', indicator: 'green'});
+							
+							iconBtn.style.color = '#28a745';
+							setTimeout(() => { iconBtn.style.color = '#8D99A6'; }, 1000);
+						}, true);
+						
+						$(this).append(iconBtn);
+					}
+				});
+			}
+
+			let $vehicle_details_wrapper = frm.fields_dict.item_details.$wrapper;
+			if ($vehicle_details_wrapper) {
+				$vehicle_details_wrapper.find('.custom-vehicle-item-table td:nth-child(2), .custom-vehicle-item-table td:nth-child(3)').each(function() {
+					let val = $(this).text().trim();
+					if (!val) return;
+
+					if (!$(this).is('th') && $(this).find('.custom-copy-icon').length === 0) {
+						if (val && val !== 'Item Type' && val !== 'Item') {
+							$(this).css({'position': 'relative', 'padding-right': '25px'});
+							
+							let iconBtn = document.createElement('a');
+							iconBtn.className = 'custom-copy-icon text-muted';
+							iconBtn.style.cssText = 'position: absolute; right: 5px; top: 50%; transform: translateY(-50%); cursor: pointer; z-index: 100; color: #8D99A6; display: flex; align-items: center; justify-content: center;';
+							iconBtn.title = "Copy";
+							iconBtn.innerHTML = '<svg style="width: 14px; height: 14px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
+							
+							iconBtn.addEventListener('click', function(e) {
+								e.stopPropagation(); 
+								e.preventDefault();
+								frappe.utils.copy_to_clipboard(val);
+								frappe.show_alert({message: val + ' Copied!', indicator: 'green'});
+								
+								iconBtn.style.color = '#28a745';
+								setTimeout(() => { iconBtn.style.color = '#8D99A6'; }, 1000);
+							}, true);
+							
+							$(this).append(iconBtn);
+						}
+					}
+				});
+			}
+		}
+
+		setTimeout(() => render_copy_buttons_in_grid(frm), 500);
+
+		if (frm.fields_dict.item_installed_removed && frm.fields_dict.item_installed_removed.grid) {
+			let grid = frm.fields_dict.item_installed_removed.grid;
+			if (!grid._copy_event_bound) {
+				grid._copy_event_bound = true;
+				grid.wrapper.on('DOMSubtreeModified', function() {
+					if (window._copy_timer) clearTimeout(window._copy_timer);
+					window._copy_timer = setTimeout(() => {
+						render_copy_buttons_in_grid(frm);
+					}, 200);
+				});
+			}
+		}
+
+		const roles = frappe.user_roles;
+		const is_erp_crm = roles.includes("System Manager") || roles.includes("Administrator") || roles.includes("Fleet Administrator") || roles.includes("Fleet Manager") || roles.includes("Support Team");
+		const is_tech_only = roles.includes("Technician") && !is_erp_crm;
+
+		if (frm.doc.task_type !== "Checkup") {
+			(frm.doc.item_installed_removed || []).forEach(row => {
+				row.replace_against = null;
+			});
+		}
+
+		if (frm.doc.task_type !== "Removal") {
+			(frm.doc.item_installed_removed || []).forEach(row => {
+				row.removal_reason = null;
+			});
+		}
+
+		if (frm.is_new()) {
+			if (!["Checkup", "Re-Installation", "Removal"].includes(frm.doc.task_type)) {
+				frm.set_value("is_chargeable", 1);
+			} else if (frm.doc.task_type === "Removal") {
+				frm.set_value("is_chargeable", 0);
+			}
+		}
+
+		const is_reinstall = frm.doc.task_type === "Re-Installation";
+		frm.toggle_display("is_chargeable", is_reinstall);
+		frm.toggle_display("chargeable_reason", is_reinstall && !!frm.doc.is_chargeable);
+		frm.toggle_display("chargeable_reason_description", is_reinstall && !!frm.doc.is_chargeable);
+		_toggle_replace_against(frm);
+		_toggle_removal_reason(frm);
+
+		if (["Installation", "Accessory"].includes(frm.doc.task_type)) {
+			frm.set_value("is_chargeable", 1);
+			frm.set_df_property("is_chargeable", "read_only", 1);
+		} else if (is_reinstall) {
+			frm.set_df_property("is_chargeable", "read_only", 0);
+		} else if (is_erp_crm) {
+			frm.set_df_property("is_chargeable", "read_only", 0);
+		} else if (is_tech_only) {
+			frm.set_df_property("is_chargeable", "read_only", 1);
+		}
+
 		if (frm.is_new()) {
 			return;
 		}
-		render_vehicle_items(frm)
 		render_job_images(frm)
+
+		set_get_queries(frm)
 
 		frm.add_custom_button(__("Go to Chat"), () => {
 			go_to_chat(frm);
 		});
-		// Auto-populate vehicle items once for Removal jobs — only when Pending
-		// (status moves to In Progress on first save, so this never re-fires after user clears rows)
-		if (
-			!frm.is_new()
-			&& frm.doc.task_type === "Removal"
-			&& frm.doc.status === "Pending"
-			&& frm.doc.vehicle_number
-			&& frm.doc.customer
-			&& !(frm.doc.item_installed_removed || []).length
-		) {
-			_populate_removal_items(frm);
-		}
 
 		frm.set_query("item", "item_installed_removed", function (doc, cdt, cdn) {
 			const row = locals[cdt][cdn];
+			const task_type = (doc.task_type || "").trim();
+
+			// Re-Installation:
+			// show all items already installed on this exact vehicle.
+			// No warehouse filter and no custom_is_locked filter.
+			// if (task_type === "Re-Installation") {
+			// 	if (!doc.vehicle_number) return {};
+
+			// 	return {
+			// 		query: "fleet.fleet.doctype.job.job.get_reinstallation_items",
+			// 		filters: {
+			// 			vehicle_number: doc.vehicle_number || "",
+			// 			customer: doc.customer || "",
+			// 		},
+			// 	};
+			// }
+
+			// Normal Installed flow:
+			// Installation / Accessory / Checkup-installed
 			if (row.installed_or_removed === "Installed") {
+				if (!doc.technician_warehouse) return {};
+
+				return {
+					query: "fleet.fleet.doctype.job.job.get_items_in_warehouse",
+					filters: {
+						warehouse: doc.technician_warehouse,
+						custom_is_locked: 0,
+					},
+				};
+			}
+
+			// Removal flow
+			if (row.installed_or_removed === "Removed") {
+				if (!doc.customer_warehouse) return {};
+
+				return {
+					query: "fleet.fleet.doctype.job.job.get_removable_items",
+					filters: {
+						warehouse: doc.customer_warehouse,
+						vehicle_number: doc.vehicle_number || "",
+						customer: doc.customer || "",
+					},
+				};
+			}
+
+			return {};
+		});
+
+		frm.set_query("replace_against", "item_installed_removed", function (doc, cdt, cdn) {
+			const row = locals[cdt][cdn];
+			if (doc.task_type === "Checkup" && (!row || row.installed_or_removed === "Installed")) {
+				if (!doc.customer_warehouse) return {};
+				return {
+					query: "fleet.fleet.doctype.job.job.get_removable_items",
+					filters: {
+						warehouse: doc.customer_warehouse,
+						vehicle_number: doc.vehicle_number || "",
+						customer: doc.customer || "",
+					},
+				};
+			}
+			return { filters: { name: ["in", [""]] } };
+		});
+
+		frm.set_query("chargeable_reason", "item_installed_removed", function (doc, cdt, cdn) {
+			return {
+				filters: {
+					job_type: doc.task_type
+				}
+			};
+		});
+
+		frm.set_query("items", "items", function (doc, cdt, cdn) {
+			const row = locals[cdt][cdn];
+			if (row.source === "Technician") {
 				if (!doc.technician_warehouse) return {};
 				return {
 					query: "fleet.fleet.doctype.job.job.get_items_in_warehouse",
-					filters: { warehouse: doc.technician_warehouse },
+					filters: { warehouse: doc.technician_warehouse, custom_is_locked: 0 },
 				};
-			} else if (row.installed_or_removed === "Removed") {
+			} else if (row.source === "Old Vehicle") {
 				if (!doc.customer_warehouse) return {};
 				return {
 					query: "fleet.fleet.doctype.job.job.get_removable_items",
@@ -164,7 +582,6 @@ frappe.ui.form.on("Job", {
 
 		if (frm.is_new()) return;
 
-		const roles = frappe.user_roles;
 		const is_support = roles.includes("Support Team");
 		const is_tech = roles.includes("Technician");
 		const status = frm.doc.status;
@@ -195,6 +612,8 @@ frappe.ui.form.on("Job", {
 				const editable = new Set([
 					"vehicle_number", "make", "model", "color", "type",
 					"item_installed_removed", "job_images",
+					"new_vehicle_number", "swap_make", "swap_model", "swap_color", "swap_type", "items",
+					"removal_items",
 				]);
 				frm.fields.forEach(f => {
 					if (!editable.has(f.df.fieldname)) {
@@ -208,9 +627,27 @@ frappe.ui.form.on("Job", {
 		// SUPPORT TEAM + TECHNICIAN
 		if (is_support || is_tech) {
 			if (status === "In Progress") {
-				frm.add_custom_button(__("Mark as Done"), () =>
-					_job_action_with_comment(frm, "done", __("Done Comment"), "done_comment")
-				).addClass("btn-primary");
+				frm.add_custom_button(__("Mark as Done"), () => {
+					if (frm.doc.task_type === "Swap") {
+						if (!frm.doc.new_vehicle_number) {
+							frappe.msgprint(__("New Vehicle Number is mandatory before marking a Swap job as Done."));
+							return;
+						}
+						if (!frm.doc.swap_type) {
+							frappe.msgprint(__("New Vehicle Type is mandatory before marking a Swap job as Done."));
+							return;
+						}
+						if (!frm.doc.swap_make) {
+							frappe.msgprint(__("New Vehicle Make is mandatory before marking a Swap job as Done."));
+							return;
+						}
+						if (!frm.doc.swap_model) {
+							frappe.msgprint(__("New Vehicle Model is mandatory before marking a Swap job as Done."));
+							return;
+						}
+					}
+					_job_action_with_comment(frm, "done", __("Done Comment"), "done_comment");
+				}).addClass("btn-primary");
 			}
 
 			if (status === "On Hold") {
@@ -223,9 +660,30 @@ frappe.ui.form.on("Job", {
 		// SUPPORT TEAM ONLY
 		if (is_support) {
 			if (status === "In Review") {
-				frm.add_custom_button(__("Complete"), () =>
-					_job_action_with_comment(frm, "complete", __("Completion Comment"), "completion_comment")
-				).removeClass("btn-default btn-secondary").addClass("btn-success").css("background-color", "#28a745").css("border-color", "#28a745").css("color", "#fff");
+				frm.add_custom_button(__("Complete"), () => {
+					const proceed = () => {
+						if (["Installation", "Checkup", "Accessory", "Re-Installation", "Swap"].includes(frm.doc.task_type)) {
+							frappe.call({
+								method: "fleet.fleet.doctype.job.job.validate_installation_requirements",
+								args: { job: frm.doc.name },
+								freeze: true,
+								freeze_message: __("Validating requirements..."),
+								callback(r) {
+									if (r.exc) return;
+									_job_action_with_comment(frm, "complete", __("Completion Comment"), "completion_comment");
+								}
+							});
+						} else {
+							_job_action_with_comment(frm, "complete", __("Completion Comment"), "completion_comment");
+						}
+					};
+
+					if (frm.is_dirty()) {
+						frm.save(null, proceed);
+					} else {
+						proceed();
+					}
+				}).removeClass("btn-default btn-secondary").addClass("btn-success").css("background-color", "#28a745").css("border-color", "#28a745").css("color", "#fff");
 
 				frm.add_custom_button(__("Mark as Pending"), () =>
 					_job_action(frm, "mark_pending")
@@ -234,7 +692,7 @@ frappe.ui.form.on("Job", {
 
 			if (["Pending", "In Progress"].includes(status)) {
 				frm.add_custom_button(__("Hold"), () =>
-					_job_action_with_comment(frm, "hold", __("Hold Comment"), "hold_comment")
+					_job_hold_action(frm)
 				);
 			}
 
@@ -265,15 +723,89 @@ frappe.ui.form.on("Job", {
 		render_job_images(frm);
 	},
 
-
 	vehicle_number(frm) {
 		fetch_vehicle_details(frm);
-		render_vehicle_items(frm)
+		render_vehicle_items(frm);
 	},
 
 	task_type(frm) {
+		set_get_queries(frm)
 		// Re-run the vehicle check when task type changes while a number is already entered
 		fetch_vehicle_details(frm);
+
+		if (frm.doc.task_type === "Removal") {
+			frm.set_value("is_chargeable", 0);
+			frm.set_value("chargeable_reason", "");
+			frm.set_value("chargeable_reason_description", "");
+			(frm.doc.item_installed_removed || []).forEach((row) => {
+				frappe.model.set_value(row.doctype, row.name, "installed_or_removed", "Removed");
+				frappe.model.set_value(row.doctype, row.name, "is_chargeable", 0);
+				frappe.model.set_value(row.doctype, row.name, "chargeable_reason", "");
+				frappe.model.set_value(row.doctype, row.name, "chargeable_reason_description", "");
+			});
+			frm.refresh_field("item_installed_removed");
+		} else if (["Installation", "Accessory", "Swap"].includes(frm.doc.task_type)) {
+			frm.set_value("is_chargeable", 1);
+			(frm.doc.item_installed_removed || []).forEach((row) => {
+				if (row.installed_or_removed === "Installed") {
+					frappe.model.set_value(row.doctype, row.name, "is_chargeable", 1);
+				} else {
+					frappe.model.set_value(row.doctype, row.name, "is_chargeable", 0);
+				}
+			});
+			frm.refresh_field("item_installed_removed");
+		} else if (frm.is_new() && !["Checkup", "Re-Installation"].includes(frm.doc.task_type)) {
+			frm.set_value("is_chargeable", 1);
+		}
+
+		const roles = frappe.user_roles;
+		const is_erp_crm = roles.includes("System Manager") || roles.includes("Administrator") || roles.includes("Fleet Administrator") || roles.includes("Fleet Manager") || roles.includes("Support Team");
+		const is_tech_only = roles.includes("Technician") && !is_erp_crm;
+
+		const is_reinstall = frm.doc.task_type === "Re-Installation";
+		frm.toggle_display("is_chargeable", is_reinstall);
+		frm.toggle_display("chargeable_reason", is_reinstall && !!frm.doc.is_chargeable);
+		if (frm.doc.task_type !== "Checkup") {
+			(frm.doc.item_installed_removed || []).forEach(row => {
+				row.replace_against = null;
+			});
+			frm.refresh_field("item_installed_removed");
+		}
+		if (frm.doc.task_type !== "Removal") {
+			(frm.doc.item_installed_removed || []).forEach(row => {
+				row.removal_reason = null;
+			});
+			frm.refresh_field("item_installed_removed");
+		}
+		_toggle_replace_against(frm);
+		_toggle_removal_reason(frm);
+
+		if (["Installation", "Accessory"].includes(frm.doc.task_type)) {
+			frm.set_value("is_chargeable", 1);
+			frm.set_df_property("is_chargeable", "read_only", 1);
+		} else if (is_reinstall) {
+			frm.set_df_property("is_chargeable", "read_only", 0);
+		} else if (is_erp_crm) {
+			frm.set_df_property("is_chargeable", "read_only", 0);
+		} else if (is_tech_only) {
+			frm.set_df_property("is_chargeable", "read_only", 1);
+		}
+	},
+
+	is_chargeable(frm) {
+		const is_reinstall = frm.doc.task_type === "Re-Installation";
+		frm.toggle_display("chargeable_reason", is_reinstall && !!frm.doc.is_chargeable);
+		frm.toggle_display("chargeable_reason_description", is_reinstall && !!frm.doc.is_chargeable);
+
+		if (["Installation", "Accessory", "Re-Installation"].includes(frm.doc.task_type)) {
+			const val = frm.doc.is_chargeable ? 1 : 0;
+			(frm.doc.item_installed_removed || []).forEach((row) => {
+				if (row.installed_or_removed === "Installed") {
+					frappe.model.set_value(row.doctype, row.name, "is_chargeable", val);
+				}
+			});
+			frm.refresh_field("item_installed_removed");
+		}
 	},
 
 	async validate(frm) {
@@ -295,6 +827,16 @@ frappe.ui.form.on("Job", {
 
 });
 
+function set_get_queries(frm){
+	frm.fields_dict["chargeable_reason"].get_query = function (doc) {
+			return {
+				filters: {
+					job_type: doc.task_type
+				},
+			};
+		};
+}
+
 function _job_action_with_comment(frm, action, label, field) {
 	frappe.prompt(
 		[{ fieldtype: "Small Text", fieldname: "comment", label: label, reqd: 1 }],
@@ -306,10 +848,28 @@ function _job_action_with_comment(frm, action, label, field) {
 	);
 }
 
-function _job_action(frm, action, comment, comment_field) {
+function _job_hold_action(frm) {
+	const fields = [{
+		fieldtype: "Small Text", fieldname: "comment", label: __("Hold Comment"), reqd: 1,
+	}];
+
+
+	fields.push({
+		fieldtype: "Datetime", fieldname: "hold_until_date", label: __("Hold Until Date & Time"),
+		// Frappe's datepicker expects a JavaScript Date object for min_date.
+		reqd: 1, min_date: frappe.datetime.str_to_obj(frappe.datetime.now_datetime()),
+		description: __("Select the date and time when the job should automatically reopen."),
+	});
+
+	frappe.prompt(fields, (values) => {
+		_job_action(frm, "hold", values.comment, "hold_comment", values.hold_until_date);
+	}, __("Put Job On Hold"), __("Submit"));
+}
+
+function _job_action(frm, action, comment, comment_field, hold_until_date) {
 	frappe.call({
 		method: "fleet.fleet.doctype.job.job.job_action",
-		args: { job: frm.doc.name, action, comment, comment_field },
+		args: { job: frm.doc.name, action, comment, comment_field, hold_until_date },
 		freeze: true,
 		freeze_message: __("Updating…"),
 		callback(r) {
@@ -318,54 +878,6 @@ function _job_action(frm, action, comment, comment_field) {
 			frm.reload_doc();
 		},
 	});
-}
-
-function _populate_removal_items(frm) {
-	frappe.db.get_value(
-		"Vehicle",
-		{ license_plate: frm.doc.vehicle_number },
-		["name", "custom_customer"],
-		(r) => {
-			if (!r || !r.name) return;
-			if (r.custom_customer !== frm.doc.customer) return;
-
-			frappe.call({
-				method: "frappe.client.get",
-				args: { doctype: "Vehicle", name: r.name },
-				callback(res) {
-					const items = (res.message && res.message.custom_vehicle_item || [])
-						.filter(vi => vi.status === "Installed");
-					if (!items.length) return;
-
-					const item_codes = items.map(vi => vi.item);
-					frappe.call({
-						method: "frappe.client.get_list",
-						args: {
-							doctype: "Item",
-							filters: [["name", "in", item_codes]],
-							fields: ["name", "item_name", "brand"],
-						},
-						callback(r2) {
-							const item_map = {};
-							(r2.message || []).forEach(i => { item_map[i.name] = i; });
-
-							frm.clear_table("item_installed_removed");
-							items.forEach(vi => {
-								const row = frm.add_child("item_installed_removed");
-								const detail = item_map[vi.item] || {};
-								row.installed_or_removed = "Removed";
-								row.item = vi.item;
-								row.item_type = vi.item_type;
-								row.item_name = detail.item_name || "";
-								row.brand = detail.brand || "";
-							});
-							frm.refresh_field("item_installed_removed");
-						},
-					});
-				},
-			});
-		}
-	);
 }
 
 function _clearVehicleDetails(frm) {
@@ -520,6 +1032,33 @@ function open_job_chat(technician_user, job_name, job_status) {
 	}, 100);
 }
 
+
+function wait_for_job(instance, job_name, technician) {
+	let attempts = 0;
+
+	const wait_for_jobs = setInterval(() => {
+		attempts++;
+
+		const job = instance.jobs.find(
+			row => row.name === job_name
+		);
+
+		if (job) {
+			clearInterval(wait_for_jobs);
+
+			instance._select_job(job);
+			return;
+		}
+
+		if (attempts >= 50) {
+			clearInterval(wait_for_jobs);
+
+			frappe.msgprint(
+				__("Job was not found in Support Dashboard.")
+			);
+		}
+	}, 100);
+}
 function render_vehicle_items(frm) {
 	if (frm.doc.task_type === "Installation") {
 		return;
@@ -581,31 +1120,15 @@ function render_vehicle_items(frm) {
 }
 
 
-function wait_for_job(instance, job_name, technician) {
-	let attempts = 0;
+function set_item_lock(item, locked) {
+	if (!item) return;
 
-	const wait_for_jobs = setInterval(() => {
-		attempts++;
-
-		const job = instance.jobs.find(
-			row => row.name === job_name
-		);
-
-		if (job) {
-			clearInterval(wait_for_jobs);
-
-			instance._select_job(job);
-			return;
-		}
-
-		if (attempts >= 50) {
-			clearInterval(wait_for_jobs);
-
-			frappe.msgprint(
-				__("Job was not found in Support Dashboard.")
-			);
-		}
-	}, 100);
+	frappe.db.set_value(
+		"Item",
+		item,
+		"custom_is_locked",
+		locked ? 1 : 0
+	);
 }
 
 function render_job_images(frm) {
@@ -772,3 +1295,147 @@ function render_job_images(frm) {
 		</div>
 	`);
 }
+
+function _toggle_replace_against(frm) {
+	if (frm._toggling_replace_against) return;
+	frm._toggling_replace_against = true;
+	try {
+		const grid = frm.fields_dict.item_installed_removed && frm.fields_dict.item_installed_removed.grid;
+		const $wrapper = frm.fields_dict.item_installed_removed && frm.fields_dict.item_installed_removed.$wrapper;
+		const is_checkup = frm.doc.task_type === "Checkup";
+
+		if ($wrapper) {
+			$wrapper.toggleClass("hide-replace-against", !is_checkup);
+		}
+
+		if (!grid) return;
+
+		// 1. Update docfield properties on the grid and meta
+		grid.update_docfield_property("replace_against", "hidden", is_checkup ? 0 : 1);
+		grid.update_docfield_property("replace_against", "in_list_view", is_checkup ? 1 : 0);
+
+		const df_meta = frappe.meta.get_docfield("Job Item", "replace_against", frm.doc.name);
+		if (df_meta) {
+			df_meta.hidden = is_checkup ? 0 : 1;
+			df_meta.in_list_view = is_checkup ? 1 : 0;
+		}
+
+		// 2. Handle user_defined_columns (from UserSettings GridView)
+		if (!is_checkup) {
+			if (grid.user_defined_columns && grid.user_defined_columns.length) {
+				grid.user_defined_columns = grid.user_defined_columns.filter(
+					col => col.fieldname !== "replace_against"
+				);
+			}
+		} else {
+			if (grid.user_defined_columns && grid.user_defined_columns.length) {
+				const exists = grid.user_defined_columns.some(col => col.fieldname === "replace_against");
+				if (!exists) {
+					const col_df = (grid.docfields || []).find(d => d.fieldname === "replace_against")
+						|| frappe.meta.get_docfield("Job Item", "replace_against");
+					if (col_df) {
+						col_df.hidden = 0;
+						col_df.in_list_view = 1;
+						col_df.columns = 2;
+						grid.user_defined_columns.push(col_df);
+					}
+				}
+			}
+		}
+
+		// 3. Rebuild visible columns if state changed
+		const has_col = (grid.visible_columns || []).some(
+			c => c[0] && c[0].fieldname === "replace_against"
+		);
+
+		if (is_checkup !== has_col) {
+			grid.visible_columns = null;
+			grid.setup_visible_columns();
+			grid.reset_grid();
+		}
+
+		// 4. Force DOM visibility
+		if (!is_checkup) {
+			grid.wrapper.find('[data-fieldname="replace_against"]').hide();
+		} else {
+			grid.wrapper.find('[data-fieldname="replace_against"]').show();
+		}
+	} finally {
+		frm._toggling_replace_against = false;
+	}
+}
+
+function _toggle_removal_reason(frm) {
+	if (frm._toggling_removal_reason) return;
+	frm._toggling_removal_reason = true;
+	try {
+		const grid = frm.fields_dict.item_installed_removed && frm.fields_dict.item_installed_removed.grid;
+		const $wrapper = frm.fields_dict.item_installed_removed && frm.fields_dict.item_installed_removed.$wrapper;
+		const is_removal = frm.doc.task_type === "Removal";
+
+		if ($wrapper) {
+			$wrapper.toggleClass("hide-removal-reason", !is_removal);
+		}
+
+		if (!grid) return;
+
+		// 1. Update docfield properties on the grid and meta
+		["destination", "removal_reason"].forEach(fn => {
+			grid.update_docfield_property(fn, "hidden", is_removal ? 0 : 1);
+			grid.update_docfield_property(fn, "in_list_view", is_removal ? 1 : 0);
+
+			const df_meta = frappe.meta.get_docfield("Job Item", fn, frm.doc.name);
+			if (df_meta) {
+				df_meta.hidden = is_removal ? 0 : 1;
+				df_meta.in_list_view = is_removal ? 1 : 0;
+			}
+		});
+
+		// 2. Handle user_defined_columns (from UserSettings GridView)
+		if (!is_removal) {
+			if (grid.user_defined_columns && grid.user_defined_columns.length) {
+				grid.user_defined_columns = grid.user_defined_columns.filter(
+					col => !["destination", "removal_reason"].includes(col.fieldname)
+				);
+			}
+		} else {
+			if (grid.user_defined_columns && grid.user_defined_columns.length) {
+				["destination", "removal_reason"].forEach(fn => {
+					const exists = grid.user_defined_columns.some(col => col.fieldname === fn);
+					if (!exists) {
+						const col_df = (grid.docfields || []).find(d => d.fieldname === fn)
+							|| frappe.meta.get_docfield("Job Item", fn);
+						if (col_df) {
+							col_df.hidden = 0;
+							col_df.in_list_view = 1;
+							col_df.columns = fn === "destination" ? 2 : 3;
+							grid.user_defined_columns.push(col_df);
+						}
+					}
+				});
+			}
+		}
+
+		// 3. Rebuild visible columns if state changed
+		const has_col = (grid.visible_columns || []).some(
+			c => c[0] && (c[0].fieldname === "removal_reason" || c[0].fieldname === "destination")
+		);
+
+		if (is_removal !== has_col) {
+			grid.visible_columns = null;
+			grid.setup_visible_columns();
+			grid.reset_grid();
+		}
+
+		// 4. Force DOM visibility
+		if (!is_removal) {
+			grid.wrapper.find('[data-fieldname="removal_reason"], [data-fieldname="destination"]').hide();
+		} else {
+			grid.wrapper.find('[data-fieldname="removal_reason"], [data-fieldname="destination"]').show();
+		}
+	} finally {
+		frm._toggling_removal_reason = false;
+	}
+}
+
+

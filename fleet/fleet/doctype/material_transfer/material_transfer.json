@@ -6,10 +6,12 @@
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
+  "purpose",
   "date",
   "column_break_qdkg",
   "accepted_by",
   "stock_entry",
+  "job",
   "section_break_yctw",
   "source",
   "column_break_crbu",
@@ -19,7 +21,14 @@
   "section_break_bhre",
   "items",
   "reject_reason",
-  "amended_from"
+  "section_break_wnej",
+  "initiated_by",
+  "initiated_on",
+  "column_break_sujq",
+  "rejected_by",
+  "rejected_on",
+  "approved_by",
+  "approved_on"
  ],
  "fields": [
   {
@@ -33,13 +42,14 @@
    "reqd": 1
   },
   {
+   "depends_on": "eval:doc.purpose != \"Material Return\"",
    "fieldname": "target",
    "fieldtype": "Link",
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Target",
-   "options": "Warehouse",
-   "reqd": 1
+   "mandatory_depends_on": "eval:doc.purpose != \"Material Return\"",
+   "options": "Warehouse"
   },
   {
    "fieldname": "column_break_crbu",
@@ -92,6 +102,14 @@
    "read_only": 1
   },
   {
+   "fieldname": "job",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "label": "Job",
+   "options": "Job",
+   "read_only": 1
+  },
+  {
    "fieldname": "accepted_by",
    "fieldtype": "Link",
    "in_list_view": 1,
@@ -101,28 +119,73 @@
    "read_only": 1
   },
   {
-   "fieldname": "amended_from",
-   "fieldtype": "Link",
-   "label": "Amended From",
-   "no_copy": 1,
-   "options": "Material Transfer",
-   "print_hide": 1,
-   "read_only": 1,
-   "search_index": 1
-  },
-  {
    "fieldname": "reject_reason",
    "fieldtype": "Data",
    "label": "Reject Reason",
+   "read_only": 1
+  },
+  {
+   "fieldname": "purpose",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Purpose",
+   "options": "\nMaterial Issue\nMaterial Request\nMaterial Return\nMaterial Handover\nCustomer to Store\nCustomer to Technician\nMaterial Restore\nStore to Customer\nStore to Damage\nStore to Lost\nTechnician to customer",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_break_wnej",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "initiated_by",
+   "fieldtype": "Link",
+   "label": "Initiated By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "initiated_on",
+   "fieldtype": "Datetime",
+   "label": "Initiated on",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_sujq",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "approved_by",
+   "fieldtype": "Link",
+   "label": "Approved By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "approved_on",
+   "fieldtype": "Datetime",
+   "label": "Approved On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "rejected_by",
+   "fieldtype": "Link",
+   "label": "Rejected By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "rejected_on",
+   "fieldtype": "Datetime",
+   "label": "Rejected On",
    "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "hide_toolbar": 1,
  "index_web_pages_for_search": 1,
- "is_submittable": 1,
  "links": [],
- "modified": "2026-05-02 15:08:25.761004",
+ "modified": "2026-09-17 19:01:39.102204",
  "modified_by": "Administrator",
  "module": "Fleet",
  "name": "Material Transfer",
@@ -130,7 +193,6 @@
  "owner": "Administrator",
  "permissions": [
   {
-   "amend": 1,
    "create": 1,
    "delete": 1,
    "export": 1,
@@ -138,7 +200,6 @@
    "report": 1,
    "role": "System Manager",
    "share": 1,
-   "submit": 1,
    "write": 1
   },
   {
@@ -148,7 +209,6 @@
    "role": "Support Team",
    "select": 1,
    "share": 1,
-   "submit": 1,
    "write": 1
   },
   {
@@ -157,7 +217,6 @@
    "role": "Technician",
    "select": 1,
    "share": 1,
-   "submit": 1,
    "write": 1
   },
   {
@@ -168,7 +227,6 @@
    "role": "Fleet Administrator",
    "select": 1,
    "share": 1,
-   "submit": 1,
    "write": 1
   },
   {
@@ -179,7 +237,6 @@
    "role": "Fleet Manager",
    "select": 1,
    "share": 1,
-   "submit": 1,
    "write": 1
   }
  ],
@@ -189,5 +246,6 @@
  "sort_order": "DESC",
  "states": [],
  "track_changes": 1,
+ "track_seen": 1,
  "track_views": 1
 }

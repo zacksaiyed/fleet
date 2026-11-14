@@ -157,7 +157,7 @@ has_permission = {
 # Override standard doctype classes
 
 override_doctype_class = {
-    # "Data Import": "fleet.override.data_import.CustomDataImport"
+    "Data Import": "fleet.override.data_import.CustomDataImport"
 }
 
 # Document Events
@@ -196,12 +196,17 @@ doc_events = {
         ],
         "after_insert": [
             "fleet.erpnext_events.vehicle.after_insert_vehicle",
-            "fleet.erpnext_events.vehicle.handle_manual_installation_after_insert"
+            "fleet.erpnext_events.vehicle.handle_manual_installation_after_insert",
+			"fleet.v2.utils.update_customer_vehicle_count"
         ],
         "on_update": [
             "fleet.erpnext_events.vehicle.on_update_vehicle",
-            "fleet.erpnext_events.vehicle.handle_manual_installation_on_update"
+            "fleet.erpnext_events.vehicle.handle_manual_installation_on_update",
+			 "fleet.v2.utils.update_customer_vehicle_count"
         ],
+		 "after_delete": [
+            "fleet.v2.utils.update_customer_vehicle_count"
+        ]
     },
     "Customer": {
         "validate":[
@@ -248,8 +253,12 @@ doc_events = {
 
 scheduler_events = {
     "cron": {
+		"* * * * *": [
+			"fleet.fleet.doctype.job.job.reopen_expired_held_jobs",
+		],
         "*/5 * * * *": [
-            "fleet.scheduled.task_auto_reject.auto_reject_unaccepted_tasks"
+            "fleet.scheduled.task_auto_reject.auto_reject_unaccepted_tasks",
+
         ],
 	"0 22 * * *": [
 		"fleet.fleet.doctype.job.job.set_progress_jobs_to_pending",
@@ -272,6 +281,9 @@ scheduler_events = {
 # override_whitelisted_methods = {
 # 	"frappe.desk.doctype.event.event.get_events": "fleet.event.get_events"
 # }
+override_whitelisted_methods = {
+    "frappe.desk.listview.get_group_by_count": "fleet.erpnext_events.vehicle.get_group_by_count"
+}
 #
 # each overriding function accepts a `data` argument;
 # generated from the base implementation of the doctype dashboard,
@@ -339,6 +351,7 @@ on_session_creation = "fleet.mobile_api.auth.enforce_simultaneous_sessions"
 # }
 
 fixtures = [
+    {"dt": "Warehouse Type"},
     {"dt": "Workflow State", "filters": [
         ["name", "in", [
             "Completed", "Open", "Cancelled", "In Review", "On Hold",
@@ -348,6 +361,12 @@ fixtures = [
     ]},
     {"dt": "Custom DocPerm", "filters": [
         ["role", "in", ["Fleet Administrator", "Fleet Manager"]]
+    ]},
+    {"dt": "Workflow Action Master", "filters": [
+        ["name", "in", [
+            "Accept", "Done", "Complete", "Re Open", "Start", "Hold", "Cancel",
+            "Transfer Material", "Approve", "Reject"
+        ]]
     ]},
     {"dt": "Workflow","filters": [
         [
@@ -368,3 +387,6 @@ fixtures = [
         ["name", "in", ["Vehicle Item Warehouse Status"]]
     ]},
 ]
+
+# Load API modules so @frappe.whitelist handlers under fleet.apis are registered.
+import fleet.apis  # noqa: F401, E402
