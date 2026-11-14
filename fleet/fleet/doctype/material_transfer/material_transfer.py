@@ -1110,7 +1110,7 @@ def _get_users_for_warehouse(warehouse):
 		return []
 
 	return [user_id]
-<<<<<<< HEAD
+
 
 def _set_items_locked(item_codes, locked):
 	item_codes = {item for item in (item_codes or []) if item}
