@@ -32,7 +32,6 @@ from frappe import _
 from frappe.utils import cint
 
 @frappe.whitelist(methods=["GET", "POST"])
-
 def get_my_tasks(
 
     status=None,
@@ -663,7 +662,6 @@ def _error(http_status: int, code: str, message: str, data=None) -> dict:
     return resp
 
 @frappe.whitelist(methods=["GET", "POST"])
-
 def get_task_customer_vehicles(task=None, task_type=None):
 
     require_admin()
@@ -755,7 +753,6 @@ def get_task_customer_vehicles(task=None, task_type=None):
     }
 
 @frappe.whitelist(methods=["GET", "POST"])
-
 def get_task_options():
 
     require_login()
@@ -789,7 +786,6 @@ def get_task_options():
     }
 
 @frappe.whitelist()
-
 def get_task_jobs(task: str) -> dict:
 
     """
@@ -925,55 +921,46 @@ def _strip_html(value):
     return text or None
 
 @frappe.whitelist(methods=["POST"])
-
 def respond_to_task(task=None, action=None, reject_comment=None):
 
     return task_v2.respond_to_task(task=task, action=action, reject_comment=reject_comment)
 
 @frappe.whitelist(methods=["POST"])
-
 def start_task(task=None):
 
     return task_v2.start_task(task=task)
 
 @frappe.whitelist(methods=["GET", "POST"])
-
 def get_job(job):
 
     return task_v2.get_job(job=job)
 
 @frappe.whitelist(methods=["POST"])
-
 def update_job(**kwargs):
 
     return task_v2.update_job(**_form_kwargs())
 
 @frappe.whitelist(methods=["POST"])
-
 def job_action(job, action, comment=None, hold_until_date=None):
 
     return task_v2.job_action(job=job, action=action, comment=comment, hold_until_date=hold_until_date)
 
 @frappe.whitelist(methods=["POST"])
-
 def create_job_for_task(**kwargs):
 
     return task_v2.create_job_for_task(**_form_kwargs())
 
 @frappe.whitelist(methods=["POST"])
-
 def upload_job_image(job, image_data=None, filename=None, comment=None):
 
     return task_v2.upload_job_image(job=job, image_data=image_data, filename=filename, comment=comment)
 
 @frappe.whitelist(methods=["GET", "POST"])
-
 def get_job_types():
 
     return task_v2.get_job_types()
 
 @frappe.whitelist(methods=["GET", "POST"])
-
 def get_profile():
 
     return task_v2.get_profile()
@@ -993,7 +980,6 @@ def _vehicle_list(value):
     return list(value)
 
 @frappe.whitelist(methods=["POST"])
-
 def create_jobs(task=None, job_type=None, vehicle_list=None, no_of_jobs=None, assign_technician=None, job_rows=None):
 
     require_login()
@@ -1099,7 +1085,6 @@ def create_jobs(task=None, job_type=None, vehicle_list=None, no_of_jobs=None, as
     }
 
 @frappe.whitelist(methods=["GET", "POST"])
-
 def get_vehicle_details(vehicle_number=None, task=None, task_type=None):
 
     return task_v2.get_vehicle_details(

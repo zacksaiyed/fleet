@@ -201,7 +201,6 @@ def ensure_item(item):
     return item
 
 @frappe.whitelist()
-
 def return_vehicle_item_status():
 
     return ["Installed","Removed"]
@@ -415,7 +414,6 @@ def parsed_filters(raw):
     return result
 
 @frappe.whitelist(methods=["GET", "POST"])
-
 def list_vehicles(txt=None, filters=None, start=0, limit_page_length=20, sort_by="modified", sort_order="desc"):
 
     require_admin()
@@ -461,7 +459,6 @@ def list_vehicles(txt=None, filters=None, start=0, limit_page_length=20, sort_by
     return {"vehicles": result, "start": start, "limit_page_length": limit, "has_more": len(rows) > limit}
 
 @frappe.whitelist(methods=["POST"])
-
 def create_vehicle(
 
     license_plate=None,
@@ -839,7 +836,6 @@ def create_vehicle(
     }
 
 @frappe.whitelist(methods=["GET", "POST"])
-
 def get_vehicle_details(vehicle=None):
 
     require_admin()
@@ -851,7 +847,6 @@ def get_vehicle_details(vehicle=None):
     return {"vehicle": data}
 
 @frappe.whitelist(methods=["GET", "POST"])
-
 def get_filtered_items(item_type=None):
 
     require_admin()
@@ -889,7 +884,6 @@ def get_filtered_items(item_type=None):
     )
 
 @frappe.whitelist(methods=["POST"])
-
 def update_vehicle(vehicle=None, items=None, comments = None):
 
     require_admin()
@@ -1071,7 +1065,6 @@ def installed_elsewhere(item, vehicle):
     return frappe.db.exists("Vehicle Item", {"item": item, "status": "Installed", "parent": ["!=", vehicle]})
 
 @frappe.whitelist(methods=["POST"])
-
 def add_vehicle_item(vehicle=None, item=None, item_type=None, status=None):
 
     require_admin()
@@ -1117,7 +1110,6 @@ def add_vehicle_item(vehicle=None, item=None, item_type=None, status=None):
     return {"message": "Vehicle Item added", "vehicle": doc.name, "row_id": row.name, "status": status, "stock_entry": se}
 
 @frappe.whitelist()
-
 def get_item_type():
 
     item_type = frappe.db.get_all("Item Type",pluck="name")
@@ -1125,7 +1117,6 @@ def get_item_type():
     return item_type
 
 @frappe.whitelist(methods=["GET", "POST"])
-
 def get_add_assets_details(items=None):
 
     require_admin()
@@ -1205,7 +1196,6 @@ def get_add_assets_details(items=None):
     }
 
 @frappe.whitelist(methods=["POST"])
-
 def remove_vehicle_item(vehicle=None, row_id=None, item=None, target_warehouse=None):
 
     require_admin()
@@ -1243,7 +1233,6 @@ def remove_vehicle_item(vehicle=None, row_id=None, item=None, target_warehouse=N
     return {"message": "Item removed", "vehicle": doc.name, "row_id": row.name, "stock_entry": se}
 
 @frappe.whitelist(methods=["POST"])
-
 def update_vehicle_item(vehicle=None, row_id=None, item_type=None, status=None, source_warehouse=None, target_warehouse=None):
 
     require_admin()
@@ -1305,7 +1294,6 @@ def update_vehicle_item(vehicle=None, row_id=None, item_type=None, status=None, 
     return {"message": "Vehicle Item updated", "row_id": row.name}
 
 @frappe.whitelist(methods=["POST"])
-
 def move_vehicle_to_customer(vehicle=None, customer=None):
 
     require_admin()
@@ -1427,7 +1415,6 @@ def move_vehicle_to_customer(vehicle=None, customer=None):
     }
 
 @frappe.whitelist(methods=["POST"])
-
 def remove_vehicle(vehicle=None):
 
     require_admin()
@@ -1449,7 +1436,6 @@ def remove_vehicle(vehicle=None):
     return {"message": "Vehicle disabled", "vehicle": doc.name}
 
 @frappe.whitelist(methods=["GET", "POST"])
-
 def get_customer_vehicles(customer=None, start=0, limit_page_length=20):
 
     require_admin()
@@ -1467,7 +1453,6 @@ def get_customer_vehicles(customer=None, start=0, limit_page_length=20):
     return {"customer": customer, "vehicles": rows[:limit], "has_more": len(rows) > limit}
 
 @frappe.whitelist(methods=["GET", "POST"])
-
 def get_available_items(txt=None, limit_page_length=50):
 
     require_admin()
@@ -1507,7 +1492,6 @@ def get_available_items(txt=None, limit_page_length=50):
     return {"items": results}
 
 @frappe.whitelist(methods=["GET", "POST"])
-
 def get_warehouses(customer=None, item=None):
 
     require_admin()
@@ -1527,7 +1511,6 @@ def _select_options(doctype, fieldname):
     return [x.strip() for x in (f.options or "").splitlines() if x.strip()] if f else []
 
 @frappe.whitelist(methods=["GET", "POST"])
-
 def picker():
 
     require_login()
@@ -1535,13 +1518,11 @@ def picker():
     return {"custom_vehicle_type": _select_options("Vehicle", "custom_vehicle_type"), "fuel_type": _select_options("Vehicle", "fuel_type"), "save_field_names": {"vehicle_type": "custom_vehicle_type", "fuel_type": "fuel_type"}}
 
 @frappe.whitelist(methods=["GET", "POST"])
-
 def fleet_vehicle_picker():
 
     return picker()
 
 @frappe.whitelist(methods=["GET", "POST"])
-
 def exists(vehicle_number=None):
 
     require_login()
@@ -1551,7 +1532,6 @@ def exists(vehicle_number=None):
     return is_vehicle_exists(vehicle_number=value("vehicle_number", vehicle_number))
 
 @frappe.whitelist(methods=["GET", "POST"])
-
 def details(vehicle_no=None):
 
     require_login()
@@ -1561,7 +1541,6 @@ def details(vehicle_no=None):
     return get_vehicle_details(vehicle_no=value("vehicle_no", vehicle_no))
 
 @frappe.whitelist(methods=["GET", "POST"])
-
 def types():
 
     require_login()
@@ -1571,7 +1550,6 @@ def types():
     return get_vehicle_types()
 
 @frappe.whitelist(methods=["POST"])
-
 def create_vehicle_type(vehicle_type=None):
 
     require_admin()

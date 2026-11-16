@@ -29,7 +29,6 @@ def require_admin():
         frappe.throw(_("Only Admin can perform this action."), frappe.PermissionError)
 
 @frappe.whitelist(methods=["POST"])
-
 def fleet_job_action_v2(**kwargs):
 
     return action_v2(**kwargs)
@@ -55,7 +54,6 @@ def _admin():
         frappe.throw(_('Only Administrator can perform this action.'), frappe.PermissionError)
 
 @frappe.whitelist()
-
 def mark_job_done(name: str, done_comment: str) -> dict:
 
     """
@@ -89,7 +87,6 @@ def _error(http_status: int, code: str, message: str, data=None) -> dict:
     return resp
 
 @frappe.whitelist()
-
 def job_action(job: str, action: str, comment: str = None, hold_until_date: str = None) -> dict:
 
     """
@@ -147,7 +144,6 @@ def job_action(job: str, action: str, comment: str = None, hold_until_date: str 
     return {"status": "success", **result}
 
 @frappe.whitelist(methods=["POST"])
-
 def action_v2(name=None, job_name=None, action=None, **kwargs):
 
     require_login()
@@ -397,7 +393,6 @@ def _set_items(job, rows):
         job.append('item_installed_removed', data)
 
 @frappe.whitelist(methods=["GET", "POST"])
-
 def get_job_item_options(job=None, direction=None):
 
     _admin()
@@ -1027,7 +1022,6 @@ def _payload(job):
     }
 
 @frappe.whitelist(methods=["GET", "POST"])
-
 def list_jobs(
 
     status=None,
@@ -1202,7 +1196,6 @@ def list_jobs(
     }
 
 @frappe.whitelist(methods=['GET', 'POST'])
-
 def job_details(name=None):
 
     _admin()
@@ -1216,7 +1209,6 @@ def job_details(name=None):
     return {'job': _payload(frappe.get_doc('Job', name))}
 
 @frappe.whitelist(methods=['POST'])
-
 def create_job(task=None, task_type=None, vehicle_number=None, assigned_technician=None, items=None, job_images=None, **kwargs):
 
     _admin()
@@ -1290,7 +1282,6 @@ def create_job(task=None, task_type=None, vehicle_number=None, assigned_technici
     return {'message': 'Job created successfully', 'job': _payload(job)}
 
 @frappe.whitelist(methods=["POST"])
-
 def update_job(
 
     name=None,
@@ -2054,7 +2045,6 @@ def update_job(
     }
 
 @frappe.whitelist(methods=["GET", "POST"])
-
 def get_swap_item_options(job=None, source=None):
 
     """Available installed old-vehicle items or unlocked technician stock."""
@@ -2188,7 +2178,6 @@ def get_swap_item_options(job=None, source=None):
             "warehouse": warehouse, "total": len(result), "items": result}
 
 @frappe.whitelist(methods=["POST"])
-
 def upload_job_image(job, image_data=None, filename=None, comment=None):
 
     return task_v2.upload_job_image(job=job, image_data=image_data, filename=filename, comment=comment)

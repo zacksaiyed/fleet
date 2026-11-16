@@ -365,7 +365,6 @@ def create_address(
     return address
 
 @frappe.whitelist()
-
 def fetch_customer_type():
 
     return ["Individual","Company","Partnership"]
@@ -601,7 +600,6 @@ def list_with_vehicle_counts(
     }
 
 @frappe.whitelist(methods=["GET", "POST"])
-
 def vehicle_count(customer=None):
 
     require_admin()
@@ -621,7 +619,6 @@ def vehicle_count(customer=None):
     }
 
 @frappe.whitelist()
-
 def get_country_dropdown():
 
     country = frappe.db.get_all("Country",pluck="name",order_by="name asc")
@@ -629,7 +626,6 @@ def get_country_dropdown():
     return country
 
 @frappe.whitelist()
-
 def get_customer_group():
 
     types = frappe.db.get_all("Customer Group",{"is_group":0},pluck="name")
@@ -637,7 +633,6 @@ def get_customer_group():
     return types
 
 @frappe.whitelist(methods=["POST"])
-
 def create_customer(
 
     customer_name = None,
@@ -821,7 +816,6 @@ def create_customer(
     }
 
 @frappe.whitelist(methods=["GET", "POST"])
-
 def get_customer_details(customer=None):
 
     require_admin()
@@ -865,7 +859,6 @@ def get_customer_details(customer=None):
     }
 
 @frappe.whitelist(methods=["POST"])
-
 def update_customer(
 
     customer=None,
@@ -989,7 +982,6 @@ def update_customer(
     }
 
 @frappe.whitelist(methods=["POST"])
-
 def create_customer_address(
 
     customer=None,
