@@ -1,101 +1,307 @@
-
 import json
-
+from datetime import datetime
 import frappe
 from frappe import _
-from frappe.utils import cint
+from frappe.utils import cint, add_days, getdate
 
-
-OPERATORS = {
-    "=", "!=", ">", ">=", "<", "<=",
-    "like", "not like", "in", "not in",
-    "between", "is", "is not"
+FILTER_FIELDS = {
+    "Customer": [
+        ("Customer Name", "Customer", ("customer_name",), "values"),
+        ("Customer ID", "Customer", ("name",), "values"),
+        ("Vehicle Count", "Customer", ("custom_vehicle_count",), "count"),
+        ("Group", "Customer", ("customer_group",), "values"),
+        ("TPIN", "Customer", ("custom_tpin", "tpin"), "values"),
+        ("Address", "Customer", ("customer_primary_address",), "values"),
+    ],
+    "Material Request": [
+        ("Date", "Material Transfer", ("date", "creation"), "date"),
+        ("Purpose", "Material Transfer", ("purpose",), "values"),
+        ("Initiated By", "Material Transfer", ("initiated_by", "owner"), "values"),
+    ],
+    "Vehicle": [
+        ("Number", "Vehicle", ("license_plate", "name"), "values"),
+        ("Make", "Vehicle", ("make",), "values"),
+        ("Model", "Vehicle", ("model",), "values"),
+        ("Colour", "Vehicle", ("color", "colour"), "values"),
+        ("Customer", "Vehicle", ("custom_customer", "customer"), "values"),
+    ],
+    "Job": [
+        ("Status", "Job", ("status",), "values"),
+        ("Created On", "Job", ("creation",), "date"),
+        ("Customer", "Job", ("customer",), "values"),
+        ("Vehicle Number", "Job", ("vehicle_number",), "values"),
+        ("Job Type", "Job", ("task_type",), "values"),
+    ],
+    "Task": [
+        ("Status", "Task", ("status",), "values"),
+        ("Last Updated On", "Task", ("modified",), "date"),
+        ("Customer", "Task", ("custom_customer", "customer"), "values"),
+        ("Priority", "Task", ("priority",), "values"),
+        ("Created Date", "Task", ("creation",), "date"),
+        ("Assigned To", "Task", ("custom_assign_to", "assigned_to", "custom_technician"), "values"),
+        ("Subject", "Task", ("subject",), "values"),
+        ("Address", "Task", ("custom_address", "address", "custom_customer_address"), "values"),
+    ],
+    "Material Transfer": [
+        ("Status", "Material Transfer", ("workflow_state", "status"), "values"),
+        ("Date", "Material Transfer", ("posting_date", "date", "creation"), "date"),
+        ("Target", "Material Transfer", ("target", "target_warehouse"), "values"),
+        ("ID", "Material Transfer", ("name",), "values"),
+        ("Source", "Material Transfer", ("source", "source_warehouse"), "values"),
+        ("Purpose", "Material Transfer", ("purpose", "custom_purpose"), "values"),
+    ],
 }
 
+STANDARD_FIELDS = {"name", "owner", "creation", "modified"}
 
-def parse_filters(doctype, filters=None):
-    if not filters:
-        return []
 
-    if isinstance(filters, str):
-        try:
-            filters = json.loads(filters)
-        except (ValueError, TypeError):
-            frappe.throw(_("Invalid filters JSON"))
-
-    if not isinstance(filters, list):
-        frappe.throw(_("filters must be a list"))
-
-    if len(filters) > 30:
-        frappe.throw(_("Maximum 30 filters are allowed"))
-
+def _resolve_field(doctype, candidates):
     meta = frappe.get_meta(doctype)
-    columns = set(meta.get_valid_columns())
-    result = []
+    for fieldname in candidates:
+        if fieldname in STANDARD_FIELDS or meta.has_field(fieldname):
+            return fieldname
+    frappe.throw(_("No configured field found on {0}: {1}").format(doctype, ", ".join(candidates)))
 
-    for entry in filters:
-        if not isinstance(entry, (list, tuple)):
-            frappe.throw(_("Invalid filter entry"))
 
-        if len(entry) == 4:
-            dt, field, operator, value = entry
-            if dt != doctype:
-                frappe.throw(_("Invalid filter DocType"))
+def _screen_config(screen):
+    if screen not in FILTER_FIELDS:
+        frappe.throw(_("Unsupported screen: {0}").format(screen))
+    config = {}
+    for label, doctype, candidates, kind in FILTER_FIELDS[screen]:
+        meta = frappe.get_meta(doctype)
+        fieldname = next((name for name in candidates if name in STANDARD_FIELDS or meta.has_field(name)), None)
+        if fieldname:
+            config[label] = (doctype, fieldname, kind)
+    return config
 
-        elif len(entry) == 3:
-            field, operator, value = entry
 
+def _read_json(value):
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except (TypeError, ValueError):
+            frappe.throw(_("Invalid filters JSON."))
+    return value
+
+
+@frappe.whitelist(methods=["GET", "POST"])
+def get_filter_values(screen, field=None, search=None, start=0, page_length=100):
+    if screen not in FILTER_FIELDS:
+        frappe.throw(_("Unsupported screen."))
+    if frappe.session.user == "Guest":
+        frappe.throw(_("Login required."), frappe.PermissionError)
+    if "Administrator" not in frappe.get_roles(frappe.session.user):
+        frappe.throw(_("Only Admin can perform this action."), frappe.PermissionError)
+
+    start = max(cint(start), 0)
+    page_length = max(1, min(cint(page_length) or 100, 500))
+    search = (search or "").strip()
+    selected = [row for row in FILTER_FIELDS[screen] if field is None or row[0] == field]
+    if not selected:
+        frappe.throw(_("Unsupported filter field."))
+
+    output = {}
+    for label, doctype, candidates, kind in selected:
+        if label not in _screen_config(screen):
+            continue
+        fieldname = _screen_config(screen)[label][1]
+        entry = {"label": label, "doctype": doctype, "fieldname": fieldname, "type": kind}
+        if kind == "values":
+            conditions = [[fieldname, "is", "set"]]
+            if search:
+                conditions.append([fieldname, "like", "%" + search + "%"])
+            rows = frappe.get_all(
+                doctype,
+                fields=[fieldname],
+                filters=conditions,
+                group_by=fieldname,
+                order_by=f"`{fieldname}` asc",
+                start=start,
+                page_length=page_length + 1,
+            )
+            entry["has_more"] = len(rows) > page_length
+            entry["options"] = [
+                {"value": row.get(fieldname), "label": str(row.get(fieldname))}
+                for row in rows[:page_length]
+                if row.get(fieldname) not in (None, "")
+            ]
         else:
-            frappe.throw(_("Invalid filter format"))
+            entry["options"] = []
+            entry["input_type"] = "date_range" if kind == "date" else "number_range"
+            entry["has_more"] = False
+        output[label] = entry
+    return {"screen": screen, "filters": output, "start": start, "page_length": page_length}
 
-        if not isinstance(field, str) or field not in columns:
-            frappe.throw(_("Invalid filter field: {0}").format(field))
 
-        if not isinstance(operator, str):
-            frappe.throw(_("Invalid operator"))
+def parse_filter_date(value):
+    if value in (None, ""):
+        return None
+    try:
+        return datetime.strptime(str(value).strip(), "%d-%m-%Y").strftime("%Y-%m-%d")
+    except (ValueError, TypeError):
+        frappe.throw(_("Date must be in DD-MM-YYYY format."))
 
-        operator = operator.lower().strip()
 
-        if operator not in OPERATORS:
-            frappe.throw(_("Unsupported operator"))
+def _is_datetime_field(doctype, fieldname):
+    if fieldname in ("creation", "modified"):
+        return True
+    field = frappe.get_meta(doctype).get_field(fieldname)
+    return bool(field and field.fieldtype == "Datetime")
 
-        if operator in ("in", "not in", "between"):
-            if not isinstance(value, (list, tuple)):
-                frappe.throw(_("List value required"))
 
-            if operator == "between" and len(value) != 2:
-                frappe.throw(_("Between requires two values"))
+def apply_screen_filters(screen, filters=None):
+    filters = _read_json(filters)
+    if filters in (None, "", {}):
+        return []
+    if not isinstance(filters, dict):
+        frappe.throw(_("filters must be a JSON object keyed by filter label."))
 
-        elif isinstance(value, (list, dict)):
-            frappe.throw(_("Invalid filter value"))
+    config = _screen_config(screen)
+    result = []
+    for label, value in filters.items():
+        if label not in config:
+            frappe.throw(_("Unsupported filter for {0}: {1}").format(screen, label))
+        doctype, fieldname, kind = config[label]
+        if doctype != ("Material Transfer" if screen == "Material Request" else screen):
+            frappe.throw(_("Filter {0} must be a direct field on {1}.").format(label, screen))
+        if value is None or value == "" or value == [] or value == {}:
+            continue
 
-        if operator in ("is", "is not"):
-            if value not in ("set", "not set"):
-                frappe.throw(_("Invalid null-check value"))
-
-        result.append([field, operator, value])
-
+        if kind in ("date", "count"):
+            is_datetime = kind == "date" and _is_datetime_field(doctype, fieldname)
+            if isinstance(value, dict):
+                if "operator" in value:
+                    operator = str(value["operator"]).strip().lower()
+                    if operator not in ("=", "!=", ">", ">=", "<", "<="):
+                        frappe.throw(_("Unsupported comparison operator for {0}.").format(label))
+                    comparison = value.get("value")
+                    if comparison in (None, ""):
+                        frappe.throw(_("Comparison value is required for {0}.").format(label))
+                    if kind == "date":
+                        comparison = parse_filter_date(comparison)
+                        if is_datetime and operator in ("=", "!="):
+                            following = str(add_days(getdate(comparison), 1))
+                            if operator == "=":
+                                result.extend([[fieldname, ">=", comparison], [fieldname, "<", following]])
+                            else:
+                                frappe.throw(_("Not equal is not supported for datetime date filters."))
+                            continue
+                    result.append([fieldname, operator, comparison])
+                    continue
+                lower = value.get("from", value.get("min"))
+                upper = value.get("to", value.get("max"))
+            elif isinstance(value, (list, tuple)) and len(value) == 2:
+                lower, upper = value
+            else:
+                if kind == "date":
+                    day = parse_filter_date(value)
+                    if is_datetime:
+                        result.extend([[fieldname, ">=", day], [fieldname, "<", str(add_days(getdate(day), 1))]])
+                    else:
+                        result.append([fieldname, "=", day])
+                else:
+                    result.append([fieldname, "=", value])
+                continue
+            if kind == "date":
+                lower = parse_filter_date(lower)
+                upper = parse_filter_date(upper)
+                if lower and upper and getdate(lower) > getdate(upper):
+                    frappe.throw(_("From Date cannot exceed To Date."))
+            if lower not in (None, ""):
+                result.append([fieldname, ">=", lower])
+            if upper not in (None, ""):
+                if is_datetime:
+                    result.append([fieldname, "<", str(add_days(getdate(upper), 1))])
+                else:
+                    result.append([fieldname, "<=", upper])
+        elif isinstance(value, (list, tuple)):
+            if value:
+                result.append([fieldname, "in", list(value)])
+        else:
+            result.append([fieldname, "=", value])
     return result
 
 
-def get_order_by(
-    doctype,
-    sort_by=None,
-    sort_order=None,
-    default="modified"
-):
-    sort_by = str(sort_by or default).strip()
-    sort_order = str(sort_order or "desc").strip().lower()
+def apply_screen_sort(screen, sort_by=None, sort_order="desc"):
+    config = _screen_config(screen)
+    if not sort_by:
+        fieldname = "creation"
+    elif sort_by in config:
+        doctype, fieldname, _kind = config[sort_by]
+        if doctype != ("Material Transfer" if screen == "Material Request" else screen):
+            frappe.throw(_("Sort field must belong to the selected screen."))
+    elif sort_by in ("creation", "modified", "name"):
+        fieldname = sort_by
+    else:
+        frappe.throw(_("Unsupported sort field for {0}: {1}").format(screen, sort_by))
 
-    columns = set(frappe.get_meta(doctype).get_valid_columns())
+    direction = str(sort_order or "desc").lower()
+    if direction not in ("asc", "desc"):
+        frappe.throw(_("sort_order must be asc or desc."))
+    return f"`{fieldname}` {direction}"
 
-    if sort_by not in columns:
+
+def parse_filters(doctype, filters=None):
+    filters = _read_json(filters)
+    if filters in (None, "", [], {}):
+        return []
+    if isinstance(filters, dict):
+        return apply_screen_filters(doctype, filters)
+    if not isinstance(filters, list):
+        frappe.throw(_("filters must be a list or JSON object."))
+    if len(filters) > 50:
+        frappe.throw(_("Maximum 50 filters are allowed."))
+    meta = frappe.get_meta(doctype)
+    valid = set(meta.get_valid_columns()) | STANDARD_FIELDS
+    operators = {"=", "!=", ">", ">=", "<", "<=", "like", "not like", "in", "not in", "between", "is"}
+    result = []
+    for condition in filters:
+        if not isinstance(condition, (list, tuple)) or len(condition) not in (3, 4):
+            frappe.throw(_("Each filter must contain field, operator and value."))
+        if len(condition) == 4:
+            source, field, operator, value = condition
+            if source != doctype:
+                frappe.throw(_("Invalid filter DocType."))
+        else:
+            field, operator, value = condition
+        if field not in valid or str(operator).lower() not in operators:
+            frappe.throw(_("Invalid filter field or operator."))
+        operator = str(operator).lower()
+        if operator in ("in", "not in", "between") and not isinstance(value, (list, tuple)):
+            frappe.throw(_("Filter value must be a list."))
+        if operator == "between" and len(value) != 2:
+            frappe.throw(_("Between requires two values."))
+        field_meta = meta.get_field(field)
+        is_date = field in ("creation", "modified") or bool(field_meta and field_meta.fieldtype in ("Date", "Datetime"))
+        if is_date:
+            if operator == "between":
+                value = [parse_filter_date(v) for v in value]
+                if _is_datetime_field(doctype, field):
+                    result.append([field, ">=", value[0]])
+                    result.append([field, "<", str(add_days(getdate(value[1]), 1))])
+                    continue
+            elif operator in ("=", ">=", "<=", ">", "<"):
+                value = parse_filter_date(value)
+                if _is_datetime_field(doctype, field) and operator == "=":
+                    result.append([field, ">=", value])
+                    result.append([field, "<", str(add_days(getdate(value), 1))])
+                    continue
+        result.append([field, operator, value])
+    return result
+
+
+def get_order_by(doctype, sort_by=None, sort_order="desc", default="modified"):
+    sort_by = sort_by or default
+    if sort_by in _screen_config(doctype):
+        return apply_screen_sort(doctype, sort_by, sort_order)
+    meta = frappe.get_meta(doctype)
+    valid = set(meta.get_valid_columns()) | STANDARD_FIELDS
+    if sort_by not in valid:
         frappe.throw(_("Invalid sort field: {0}").format(sort_by))
-
-    if sort_order not in ("asc", "desc"):
-        frappe.throw(_("Sort order must be asc or desc"))
-
-    return f"`{sort_by}` {sort_order}, `name` asc"
+    direction = str(sort_order or "desc").strip().lower()
+    if direction not in ("asc", "desc"):
+        frappe.throw(_("sort_order must be asc or desc."))
+    return f"`{sort_by}` {direction}"
 
 
 def get_pagination(start=0, page_length=20):
