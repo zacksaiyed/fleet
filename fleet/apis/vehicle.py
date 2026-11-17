@@ -672,31 +672,19 @@ def create_vehicle(
         )
 
         if installation_date:
-
             try:
-
                 installation_date = datetime.strptime(
-
                     str(installation_date).strip(),
-
-                    "%d-%m-%y"
-
+                    "%d-%m-%Y"
                 ).strftime("%Y-%m-%d")
 
             except ValueError:
-
                 frappe.throw(
-
                     _(
-
                         "Invalid Date of Installation for Item {0}. "
-
-                        "Use DD-MM-YY format."
-
+                        "Use DD-MM-YYYY format."
                     ).format(item)
-
                 )
-
         elif status == "Installed":
 
             installation_date = nowdate()

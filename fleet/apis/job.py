@@ -1283,7 +1283,6 @@ def create_job(task=None, task_type=None, vehicle_number=None, assigned_technici
 
 @frappe.whitelist(methods=["POST"])
 def update_job(
-
     name=None,
 
     task=None,
