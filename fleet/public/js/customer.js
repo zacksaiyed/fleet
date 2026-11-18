@@ -13,17 +13,26 @@ frappe.ui.form.on("Customer", {
         });
         setup_invoice_generation_mode(frm);
         
-        if (!frm.is_new()) {
+       if (!frm.is_new()) {
             frm.add_custom_button(__("Create Vehicle Invoice"), function() {
                 show_vehicle_invoice_dialog(frm);
             }, __("Actions"));
-        }
+            
+            frm.add_custom_button(__('Vehicle Activities'), function() {
+                frappe.route_options = {
+                    "customer": frm.doc.name 
+                };
+                frappe.new_doc('Vehicle Activities');
+            }).addClass('btn-danger text-white');
+        }   
 
-        // PERFECT RESET: Jab bhi form load ya save hoga, sab fresh start hoga
         frm.doc.__old_invoice_frequency = frm.doc.custom_invoice_frequency_months;
         frm.frequency_validated = false;
         frm.tpin_validated = false;
 
+        // ====================================================
+        // UPDATE: Page load hone par purani rows lock karein
+        // ====================================================
         lock_saved_rows(frm);
 
         // ====================================================
