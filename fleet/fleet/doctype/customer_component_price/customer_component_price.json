@@ -41,7 +41,8 @@
    "fieldname": "effective_from",
    "fieldtype": "Date",
    "in_list_view": 1,
-   "label": "Effective From"
+   "label": "Effective From",
+   "reqd": 1
   },
   {
    "fieldname": "effective_to",
