@@ -72,6 +72,7 @@ def _create_jobs_for_new_rows(doc):
             "technician_warehouse": tech_warehouse,
             "customer_warehouse": "",
             "date": doc.get("custom_date") or None,
+            "creation_date": doc.get("custom_date") or frappe.utils.today(),
         })
         job.insert(ignore_permissions=True)
 
@@ -128,6 +129,10 @@ def _sync_task_job_changes_to_jobs(doc):
         # Status: Support can update Job status directly from Task Job row
         if row_status != (job_values.status or ""):
             updates["status"] = row_status
+            if row_status == "In Review":
+                updates["in_review_date"] = frappe.utils.today()
+            elif row_status == "Completed":
+                updates["complete_date"] = frappe.utils.today()
 
         # Vehicle: always sync from Task Job → Job
         if row_vehicle != (job_values.vehicle_number or ""):

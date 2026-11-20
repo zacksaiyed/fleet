@@ -1,6 +1,6 @@
 import frappe
 from frappe import _
-from frappe.utils import flt, now_datetime, today
+from frappe.utils import flt, now_datetime
 
 def validate_customer(doc, method=None):
 
@@ -10,9 +10,6 @@ def validate_customer(doc, method=None):
         set_default_fleet_billing_settings(doc)
         
     prepare_price_history_logs(doc)
-    
-    # NAYA CODE: Track Invoice Frequency Changes Before Save
-    track_invoice_frequency_change(doc)
 
 
 def on_update(doc, method=None):
@@ -20,66 +17,6 @@ def on_update(doc, method=None):
     create_customer_warehouse(doc.name)
     
     save_pending_history_logs(doc)
-    
-# ==============================================================
-# UPDATED FUNCTION: Customer Doctype ke liye (Jyada se Kam frequency check ke sath)
-# ==============================================================
-def track_invoice_frequency_change(doc):
-    """Agar Invoice Frequency change hoti hai toh purani value track karein aur sirf tabhi bill banayein jab frequency kam hui ho"""
-    from frappe.utils import getdate, today, add_days, add_months
-    
-    if not doc.is_new() and doc.get_doc_before_save():
-        old_doc = doc.get_doc_before_save()
-        
-        # String se integer me convert kar rahe hain taaki < ya > ka comparison ho sake
-        old_freq = int(old_doc.get("custom_invoice_frequency_months") or 1)
-        new_freq = int(doc.get("custom_invoice_frequency_months") or 1)
-        
-        if old_freq != new_freq:
-            
-            # 1. Track Previous Frequency (Yeh hamesha hoga)
-            doc.custom_previous_invoice_frequency_months = old_freq
-            doc.custom_previous_invoice_frequency_months_ = old_freq
-            doc.custom_invoice_frequency_changed_on = today()
-            
-            # 2. CONDITION: Agar Nayi Frequency Purani se KAM hai (e.g., 12 se 3) tabhi turant bill banega
-            if new_freq < old_freq:
-                current_date = getdate(today())
-                # current_date = getdate("2026-06-01")              
-
-                first_day_current_month = getdate(f"{current_date.year}-{current_date.month:02d}-01")
-                cycle_end_date = add_days(first_day_current_month, -1)
-                
-                last_billed = doc.custom_last_billed_upto_date
-                
-                if last_billed:
-                    cycle_start_date = add_days(getdate(last_billed), 1)
-                else:
-                    # Agar installation ke baad pehla bill hai toh default start date laayein
-                    from fleet.api.billing import get_default_billing_start_date
-                    default_start = get_default_billing_start_date(doc.name)
-                    
-                    if default_start:
-                        cycle_start_date = getdate(default_start)
-                    else:
-                        cycle_start_date = add_months(first_day_current_month, -old_freq)
-                        
-                # Agar pending din hain toh bill generate karo
-                if cycle_start_date <= cycle_end_date:
-                    try:
-                        from fleet.api.billing import generate_customer_invoice
-                        
-                        generate_customer_invoice(
-                            customer_id=doc.name,
-                            from_date=cycle_start_date,
-                            to_date=cycle_end_date
-                        )
-                        
-                        # Bill banne ke baad naya last_billed_date set karein
-                        doc.custom_last_billed_upto_date = cycle_end_date
-                        
-                    except Exception as e:
-                        frappe.log_error(f"Mid-cycle billing failed for {doc.name} on frequency change: {str(e)}", "Frequency Change Billing Error")
 
 
 def create_customer_warehouse(customer_name):
@@ -96,6 +33,7 @@ def create_customer_warehouse(customer_name):
         })
         wh.flags.ignore_links = True  
         wh.insert(ignore_permissions=True)
+
 
 
 def prepare_price_history_logs(doc):
@@ -176,11 +114,11 @@ def create_history_log(customer, model, customer_price, effective_from, effectiv
         "effective_from": effective_from,
         "effective_to": effective_to,
         "changed_by": frappe.session.user,
-        "changed_on": now_datetime(),
-        "custom_changed_": now_datetime()
+        "changed_on": now_datetime()
     })
     history_doc.flags.ignore_links = True  
     history_doc.insert(ignore_permissions=True)
+
 
 
 def set_default_fleet_billing_settings(doc):

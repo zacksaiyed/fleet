@@ -51,8 +51,8 @@
  {
   "docstatus": 0,
   "doctype": "Workflow Action Master",
-  "name": "Send for Review",
-  "workflow_action_name": "Send for Review"
+  "name": "Transfer Material",
+  "workflow_action_name": "Transfer Material"
  },
  {
   "docstatus": 0,
@@ -63,13 +63,19 @@
  {
   "docstatus": 0,
   "doctype": "Workflow Action Master",
-  "name": "Customer Approve",
-  "workflow_action_name": "Customer Approve"
+  "name": "Reject",
+  "workflow_action_name": "Reject"
  },
  {
   "docstatus": 0,
   "doctype": "Workflow Action Master",
-  "name": "Reject",
-  "workflow_action_name": "Reject"
+  "name": "Send for Review",
+  "workflow_action_name": "Send for Review"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow Action Master",
+  "name": "Customer Approve",
+  "workflow_action_name": "Customer Approve"
  }
 ]

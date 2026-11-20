@@ -1,0 +1,5187 @@
+import re
+import json
+import base64
+import frappe
+from frappe import _
+from frappe.utils import nowdate, now_datetime
+
+def _get_valid_vehicle_types() -> set[str]:
+    return set(frappe.get_all("Vehicle Type", pluck="name"))
+
+
+def _error(http_status: int, code: str, message: str, data=None) -> dict:
+    frappe.local.response["http_status_code"] = http_status
+
+    resp = {
+        "status": "error",
+        "code": code,
+        "message": message
+    }
+
+    if data is not None:
+        resp["data"] = data
+
+    return resp
+
+
+# statuses considered active (not done/cancelled)
+_ACTIVE = ("Open", "Accepted", "In Progress", "On Hold", "In Review")
+
+# allowed item directions per job type
+_JOB_TYPE_DIRECTIONS = {
+    "Installation":    ["Installed"],
+    "Checkup":         ["Installed", "Removed"],
+    "Removal":         ["Removed"],
+    "Accessory":       ["Installed"],
+    "Re-Installation": ["Installed"],
+}
+
+
+# auth helper
+
+def _get_employee(user_email):
+    if user_email == "Guest":
+        return None
+    return frappe.db.get_value("Employee", {"user_id": user_email}, "name") or None
+
+
+def _get_auth():
+    """Returns (employee, error_response). Call at the top of every auth-required endpoint."""
+    user = frappe.session.user
+    if user == "Guest":
+        return None, _error(401, "SESSION_EXPIRED", "Session expired. Please login again.")
+    employee = _get_employee(user)
+    if not employee:
+        return None, _error(404, "NO_EMPLOYEE", "No employee record linked to your account.")
+    return employee, None
+
+
+def _strip_html(value):
+    # remove html tags and collapse whitespace, return plain text
+    if not value:
+        return None
+    text = re.sub(r"<[^>]+>", " ", value)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text or None
+
+@frappe.whitelist()
+def get_my_tasks() -> dict:
+    """
+    GET /api/method/fleet.v2.task_v2.get_my_tasks
+
+    Sample payloads:
+
+    All active tasks:
+    {}
+
+    Today:
+    {
+        "tab": "today"
+    }
+
+    Overdue:
+    {
+        "tab": "overdue"
+    }
+
+    Requests:
+    {
+        "tab": "requests"
+    }
+
+    Date range:
+    {
+        "from_date": "2026-09-01",
+        "to_date": "2026-09-30",
+        "status": "Accepted"
+    }
+
+    Send these as query parameters.
+    """
+
+    employee, err = _get_auth()
+
+    if err:
+        return err
+
+    tab = frappe.form_dict.get("tab")
+    from_date = frappe.form_dict.get("from_date")
+    to_date = frappe.form_dict.get("to_date")
+    status_filter = frappe.form_dict.get("status")
+
+    today = nowdate()
+
+    # base filter: never return completed or cancelled tasks
+    filters = {
+        "custom_assign_to": employee,
+        "status": ["not in", ["Completed", "Cancelled", "Rejected"]],
+    }
+
+    if tab == "today":
+
+        filters["custom_date"] = today
+        filters["status"] = ["in", list(_ACTIVE)]
+
+    elif tab == "overdue":
+
+        filters["custom_date"] = ["<", today]
+        filters["status"] = ["in", list(_ACTIVE)]
+
+    elif tab == "requests":
+
+        filters["status"] = "Open"
+
+    else:
+
+        if from_date and to_date:
+
+            filters["custom_date"] = [
+                "between",
+                [from_date, to_date]
+            ]
+
+        elif from_date:
+
+            filters["custom_date"] = [
+                ">=",
+                from_date
+            ]
+
+        elif to_date:
+
+            filters["custom_date"] = [
+                "<=",
+                to_date
+            ]
+
+        if status_filter:
+            filters["status"] = status_filter
+
+    tasks = frappe.get_all(
+        "Task",
+        filters=filters,
+        fields=[
+            "name",
+            "subject",
+            "status",
+            "priority",
+            "description",
+            "custom_date",
+            "custom_sequence",
+            "custom_customer",
+            "custom_address",
+            "custom_complete_address",
+            "custom_assign_to",
+            "custom_employee_name",
+            "custom_mobile_no",
+            "custom_completed_by",
+            "custom_completed_on",
+            "expected_time",
+            "progress",
+            "company",
+            "creation",
+            "modified",
+        ],
+        order_by="custom_date asc, modified desc"
+    )
+
+    # ---------------------------------------------------------
+    # ORDER TASKS BY CUSTOM SEQUENCE
+    # ---------------------------------------------------------
+    #
+    # If custom_sequence is present:
+    #     sequence is given priority
+    #
+    # If custom_sequence is not present:
+    #     existing custom_date / modified order is retained
+    #
+    # Python sort is stable, so tasks having no sequence
+    # preserve the order returned by frappe.get_all().
+    # ---------------------------------------------------------
+
+    tasks.sort(
+        key=lambda task: (
+            task.get("custom_sequence") in (None, ""),
+            -task.get("custom_sequence")
+            if task.get("custom_sequence") not in (None, "")
+            else 0
+        )
+    )
+
+    # aggregate job counts in one sql query to avoid n+1
+
+    task_names = [
+        t["name"]
+        for t in tasks
+    ]
+
+    job_counts = {}
+    job_type_counts = {}
+    completed_counts = {}
+
+    if task_names:
+
+        rows = frappe.db.sql(
+            """
+            SELECT
+                task,
+                task_type,
+                COUNT(*) AS cnt,
+                SUM(
+                    CASE
+                        WHEN status = 'Completed'
+                        THEN 1
+                        ELSE 0
+                    END
+                ) AS completed_cnt
+
+            FROM `tabJob`
+
+            WHERE task IN %(tasks)s
+              AND status != 'Cancelled'
+
+            GROUP BY
+                task,
+                task_type
+            """,
+            {
+                "tasks": tuple(task_names)
+            },
+            as_dict=True
+        )
+
+        for row in rows:
+
+            t = row["task"]
+
+            job_counts[t] = (
+                job_counts.get(t, 0)
+                + row["cnt"]
+            )
+
+            completed_counts[t] = (
+                completed_counts.get(t, 0)
+                + (row["completed_cnt"] or 0)
+            )
+
+            if t not in job_type_counts:
+                job_type_counts[t] = {}
+
+            job_type_counts[t][row["task_type"]] = (
+                row["cnt"]
+            )
+
+    # fetch lat/long from Address (source of truth) in one query
+
+    address_names = list({
+        t["custom_address"]
+        for t in tasks
+        if t.get("custom_address")
+    })
+
+    address_coords = {}
+
+    if address_names:
+
+        for row in frappe.get_all(
+            "Address",
+            filters={
+                "name": [
+                    "in",
+                    address_names
+                ]
+            },
+            fields=[
+                "name",
+                "custom_latitude",
+                "custom_longitude"
+            ],
+        ):
+
+            address_coords[row.name] = (
+                row.custom_latitude or 0,
+                row.custom_longitude or 0
+            )
+
+    for task in tasks:
+
+        n = task["name"]
+
+        task["total_jobs"] = (
+            job_counts.get(n, 0)
+        )
+
+        task["completed_jobs"] = (
+            completed_counts.get(n, 0)
+        )
+
+        task["job_type_counts"] = (
+            job_type_counts.get(n, {})
+        )
+
+        task["description"] = _strip_html(
+            task.get("description")
+        )
+
+        task["custom_complete_address"] = _strip_html(
+            task.get("custom_complete_address")
+        )
+
+        coords = address_coords.get(
+            task.get("custom_address"),
+            (0, 0)
+        )
+
+        task["custom_latitude"] = coords[0]
+        task["custom_longitude"] = coords[1]
+
+    # tab badge counts for mobile nav
+
+    tab_counts = {
+
+        "today": frappe.db.count(
+            "Task",
+            {
+                "custom_assign_to": employee,
+                "custom_date": today,
+                "status": [
+                    "in",
+                    list(_ACTIVE)
+                ],
+            }
+        ),
+
+        "overdue": frappe.db.count(
+            "Task",
+            {
+                "custom_assign_to": employee,
+                "custom_date": [
+                    "<",
+                    today
+                ],
+                "status": [
+                    "in",
+                    list(_ACTIVE)
+                ],
+            }
+        ),
+
+        "requests": frappe.db.count(
+            "Task",
+            {
+                "custom_assign_to": employee,
+                "status": "Open",
+            }
+        ),
+    }
+
+    return {
+        "status": "success",
+        "tab_counts": tab_counts,
+        "total": len(tasks),
+        "tasks": tasks,
+    }
+
+@frappe.whitelist()
+def get_task_jobs(task: str) -> dict:
+    """
+    GET /api/method/fleet.v2.task_v2.get_task_jobs
+
+    Sample payload:
+    {
+        "task": "TASK-0001"
+    }
+
+    Send as query parameters.
+    """
+    if not task:
+        return _error(400, "MISSING_PARAMS", "task is required.")
+
+    employee, err = _get_auth()
+    if err:
+        return err
+
+    # single query — returns nothing if task is not assigned to this employee
+    task_doc = frappe.db.get_value(
+        "Task",
+        {"name": task, "custom_assign_to": employee},
+        ["name", "subject", "status", "custom_date", "custom_customer",
+         "custom_assign_to", "description", "priority"],
+        as_dict=True
+    )
+    if not task_doc:
+        return _error(404, "NOT_FOUND", "Task not found or you are not assigned to it.")
+
+    jobs = frappe.get_all(
+        "Job",
+        filters={"task": task, "status": ["!=", "Cancelled"]},
+        fields=[
+            "name",
+            "title",
+            "status",
+            "task_type",
+            "vehicle_number",
+            "assigned_technician",
+            "technician_name",
+            "date",
+            "customer",
+            "done_comment",
+            "hold_comment",
+            "completion_comment",
+            "make",
+            "model",
+            "creation",
+            "modified",
+        ],
+        order_by="creation asc"
+    )
+
+    total_jobs     = len(jobs)
+    completed_jobs = sum(1 for j in jobs if j["status"] == "Completed")
+
+    return {
+        "status": "success",
+        "task": {
+            "id":          task_doc.name,
+            "subject":     task_doc.subject,
+            "status":      task_doc.status,
+            "date":        task_doc.custom_date,
+            "customer":    task_doc.custom_customer,
+            "priority":    task_doc.priority,
+            "description": _strip_html(task_doc.description),
+        },
+        "total_jobs":    total_jobs,
+        "completed_jobs": completed_jobs,
+        "jobs":          jobs,
+    }
+
+
+@frappe.whitelist()
+def respond_to_task(task: str | None = None, action: str | None = None, reject_comment: str | None = None) -> dict:
+    """
+    POST /api/method/fleet.v2.task_v2.respond_to_task
+
+    Accept:
+    {
+        "task": "TASK-0001",
+        "action": "accept"
+    }
+
+    Reject:
+    {
+        "task": "TASK-0001",
+        "action": "reject",
+        "reject_comment": "Unable to take this task"
+    }
+    """
+    if not task:
+        return _error(400, "MISSING_PARAMS", "task is required.")
+
+    if not action:
+        return _error(400, "MISSING_PARAMS", "action is required.")
+
+    if action not in ("accept", "reject"):
+        return _error(400, "INVALID_PARAMS", "action must be 'accept' or 'reject'.")
+
+    if action == "reject" and not reject_comment:
+        return _error(400, "MISSING_PARAMS", "reject_comment is required when rejecting a task.")
+
+    employee, err = _get_auth()
+    if err:
+        return err
+
+    task_doc = frappe.db.get_value(
+        "Task",
+        {"name": task, "custom_assign_to": employee},
+        "name"
+    )
+    if not task_doc:
+        return _error(404, "NOT_FOUND", "Task not found or you are not assigned to it.")
+
+    from fleet.fleet.doctype.task.task import task_action
+    try:
+        result = task_action(task=task, action=action, reject_comment=reject_comment)
+    except frappe.ValidationError as e:
+        return _error(400, "VALIDATION_ERROR", str(e))
+    return {"status": "success", **result}
+
+
+@frappe.whitelist()
+def start_task(task: str | None = None) -> dict:
+    """
+    POST /api/method/fleet.v2.task_v2.start_task
+
+    Sample payload:
+    {
+        "task": "TASK-0001"
+    }
+    """
+    if not task:
+        return _error(400, "MISSING_PARAMS", "task is required.")
+
+    employee, err = _get_auth()
+    if err:
+        return err
+
+    # single query — returns nothing if task is not assigned to this employee
+    task_doc = frappe.db.get_value(
+        "Task",
+        {"name": task, "custom_assign_to": employee},
+        ["name", "status"],
+        as_dict=True
+    )
+    if not task_doc:
+        return _error(404, "NOT_FOUND", "Task not found or you are not assigned to it.")
+
+    from fleet.fleet.doctype.task.task import task_action
+    try:
+        result = task_action(task=task, action="start")
+    except frappe.ValidationError as e:
+        return _error(400, "VALIDATION_ERROR", str(e))
+    return {"status": "success", **result}
+
+
+@frappe.whitelist()
+def get_job_types() -> dict:
+    """
+    GET /api/method/fleet.v2.task_v2.get_job_types
+
+    Sample payload:
+    {}
+
+    No parameters required.
+    """
+    types = frappe.get_all("Task Type", fields=["name"], order_by="name asc")
+    return {
+        "status":     "success",
+        "job_types": [t["name"] for t in types],
+    }
+
+
+@frappe.whitelist()
+def get_profile() -> dict:
+    """
+    GET /api/method/fleet.v2.task_v2.get_profile
+
+    Sample payload:
+    {}
+
+    No parameters required.
+    """
+    employee, err = _get_auth()
+    if err:
+        return err
+
+    emp = frappe.get_doc("Employee", employee)
+    warehouse = frappe.db.get_value(
+        "Warehouse", {"custom_employee": employee, "disabled": 0}, "name"
+    )
+
+    return {
+        "status":        "success",
+        "employee":      emp.name,
+        "employee_name": emp.employee_name,
+        "mobile_no":     emp.cell_number,
+        "user":          frappe.session.user,
+        "warehouse":     warehouse,
+    }
+
+
+@frappe.whitelist()
+def get_job(job: str) -> dict:
+    """
+    GET /api/method/fleet.v2.task_v2.get_job
+
+    The request payload is the same for every task type. Only the job name changes.
+
+    Installation:
+    {
+        "job": "JOB-INSTALLATION-0001"
+    }
+
+    Checkup:
+    {
+        "job": "JOB-CHECKUP-0001"
+    }
+
+    Removal:
+    {
+        "job": "JOB-REMOVAL-0001"
+    }
+
+    Accessory:
+    {
+        "job": "JOB-ACCESSORY-0001"
+    }
+
+    Re-Installation:
+    {
+        "job": "JOB-REINSTALLATION-0001"
+    }
+
+    Swap:
+    {
+        "job": "JOB-SWAP-0001"
+    }
+
+    Send as query parameters.
+
+    is_chargeable, chargeable_reason, and chargeable_reason_description are returned only for Checkup and Re-Installation.
+    removal_reason is returned for Removal jobs.
+    """
+    if not job:
+        return _error(400, "MISSING_PARAMS", "job is required.")
+
+    employee, err = _get_auth()
+    if err:
+        return err
+
+    # single query — returns nothing if job is not assigned to this employee
+    job_doc = frappe.db.get_value(
+        "Job",
+        {"name": job, "assigned_technician": employee},
+        ["name", "title", "status", "task_type", "task", "vehicle_number",
+         "customer", "make", "model", "color", "type", "date", "done_comment",
+         "hold_comment", "completion_comment", "technician_name",
+         "is_chargeable", "chargeable_reason", "chargeable_reason_description",
+         "unread_count_tech", "unread_count_support","new_vehicle_number","swap_type","swap_make","swap_model","swap_color"],
+        as_dict=True
+    )
+    if not job_doc:
+        return _error(404, "NOT_FOUND", "Job not found or you are not assigned to it.")
+
+    item_fields = ["name", "item", "item_name", "item_type", "brand", "installed_or_removed"]
+    try:
+        physical_cols = {col[0] for col in frappe.db.sql("DESCRIBE `tabJob Item`")}
+    except Exception:
+        physical_cols = set()
+    for col in ["replace_against", "replaced_item", "destination", "removal_reason", "is_chargeable", "chargeable_reason", "chargeable_reason_description"]:
+        if col in physical_cols and col not in item_fields:
+            item_fields.append(col)
+
+    items = frappe.db.get_all(
+        "Job Item",
+        filters={"parent": job_doc.name},
+        fields=item_fields,
+        order_by="idx asc",
+    )
+
+	# swap item fetch
+    swap_items = frappe.db.get_all("Swap Items",
+		filters={"parent": job_doc.name},
+		fields=["item_name", "item_type", "items", "brand","source"],
+		order_by="idx asc",
+	)
+    # fetch icons for all item types in one query
+    type_icon = {
+        r.name: r.icon
+        for r in frappe.db.get_all("Item Type", fields=["name", "icon"])
+    }
+
+    # fetch extra fields from Item master for each item
+    _TYPE_EXTRA = {
+        "GPS Device":  "custom_imei_no",
+        "SIM":         "custom_sim_type",
+        "Fuel Sensor": "custom_sensor_unique_number",
+        "Temperature": "custom_temperature_serial_number",
+        "Dashcam":     "custom_dashcam_unique_number",
+    }
+
+    swap_item_codes = {str(s.get("items")).strip() for s in swap_items if s.get("items")}
+
+    removal_items = frappe.db.get_all(
+        "Removal Items",
+        filters={"parent": job_doc.name},
+        fields=["name", "item", "item_name", "item_type", "brand", "destination", "warehouse", "removal_reason"],
+        order_by="idx asc",
+    )
+
+    if job_doc.task_type == "Removal":
+        job_item_removal_map = {
+            r.item: r.get("removal_reason")
+            for r in items
+            if r.get("removal_reason")
+        }
+        for ri in removal_items:
+            ri["removal_reason"] = (ri.get("removal_reason") or job_item_removal_map.get(ri.get("item"))) if ri.get("destination") == "Customer" else None
+
+    item_codes = [r.item for r in items]
+    item_master = {}
+    if item_codes:
+        rows = frappe.db.sql("""
+            SELECT name, custom_imei_no, custom_sim_type,
+                   custom_sensor_unique_number, custom_temperature_serial_number
+            FROM `tabItem`
+            WHERE name IN %(codes)s
+        """, {"codes": item_codes}, as_dict=True)
+        item_master = {r.name: r for r in rows}
+
+    # group by item_type
+    groups = {}
+    for r in items:
+        key = r.item_type or "Uncategorized"
+        if key not in groups:
+            groups[key] = {
+                "item_type": key,
+                "icon":      type_icon.get(key),
+                "total_qty": 0,
+                "items":     [],
+            }
+        groups[key]["total_qty"] += 1
+
+        destination = "new vehicle" if (r.item and str(r.item).strip() in swap_item_codes) else "my assets"
+        if job_doc.task_type == "Removal":
+            dest_from_removal = next(
+                (ri.get("destination") for ri in removal_items if ri.get("item") == r.item),
+                None
+            )
+            if dest_from_removal:
+                destination = dest_from_removal
+            elif r.get("destination"):
+                destination = r.get("destination")
+
+        item_row = {
+            "name":                r.name,
+            "item_code":           r.item,
+            "item_name":           r.item_name,
+            "brand":               r.brand,
+            "installed_or_removed": r.installed_or_removed,
+            "destination":         destination,
+            "replace_against":     r.get("replace_against") or r.get("replaced_item"),
+            "replace_item":        r.get("replace_against") or r.get("replaced_item"),
+            "is_chargeable":       r.get("is_chargeable", 0) or 0,
+            "chargeable_reason":   r.get("chargeable_reason"),
+            "chargeable_reason_description": r.get("chargeable_reason_description"),
+            "removal_reason":      r.get("removal_reason") if (job_doc.task_type == "Removal" and destination == "Customer") else None,
+        }
+
+        extra_field = _TYPE_EXTRA.get(key)
+        if extra_field:
+            master = item_master.get(r.item, {})
+            item_row[extra_field] = master.get(extra_field) if master else None
+
+        groups[key]["items"].append(item_row)
+
+    item_groups = list(groups.values())
+
+    images = frappe.db.get_all(
+        "Job Image",
+        filters={"parent": job_doc.name},
+        fields=["name", "image"],
+        order_by="idx asc",
+    )
+
+    replaced_items_list = []
+    old_asset_list = []
+
+    if job_doc.task_type == "Checkup":
+        # A. replaced_items:
+        # Take all data from the installed rows where replace_against is present
+        for r in items:
+            rep_against = r.get("replace_against") or r.get("replaced_item")
+            if r.installed_or_removed == "Installed" and rep_against:
+                replaced_items_list.append({
+                    "old_asset": rep_against or "",
+                    "new_asset": r.item or "",
+                    "item_type": r.item_type or "",
+                    "ischargeable": 1 if r.get("is_chargeable") else 0,
+                    "chargeable_reason": r.get("chargeable_reason") or "",
+                    "reason_description": r.get("chargeable_reason_description") or "",
+                })
+
+        # B. old_asset:
+        # Get all items installed on the vehicle and not found in the installed_removed_items table
+        # (available to replace and not replaced in the current job)
+        vehicle_num = (job_doc.vehicle_number or "").replace(" ", "").upper().strip()
+        if vehicle_num:
+            vehicle_items = frappe.db.get_all(
+                "Vehicle Item",
+                filters={
+                    "parent": vehicle_num,
+                    "status": "Installed",
+                },
+                fields=["item", "item_type"],
+            )
+
+            job_item_codes = {r.item for r in items if r.item}
+            job_replaced_against = {r.get("replace_against") or r.get("replaced_item") for r in items if (r.get("replace_against") or r.get("replaced_item"))}
+            touched_items = job_item_codes | job_replaced_against
+
+            for vi in vehicle_items:
+                if not vi.item or vi.item in touched_items:
+                    continue
+                item_type = vi.item_type or frappe.db.get_value("Item", vi.item, "custom_item_type") or ""
+                old_asset_list.append({
+                    "item": vi.item,
+                    "item_type": item_type,
+                })
+
+    response = {
+        "status": "success",
+        "job": {
+            "name":                  job_doc.name,
+            "title":                 job_doc.title,
+            "status":                job_doc.status,
+            "task_type":             job_doc.task_type,
+            "task":                  job_doc.task,
+            "vehicle_number":        job_doc.vehicle_number,
+            "customer":              job_doc.customer,
+            "make":                  job_doc.make,
+            "model":                 job_doc.model,
+            "color":                 job_doc.color,
+            "type":                  job_doc.type,
+            "vehicle_type":          job_doc.type,
+            "date":                  str(job_doc.date or ""),
+            "technician_name":       job_doc.technician_name,
+            "done_comment":          job_doc.done_comment,
+            "hold_comment":          job_doc.hold_comment,
+            "completion_comment":    job_doc.completion_comment,
+            "available_actions":      _job_available_actions(job_doc.status),
+            "allowed_directions":     _JOB_TYPE_DIRECTIONS.get(job_doc.task_type, ["Installed", "Removed"]),
+            "unread_count_tech":      job_doc.unread_count_tech or 0,
+            "unread_count_support":   job_doc.unread_count_support or 0,
+            "item_installed_removed": [] if job_doc.task_type == "Checkup" else item_groups,
+            "removal_items":          removal_items,
+            "job_images":             images,
+            "swap_vehicle_number":        job_doc.new_vehicle_number,
+            "swap_make":                  job_doc.swap_make,
+            "swap_model":                 job_doc.swap_model,
+            "swap_color":                 job_doc.swap_color,
+            "swap_type":                  job_doc.swap_type,
+            "swap_items":                 swap_items,
+            "replaced_items":             replaced_items_list,
+            "old_asset":                  old_asset_list,
+        },
+    }
+
+    if job_doc.task_type == "Re-Installation":
+        response["job"]["is_chargeable"] = 1 if job_doc.is_chargeable else 0
+        response["job"]["chargeable_reason"] = job_doc.chargeable_reason or ""
+        response["job"]["chargeable_reason_description"] = job_doc.chargeable_reason_description or ""
+
+    return response
+
+
+@frappe.whitelist()
+def get_job_item_options(job: str, direction: str = None) -> dict:
+    """
+    GET /api/method/fleet.v2.task_v2.get_job_item_options
+
+    Installation:
+    {
+        "job": "JOB-INSTALLATION-0001",
+        "direction": "Installed"
+    }
+
+    Checkup - Installed:
+    {
+        "job": "JOB-CHECKUP-0001",
+        "direction": "Installed"
+    }
+
+    Checkup - Removed:
+    {
+        "job": "JOB-CHECKUP-0001",
+        "direction": "Removed"
+    }
+
+    Removal:
+    {
+        "job": "JOB-REMOVAL-0001",
+        "direction": "Removed"
+    }
+
+    Accessory:
+    {
+        "job": "JOB-ACCESSORY-0001",
+        "direction": "Installed"
+    }
+
+    Re-Installation:
+    {
+        "job": "JOB-REINSTALLATION-0001",
+        "direction": "Installed"
+    }
+
+    Swap:
+    {
+        "job": "JOB-SWAP-0001"
+    }
+
+    For Re-Installation this returns items already Installed on the selected vehicle.
+    Send as query parameters.
+    """
+
+    if not job:
+        return _error(
+            400,
+            "MISSING_PARAMS",
+            "job is required."
+        )
+
+    employee, err = _get_auth()
+    if err:
+        return err
+
+    job_doc = frappe.db.get_value(
+        "Job",
+        {
+            "name": job,
+            "assigned_technician": employee,
+        },
+        [
+            "name",
+            "task_type",
+            "vehicle_number",
+            "customer",
+            "technician_warehouse",
+        ],
+        as_dict=True,
+    )
+
+    if not job_doc:
+        return _error(
+            404,
+            "NOT_FOUND",
+            "Job not found or you are not assigned to it."
+        )
+
+    task_type = job_doc.task_type or ""
+
+    # Extra identifying field returned according to Item Type
+    _TYPE_EXTRA = {
+        "GPS Device": "custom_imei_no",
+        "SIM": "custom_sim_type",
+        "Fuel Sensor": "custom_sensor_unique_number",
+        "Temperature": "custom_temperature_serial_number",
+        "Dashcam": "custom_dashcam_unique_number",
+    }
+
+    # fetch icons for all item types in one query
+    type_icon = {
+        r.name: r.icon
+        for r in frappe.db.get_all(
+            "Item Type",
+            fields=["name", "icon"]
+        )
+    }
+
+    def group_items(items):
+        """
+        Group flat item list according to Item Type.
+        """
+
+        groups = {}
+
+        for item in items:
+            key = item.get("item_type") or "Uncategorized"
+
+            if key not in groups:
+                groups[key] = {
+                    "item_type": key,
+                    "icon": type_icon.get(key),
+                    "total_qty": 0,
+                    "items": [],
+                }
+
+            groups[key]["total_qty"] += 1
+            groups[key]["items"].append(item)
+
+        return list(groups.values())
+
+    # Swap
+    # One API call returns both:
+    # 1. Vehicle assets
+    #       Assets currently Installed in old vehicle.
+    # 2. Technician assets
+    #       Available assets from technician warehouse.
+    # They are deliberately returned separately so Flutter can
+    # render them in separate sections.
+
+    if task_type == "Swap":
+
+        vehicle_items = []
+        technician_items = []
+
+        # ── Old Vehicle Assets ───────────────────────────────────
+        # These are shown under:
+        # Asset In Vehicle
+        # Only Vehicle Item rows having status = Installed
+        # are considered.
+
+        vehicle_number = (
+            (job_doc.vehicle_number or "")
+            .replace(" ", "")
+            .upper()
+            .strip()
+        )
+
+        if not vehicle_number:
+            return _error(
+                422,
+                "INVALID_STATE",
+                "Vehicle number is not set on this Swap job."
+            )
+
+        vehicle = frappe.db.get_value(
+            "Vehicle",
+            vehicle_number,
+            [
+                "name",
+                "custom_customer",
+            ],
+            as_dict=True,
+        )
+
+        if not vehicle:
+            return _error(
+                404,
+                "NOT_FOUND",
+                f"Vehicle {vehicle_number} not found."
+            )
+
+        if vehicle.custom_customer != job_doc.customer:
+            return _error(
+                422,
+                "INVALID_STATE",
+                f"Vehicle {vehicle_number} is linked to a different customer."
+            )
+
+        vehicle_rows = frappe.db.sql(
+            """
+            SELECT
+                vi.item,
+                i.item_name,
+
+                COALESCE(
+                    vi.item_type,
+                    i.custom_item_type,
+                    ''
+                ) AS item_type,
+
+                COALESCE(
+                    i.brand,
+                    ''
+                ) AS brand,
+
+                i.custom_imei_no,
+                i.custom_sim_type,
+                i.custom_sensor_unique_number,
+                i.custom_temperature_serial_number,
+                i.custom_dashcam_unique_number
+
+            FROM `tabVehicle Item` vi
+
+            JOIN `tabItem` i
+                ON i.name = vi.item
+
+            WHERE vi.parent = %(vehicle)s
+              AND vi.status = 'Installed'
+              AND i.disabled = 0
+
+            ORDER BY
+                vi.item_type,
+                i.item_name
+            """,
+            {
+                "vehicle": vehicle.name
+            },
+            as_dict=True,
+        )
+
+        # Get already saved Swap asset selections.
+        # If an old vehicle item exists in Job.items with
+        # source = "Old Vehicle", then it is selected to move
+        # to the New Vehicle.
+        # Otherwise its destination is My Assets.
+        full_job = frappe.get_doc(
+            "Job",
+            job_doc.name
+        )
+
+        old_to_new_codes = {
+            row.items
+            for row in (full_job.items or [])
+            if (
+                row.items
+                and row.source == "Old Vehicle"
+            )
+        }
+
+        for r in vehicle_rows:
+
+            item_row = {
+                "item": r.item,
+                "item_name": r.item_name,
+                "item_type": r.item_type,
+                "brand": r.brand,
+
+                # Tells Flutter where the old asset is currently mapped.
+                "move_to": (
+                    "New Vehicle"
+                    if r.item in old_to_new_codes
+                    else "My Assets"
+                ),
+
+                "move_to_options": [
+                    "My Assets",
+                    "New Vehicle",
+                ],
+            }
+
+            extra = _TYPE_EXTRA.get(
+                r.item_type
+            )
+
+            if extra:
+                item_row[extra] = r.get(
+                    extra
+                )
+
+            vehicle_items.append(
+                item_row
+            )
+
+        # ── Technician Warehouse Assets ──────────────────────────
+        # These are shown under:
+        # New assets In Vehicle
+        # These are fresh assets available in technician warehouse.
+
+        warehouse = job_doc.technician_warehouse
+
+        if warehouse:
+
+            technician_rows = frappe.db.sql(
+                """
+                SELECT
+                    i.name AS item,
+                    i.item_name,
+
+                    COALESCE(
+                        i.custom_item_type,
+                        ''
+                    ) AS item_type,
+
+                    COALESCE(
+                        i.brand,
+                        ''
+                    ) AS brand,
+
+                    i.custom_imei_no,
+                    i.custom_sim_type,
+                    i.custom_sensor_unique_number,
+                    i.custom_temperature_serial_number,
+                    i.custom_dashcam_unique_number,
+
+                    CAST(
+                        b.actual_qty AS UNSIGNED
+                    ) AS qty
+
+                FROM `tabBin` b
+
+                JOIN `tabItem` i
+                    ON i.name = b.item_code
+
+                WHERE b.warehouse = %(warehouse)s
+                  AND b.actual_qty > 0
+                  AND i.disabled = 0
+
+                  -- Item should not already be selected for
+                  -- installation in another active Job.
+                  AND NOT EXISTS (
+                      SELECT 1
+
+                      FROM `tabJob Item` ji
+
+                      JOIN `tabJob` j
+                          ON j.name = ji.parent
+
+                      WHERE ji.item = i.name
+                        AND ji.installed_or_removed = 'Installed'
+                        AND j.status NOT IN (
+                            'Cancelled',
+                            'Completed'
+                        )
+                  )
+
+                  -- Item should not already be part of an
+                  -- outgoing Approval Pending Material Transfer.
+                  AND NOT EXISTS (
+                      SELECT 1
+
+                      FROM `tabMaterial Transfer Item` mti
+
+                      JOIN `tabMaterial Transfer` mt
+                          ON mt.name = mti.parent
+
+                      WHERE mti.item = i.name
+                        AND mt.source = %(warehouse)s
+                        AND mt.workflow_state = 'Approval Pending'
+                        AND mt.docstatus < 2
+                  )
+
+                ORDER BY
+                    i.custom_item_type,
+                    i.item_name
+                """,
+                {
+                    "warehouse": warehouse
+                },
+                as_dict=True,
+            )
+
+            # Technician assets already selected in this Swap job.
+            # Flutter can use "selected" when reopening/editing
+            # the Swap screen.
+            selected_technician_items = {
+                row.items
+                for row in (full_job.items or [])
+                if (
+                    row.items
+                    and row.source == "Technician"
+                )
+            }
+
+            for r in technician_rows:
+
+                item_row = {
+                    "item": r.item,
+                    "item_name": r.item_name,
+                    "item_type": r.item_type,
+                    "brand": r.brand,
+                    "qty": r.qty,
+
+                    "selected": (
+                        r.item
+                        in selected_technician_items
+                    ),
+                }
+
+                extra = _TYPE_EXTRA.get(
+                    r.item_type
+                )
+
+                if extra:
+                    item_row[extra] = r.get(
+                        extra
+                    )
+
+                technician_items.append(
+                    item_row
+                )
+
+        return {
+            "status": "success",
+            "job_type": task_type,
+
+            # Assets currently installed in old vehicle
+            "vehicle": {
+                "vehicle_number": vehicle.name,
+
+                "move_to_options": [
+                    "My Assets",
+                    "New Vehicle",
+                ],
+
+                "groups": group_items(
+                    vehicle_items
+                ),
+            },
+
+            # Fresh assets available with technician
+            "technician": {
+                "warehouse": warehouse,
+
+                "groups": group_items(
+                    technician_items
+                ),
+            },
+        }
+
+    # Re-Installation
+    # Use the existing item-options API, but return items already
+    # Installed on the selected/current vehicle.
+
+    if task_type == "Re-Installation":
+
+        vehicle_number = (
+            (job_doc.vehicle_number or "")
+            .replace(" ", "")
+            .upper()
+            .strip()
+        )
+
+        if not vehicle_number:
+            return _error(
+                422,
+                "INVALID_STATE",
+                "Vehicle number is not set on this Re-Installation job."
+            )
+
+        vehicle = frappe.db.get_value(
+            "Vehicle",
+            vehicle_number,
+            [
+                "name",
+                "custom_customer",
+            ],
+            as_dict=True,
+        )
+
+        if not vehicle:
+            return _error(
+                404,
+                "NOT_FOUND",
+                f"Vehicle {vehicle_number} not found."
+            )
+
+        if (
+            vehicle.custom_customer
+            and job_doc.customer
+            and vehicle.custom_customer != job_doc.customer
+        ):
+            return _error(
+                422,
+                "CUSTOMER_MISMATCH",
+                f"Vehicle {vehicle_number} belongs to "
+                f"{vehicle.custom_customer}, not {job_doc.customer}."
+            )
+
+        rows = frappe.db.sql(
+            """
+            SELECT
+                vi.item,
+                i.item_name,
+
+                COALESCE(
+                    vi.item_type,
+                    i.custom_item_type,
+                    ''
+                ) AS item_type,
+
+                COALESCE(
+                    i.brand,
+                    ''
+                ) AS brand,
+
+                i.custom_imei_no,
+                i.custom_sim_type,
+                i.custom_sensor_unique_number,
+                i.custom_temperature_serial_number,
+                i.custom_dashcam_unique_number
+
+            FROM `tabVehicle Item` vi
+
+            JOIN `tabItem` i
+                ON i.name = vi.item
+
+            WHERE vi.parent = %(vehicle)s
+              AND vi.status = 'Installed'
+              AND i.disabled = 0
+
+            ORDER BY
+                vi.idx ASC
+            """,
+            {
+                "vehicle": vehicle.name
+            },
+            as_dict=True,
+        )
+
+        selected_items = {
+            row.item
+            for row in frappe.get_all(
+                "Job Item",
+                filters={
+                    "parent": job_doc.name,
+                    "installed_or_removed": "Installed",
+                },
+                fields=["item"],
+            )
+            if row.item
+        }
+
+        items = []
+
+        for r in rows:
+
+            item_row = {
+                "item": r.item,
+                "item_name": r.item_name,
+                "item_type": r.item_type,
+                "brand": r.brand,
+                "selected": r.item in selected_items,
+            }
+
+            extra = _TYPE_EXTRA.get(
+                r.item_type
+            )
+
+            if extra:
+                item_row[extra] = r.get(
+                    extra
+                )
+
+            items.append(
+                item_row
+            )
+
+        return {
+            "status": "success",
+            "job_type": task_type,
+            "direction": "Installed",
+            "allowed_directions": ["Installed"],
+            "vehicle_number": vehicle.name,
+            "groups": group_items(items),
+        }
+
+    # Normal Job Types
+    # Existing Installation / Checkup / Removal / Accessory logic.
+
+    allowed_directions = _JOB_TYPE_DIRECTIONS.get(
+        task_type,
+        [
+            "Installed",
+            "Removed",
+        ]
+    )
+
+    # Infer direction when there is only one option
+    if not direction:
+
+        if len(allowed_directions) == 1:
+            direction = allowed_directions[0]
+
+        else:
+            return _error(
+                400,
+                "MISSING_PARAMS",
+                f"direction is required for job type '{task_type}'. "
+                f"Pass 'Installed' or 'Removed'."
+            )
+
+    if direction not in allowed_directions:
+        return _error(
+            400,
+            "INVALID_PARAMS",
+            f"Direction '{direction}' is not allowed for "
+            f"job type '{task_type}'. "
+            f"Allowed: {', '.join(allowed_directions)}"
+        )
+
+    items = []
+
+    # ── Installed ────────────────────────────────────────────────
+    # Installation / Checkup Installed / Accessory
+    # Fetch available assets from technician warehouse.
+
+    if direction == "Installed":
+
+        warehouse = job_doc.technician_warehouse
+
+        if not warehouse:
+            return {
+                "status": "success",
+                "job_type": task_type,
+                "direction": direction,
+                "allowed_directions": allowed_directions,
+                "groups": [],
+                "warning": "No warehouse linked to your account.",
+            }
+
+        rows = frappe.db.sql(
+            """
+            SELECT
+                i.name AS item,
+                i.item_name,
+
+                COALESCE(
+                    i.custom_item_type,
+                    ''
+                ) AS item_type,
+
+                COALESCE(
+                    i.brand,
+                    ''
+                ) AS brand,
+
+                i.custom_imei_no,
+                i.custom_sim_type,
+                i.custom_sensor_unique_number,
+                i.custom_temperature_serial_number,
+                i.custom_dashcam_unique_number,
+
+                CAST(
+                    b.actual_qty AS UNSIGNED
+                ) AS qty
+
+            FROM `tabBin` b
+
+            JOIN `tabItem` i
+                ON i.name = b.item_code
+
+            WHERE b.warehouse = %(warehouse)s
+              AND b.actual_qty > 0
+              AND i.disabled = 0
+
+              -- Do not show items being installed
+              -- in another active Job.
+              AND NOT EXISTS (
+                  SELECT 1
+
+                  FROM `tabJob Item` ji
+
+                  JOIN `tabJob` j
+                      ON j.name = ji.parent
+
+                  WHERE ji.item = i.name
+                    AND ji.installed_or_removed = 'Installed'
+                    AND j.status NOT IN (
+                        'Cancelled',
+                        'Completed'
+                    )
+              )
+
+              -- Do not show items already involved in an
+              -- outgoing Approval Pending Material Transfer.
+              AND NOT EXISTS (
+                  SELECT 1
+
+                  FROM `tabMaterial Transfer Item` mti
+
+                  JOIN `tabMaterial Transfer` mt
+                      ON mt.name = mti.parent
+
+                  WHERE mti.item = i.name
+                    AND mt.source = %(warehouse)s
+                    AND mt.workflow_state = 'Approval Pending'
+                    AND mt.docstatus < 2
+              )
+
+            ORDER BY
+                i.custom_item_type,
+                i.item_name
+            """,
+            {
+                "warehouse": warehouse
+            },
+            as_dict=True,
+        )
+
+        for r in rows:
+
+            item_row = {
+                "item": r.item,
+                "item_name": r.item_name,
+                "item_type": r.item_type,
+                "brand": r.brand,
+                "qty": r.qty,
+            }
+
+            extra = _TYPE_EXTRA.get(
+                r.item_type
+            )
+
+            if extra:
+                item_row[extra] = r.get(
+                    extra
+                )
+
+            items.append(
+                item_row
+            )
+
+    # ── Removed ──────────────────────────────────────────────────
+    # Checkup Removed / Removal
+    # Fetch currently Installed assets from vehicle.
+
+    else:
+
+        vehicle_number = (
+            (job_doc.vehicle_number or "")
+            .replace(" ", "")
+            .upper()
+            .strip()
+        )
+
+        if not vehicle_number:
+            return _error(
+                422,
+                "INVALID_STATE",
+                "Vehicle number is not set on this job. "
+                "Cannot fetch removable items."
+            )
+
+        vehicle = frappe.db.get_value(
+            "Vehicle",
+            vehicle_number,
+            [
+                "name",
+                "custom_customer",
+            ],
+            as_dict=True,
+        )
+
+        if not vehicle:
+            return _error(
+                404,
+                "NOT_FOUND",
+                f"Vehicle {vehicle_number} not found."
+            )
+
+        if vehicle.custom_customer != job_doc.customer:
+            return _error(
+                422,
+                "INVALID_STATE",
+                f"Vehicle {vehicle_number} is linked "
+                f"to a different customer."
+            )
+
+        rows = frappe.db.sql(
+            """
+            SELECT
+                vi.item,
+                i.item_name,
+
+                COALESCE(
+                    vi.item_type,
+                    i.custom_item_type,
+                    ''
+                ) AS item_type,
+
+                COALESCE(
+                    i.brand,
+                    ''
+                ) AS brand,
+
+                i.custom_imei_no,
+                i.custom_sim_type,
+                i.custom_sensor_unique_number,
+                i.custom_temperature_serial_number,
+                i.custom_dashcam_unique_number
+
+            FROM `tabVehicle Item` vi
+
+            JOIN `tabItem` i
+                ON i.name = vi.item
+
+            WHERE vi.parent = %(vehicle)s
+              AND vi.status = 'Installed'
+              AND i.disabled = 0
+
+            ORDER BY
+                vi.item_type,
+                i.item_name
+            """,
+            {
+                "vehicle": vehicle.name
+            },
+            as_dict=True,
+        )
+
+        for r in rows:
+
+            item_row = {
+                "item": r.item,
+                "item_name": r.item_name,
+                "item_type": r.item_type,
+                "brand": r.brand,
+            }
+
+            extra = _TYPE_EXTRA.get(
+                r.item_type
+            )
+
+            if extra:
+                item_row[extra] = r.get(
+                    extra
+                )
+
+            items.append(
+                item_row
+            )
+
+    res = {
+        "status": "success",
+        "job_type": task_type,
+        "direction": direction,
+        "allowed_directions": allowed_directions,
+        "groups": group_items(items),
+    }
+
+    if task_type == "Removal":
+        res["destination_options"] = ["Customer", "Technician"]
+        res["move_to_options"] = ["Customer", "Technician"]
+
+    return res
+
+
+@frappe.whitelist()
+def get_vehicle_details(vehicle_number: str, task: str, task_type: str) -> dict:
+    """
+    GET /api/method/fleet.v2.task_v2.get_vehicle_details
+
+    Installation:
+    {
+        "vehicle_number": "GJ05NEW1234",
+        "task": "TASK-0001",
+        "task_type": "Installation"
+    }
+
+    Checkup:
+    {
+        "vehicle_number": "GJ05SY0888",
+        "task": "TASK-0001",
+        "task_type": "Checkup"
+    }
+
+    Removal:
+    {
+        "vehicle_number": "GJ05SY0888",
+        "task": "TASK-0001",
+        "task_type": "Removal"
+    }
+
+    Accessory:
+    {
+        "vehicle_number": "GJ05SY0888",
+        "task": "TASK-0001",
+        "task_type": "Accessory"
+    }
+
+    Re-Installation:
+    {
+        "vehicle_number": "GJ05SY0888",
+        "task": "TASK-0001",
+        "task_type": "Re-Installation"
+    }
+
+    Swap:
+    {
+        "vehicle_number": "GJ05SY0888",
+        "task": "TASK-0001",
+        "task_type": "Swap"
+    }
+
+    Send as query parameters.
+    """
+    vehicle_number = (vehicle_number or "").replace(" ", "").upper()
+    if not vehicle_number:
+        return _error(400, "MISSING_PARAMS", "vehicle_number is required.")
+    if not task:
+        return _error(400, "MISSING_PARAMS", "task is required.")
+    if not task_type:
+        return _error(400, "MISSING_PARAMS", "task_type is required.")
+
+    # _VEH_RE = re.compile(r"^[A-Z]{3}\d{3,4}$")
+    # if not _VEH_RE.match(vehicle_number):
+    #     return _error(400, "INVALID_VEHICLE_NUMBER", "Vehicle number must be in the format ABC123 or ABC1234 (3 letters followed by 3 or 4 digits).")
+
+    employee, err = _get_auth()
+    if err:
+        return err
+
+    task_doc = frappe.db.get_value(
+        "Task",
+        {"name": task, "custom_assign_to": employee},
+        ["custom_customer"],
+        as_dict=True,
+    )
+    if not task_doc:
+        return _error(404, "NOT_FOUND", "Task not found or you are not assigned to it.")
+
+    if task_type == "Installation":
+        # Vehicle must not exist yet — Installation creates it on job completion
+        if frappe.db.exists("Vehicle", vehicle_number):
+            return {
+                "status":  "failed",
+                "message": _("Vehicle {0} is already registered in the system. "
+                             "Installation is only for new vehicles. Please check the plate number.").format(vehicle_number),
+            }
+        return {
+            "status":  "success",
+            "found":   False,
+            "message": _("Vehicle {0} is not registered yet. It will be created on job completion.").format(vehicle_number),
+        }
+
+    # All other job types — vehicle must exist and belong to the task's customer
+    vehicle_data = frappe.db.get_value(
+        "Vehicle", vehicle_number,
+        ["custom_customer", "make", "model", "color", "custom_vehicle_type"],
+        as_dict=True,
+    )
+
+    if not vehicle_data:
+        return {
+            "status":  "failed",
+            "message": _("Vehicle {0} was not found. Please check the plate number.").format(vehicle_number),
+        }
+
+    if vehicle_data.custom_customer != task_doc.custom_customer:
+        return {
+            "status":  "failed",
+            "message": _("Vehicle {0} belongs to {1}, not to the customer on this job. "
+                         "Please check the plate number.").format(
+                             vehicle_number,
+                             vehicle_data.custom_customer or _("an unknown customer"),
+                         ),
+        }
+
+    raw_items = frappe.db.get_all(
+        "Vehicle Item",
+        filters={"parent": vehicle_number, "status": "Installed"},
+        fields=["item", "item_type", "date"],
+        order_by="item_type asc, date desc",
+    )
+
+    # fetch item master fields and type icons in one go
+    _TYPE_EXTRA = {
+        "GPS Device":  "custom_imei_no",
+        "SIM":         "custom_sim_type",
+        "Fuel Sensor": "custom_sensor_unique_number",
+        "Temperature": "custom_temperature_serial_number",
+        "Dashcam":     "custom_dashcam_unique_number",
+    }
+
+    item_codes = [r.item for r in raw_items]
+    item_master = {}
+    if item_codes:
+        rows = frappe.db.sql("""
+            SELECT name, item_name, brand,
+                   custom_imei_no, custom_sim_type,
+                   custom_sensor_unique_number, custom_temperature_serial_number
+            FROM `tabItem`
+            WHERE name IN %(codes)s
+        """, {"codes": item_codes}, as_dict=True)
+        item_master = {r.name: r for r in rows}
+
+    type_icon = {
+        r.name: r.icon
+        for r in frappe.db.get_all("Item Type", fields=["name", "icon"])
+    }
+
+    groups = {}
+    for r in raw_items:
+        key = r.item_type or "Uncategorized"
+        if key not in groups:
+            groups[key] = {
+                "item_type": key,
+                "icon":      type_icon.get(key),
+                "total_qty": 0,
+                "items":     [],
+            }
+        groups[key]["total_qty"] += 1
+
+        master = item_master.get(r.item, {})
+        item_row = {
+            "item_code": r.item,
+            "item_name": master.get("item_name"),
+            "brand":     master.get("brand"),
+            "date":      str(r.date or ""),
+        }
+        extra_field = _TYPE_EXTRA.get(key)
+        if extra_field:
+            item_row[extra_field] = master.get(extra_field)
+
+        groups[key]["items"].append(item_row)
+
+    installed_items = list(groups.values())
+
+    return {
+        "status":          "success",
+        "found":           True,
+        "make":            vehicle_data.make,
+        "model":           vehicle_data.model,
+        "color":           vehicle_data.color,
+        "type":            vehicle_data.custom_vehicle_type,
+        "installed_items": installed_items,
+    }
+@frappe.whitelist()
+def create_job_for_task(
+    task: str,
+    task_type: str,
+    vehicle_number: str | None = None,
+    make: str | None = None,
+    model: str | None = None,
+    type: str | None = None,
+    color: str | None = None,
+    items: str | None = None,
+    is_chargeable: int | str | None = None,
+) -> dict:
+    """
+    POST /api/method/fleet.v2.task_v2.create_job_for_task
+
+    Same parameters for ALL task types:
+
+    {
+        "task": "TASK-0001",
+        "task_type": "Checkup",
+        "vehicle_number": "GJ05SY0888",
+        "make": "Tata",
+        "model": "Ace",
+        "type": "Mini Truck",
+        "color": "White",
+        "items": [],
+        "is_chargeable": 1
+    }
+
+    Supported task types can include:
+
+        Installation
+        Checkup
+        Removal
+        Accessory
+        Re-Installation
+        Swap
+
+    IMPORTANT:
+
+    For Swap:
+        vehicle_number = current / old vehicle.
+
+    New vehicle details are NOT handled by this API.
+    They will be updated through the separate Swap API.
+    """
+
+    # =========================================================
+    # REQUIRED PARAMS
+    # =========================================================
+
+    if not task:
+        return _error(
+            400,
+            "MISSING_PARAMS",
+            "task is required."
+        )
+
+    if not task_type:
+        return _error(
+            400,
+            "MISSING_PARAMS",
+            "task_type is required."
+        )
+
+    # =========================================================
+    # NORMALIZE
+    # =========================================================
+
+    task_type = task_type.strip()
+
+    vehicle_number = (
+        vehicle_number.replace(" ", "").upper().strip()
+        if vehicle_number
+        else None
+    )
+
+    make = make or None
+    model = model or None
+    type = type or None
+    color = color or None
+
+    # =========================================================
+    # IS CHARGEABLE
+    # =========================================================
+    #
+    # Same parameter handling for ALL task types.
+    # =========================================================
+
+    chargeable_value = (
+        1
+        if str(is_chargeable or "").strip().lower()
+        in ("1", "true", "yes", "on")
+        else 0
+    )
+
+    # =========================================================
+    # VEHICLE TYPE VALIDATION
+    # =========================================================
+
+    valid_vehicle_types = _get_valid_vehicle_types() if type else set()
+    if type and type not in valid_vehicle_types:
+        return _error(
+            400,
+            "INVALID_PARAMS",
+            "type must be one of: "
+            + ", ".join(sorted(valid_vehicle_types))
+        )
+
+    # =========================================================
+    # AUTH
+    # =========================================================
+
+    employee, err = _get_auth()
+
+    if err:
+        return err
+
+    # =========================================================
+    # GET TASK
+    # =========================================================
+
+    task_doc = frappe.db.get_value(
+        "Task",
+        {
+            "name": task,
+            "custom_assign_to": employee,
+        },
+        [
+            "name",
+            "custom_customer",
+            "custom_date",
+        ],
+        as_dict=True,
+    )
+
+    if not task_doc:
+        return _error(
+            404,
+            "NOT_FOUND",
+            "Task not found or you are not assigned to it."
+        )
+
+    customer = task_doc.custom_customer
+
+    # =========================================================
+    # TECHNICIAN WAREHOUSE
+    # =========================================================
+
+    tech_warehouse = frappe.db.get_value(
+        "Warehouse",
+        {
+            "custom_employee": employee,
+            "disabled": 0,
+        },
+        "name",
+    )
+
+    # =========================================================
+    # CUSTOMER WAREHOUSE
+    # =========================================================
+
+    customer_warehouse = None
+
+    if customer:
+        customer_warehouse = frappe.db.get_value(
+            "Warehouse",
+            {
+                "custom_customer_name": customer,
+                "disabled": 0,
+            },
+            "name",
+        )
+
+    # =========================================================
+    # VEHICLE HANDLING
+    # =========================================================
+    #
+    # Same logic for ALL task types.
+    #
+    # If vehicle already exists:
+    #     - validate customer
+    #     - fetch vehicle details from Vehicle master
+    #
+    # If vehicle does not exist:
+    #     - keep make/model/type/color received from API
+    #
+    # Swap is NOT treated separately here.
+    # =========================================================
+
+    if vehicle_number:
+
+        vehicle_data = frappe.db.get_value(
+            "Vehicle",
+            vehicle_number,
+            [
+                "name",
+                "custom_customer",
+                "make",
+                "model",
+                "color",
+                "custom_vehicle_type",
+            ],
+            as_dict=True,
+        )
+
+        if vehicle_data:
+
+            # -------------------------------------------------
+            # CUSTOMER VALIDATION
+            # -------------------------------------------------
+
+            if (
+                vehicle_data.custom_customer
+                and customer
+                and vehicle_data.custom_customer != customer
+            ):
+                return _error(
+                    422,
+                    "CUSTOMER_MISMATCH",
+                    f"Vehicle {vehicle_number} belongs to "
+                    f"{vehicle_data.custom_customer}, "
+                    f"not {customer}."
+                )
+
+            # -------------------------------------------------
+            # EXISTING VEHICLE
+            #
+            # Vehicle master is the source of truth.
+            # -------------------------------------------------
+
+            make = vehicle_data.make
+            model = vehicle_data.model
+            color = vehicle_data.color
+            type = vehicle_data.custom_vehicle_type
+
+    # =========================================================
+    # CREATE JOB
+    # =========================================================
+
+    parts = [task_type]
+
+    if customer:
+        parts.append(customer)
+
+    job_data = {
+        "doctype": "Job",
+
+        "title": " - ".join(parts),
+
+        "task": task_doc.name,
+        "assigned_technician": employee,
+
+        "status": "Pending",
+
+        "vehicle_number": vehicle_number,
+        "task_type": task_type,
+        "customer": customer or None,
+
+        "technician_warehouse": tech_warehouse or None,
+        "customer_warehouse": customer_warehouse or None,
+
+        "date": task_doc.custom_date,
+
+        "is_chargeable": chargeable_value,
+
+        "make": make or None,
+        "model": model or None,
+        "type": type or None,
+        "color": color or None,
+    }
+
+    # =========================================================
+    # CREATE JOB DOCUMENT
+    # =========================================================
+
+    job = frappe.get_doc(job_data)
+
+    job.insert(
+        ignore_permissions=True
+    )
+
+    # =========================================================
+    # ADD JOB TO TASK CHILD TABLE
+    # =========================================================
+
+    task_parent = frappe.get_doc(
+        "Task",
+        task_doc.name
+    )
+
+    task_parent.append(
+        "custom_task_jobs",
+        {
+            "task_type": task_type,
+            "vehicle": vehicle_number,
+            "status": "Pending",
+            "job": job.name,
+        }
+    )
+
+    task_parent.save(
+        ignore_permissions=True
+    )
+
+    # =========================================================
+    # RESPONSE
+    # =========================================================
+    #
+    # SAME RESPONSE STRUCTURE FOR ALL TASK TYPES.
+    # Swap has no additional fields here.
+    # =========================================================
+
+    return {
+        "status": "success",
+        "msg": "Job created.",
+
+        "job": job.name,
+        "task": task_doc.name,
+
+        "task_type": task_type,
+
+        "vehicle_number": job.vehicle_number,
+
+        "make": job.make,
+        "model": job.model,
+        "type": job.type,
+        "color": job.color,
+
+        "is_chargeable": (
+            1
+            if job.is_chargeable
+            else 0
+        ),
+    }
+
+
+@frappe.whitelist()
+def update_job(
+    job: str,
+    vehicle_number: str | None = None,
+    make: str | None = None,
+    model: str | None = None,
+    color: str | None = None,
+    type: str | None = None,
+    set_items=None,
+    is_chargeable: int | str | None = None,
+    chargeable_reason: int | str | None = None,
+    chargeable_reason_description: int | str | None = None,
+
+    # Swap fields
+    new_vehicle_number: str | None = None,
+    swap_make: str | None = None,
+    swap_model: str | None = None,
+    swap_color: str | None = None,
+    swap_type: str | None = None,
+    asset_mapping=None,
+    new_assets=None,
+    replaced_items=None,
+    swap_vehicle_number: str | None = None,
+    **kwargs
+) -> dict:
+
+    """
+    POST /api/method/fleet.v2.task_v2.update_job
+
+    Installation:
+    {
+        "job": "JOB-INSTALLATION-0001",
+        "vehicle_number": "GJ05NEW1234",
+        "make": "Tata",
+        "model": "Ace",
+        "type": "Mini Truck",
+        "color": "White",
+        "set_items": [
+            {
+                "item": "GPS-0001",
+                "installed_or_removed": "Installed"
+            },
+            {
+                "item": "SIM-0001",
+                "installed_or_removed": "Installed"
+            }
+        ]
+    }
+
+    Checkup:
+    {
+        "job": "JOB-CHECKUP-0001",
+        "vehicle_number": "GJ05SY0888",
+        "make": "Toyota",
+        "model": "Hilux",
+        "color": "White",
+        "type": "Pickup",
+        "is_chargeable": 1,
+        "set_items": [
+            {
+                "item": "GPS-0001",
+                "installed_or_removed": "Installed"
+            },
+            {
+                "item": "SIM-0001",
+                "installed_or_removed": "Removed",
+                "destination": "Customer"
+            }
+        ]
+    }
+
+    Removal:
+    {
+        "job": "JOB-REMOVAL-0001",
+        "vehicle_number": "GJ05SY0888",
+        "set_items": [
+            {
+                "item": "SIM-0001",
+                "installed_or_removed": "Removed",
+                "destination": "Customer",
+				"removal_reason":""
+            }
+        ]
+    }
+
+    Accessory:
+    {
+        "job": "JOB-ACCESSORY-0001",
+        "vehicle_number": "GJ05SY0888",
+        "set_items": [
+            {
+                "item": "GPS-NEW-0001",
+                "installed_or_removed": "Installed"
+            }
+        ]
+    }
+
+    Re-Installation:
+    {
+        "job": "JOB-REINSTALLATION-0001",
+        "vehicle_number": "GJ05SY0888",
+        "is_chargeable": 1,
+        "chargeable_reason":"",
+        "chargeable_reason_description":""
+        "set_items": [
+            {
+                "item": "258525825558",
+                "installed_or_removed": "Installed"
+            }
+        ]
+    }
+
+    Swap:
+    {
+        "job": "JOB-SWAP-0001",
+        "new_vehicle_number": "GJ05NEW1234",
+        "swap_make": "Tata",
+        "swap_model": "Ace",
+        "swap_type": "Mini Truck",
+        "swap_color": "White",
+        "asset_mapping": [
+            {
+                "item": "OLD-GPS-0001",
+                "move_to": "New Vehicle"
+            },
+            {
+                "item": "OLD-SIM-0001",
+                "move_to": "My Assets"
+            }
+        ],
+        "new_assets": [
+            {
+                "item": "NEW-GPS-0001"
+            },
+            {
+                "item": "NEW-SIM-0001"
+            }
+        ]
+    }
+
+    Replaced Items (Checkup / Replacement):
+    {
+        "job": "JOB-CHECKUP-0001",
+        "replaced_items": [
+            {
+                "old_asset": "GPS-OLD-0001",
+                "new_asset": "GPS-NEW-0002",
+                "item_type": "GPS Device",
+                "ischargeable": 1,
+                "chargeable_reason": "Damaged",
+                "reason_description": "Damaged during operation"
+            },
+            {
+                "old_asset": "SIM-OLD-0001",
+                "new_asset": "SIM-NEW-0002",
+                "item_type": "SIM",
+                "ischargeable": 1,
+                "chargeable_reason": "Damaged",
+                "reason_description": "Network issue"
+            }
+        ]
+    }
+
+    set_items, asset_mapping, new_assets, and replaced_items can be sent as JSON arrays or JSON-encoded strings.
+
+    is_chargeable is accepted and returned only for Checkup and Re-Installation.
+    replaced_items is accepted only for Checkup.
+    """
+    if not job:
+        return _error(
+            400,
+            "MISSING_PARAMS",
+            "job is required."
+        )
+
+    employee, err = _get_auth()
+    if err:
+        return err
+
+    if not frappe.db.exists(
+        "Job",
+        {
+            "name": job,
+            "assigned_technician": employee,
+        }
+    ):
+        return _error(
+            404,
+            "NOT_FOUND",
+            "Job not found or you are not assigned to it."
+        )
+
+    job_doc = frappe.get_doc("Job", job)
+
+    if job_doc.status not in (
+        "Pending",
+        "In Progress",
+        "On Hold",
+    ):
+        return _error(
+            422,
+            "INVALID_STATE",
+            "Job can only be updated when Pending, In Progress, or On Hold."
+        )
+
+    # SWAP JOB
+
+    if job_doc.task_type == "Swap":
+
+        # OLD VEHICLE
+        if vehicle_number is None:
+            vehicle_number = kwargs.get("vehicle_number")
+
+        raw_vehicle_number = vehicle_number or job_doc.vehicle_number or ""
+
+        old_vehicle_number = (
+            str(raw_vehicle_number)
+            .replace(" ", "")
+            .upper()
+            .strip()
+        )
+
+        if not old_vehicle_number:
+            return _error(
+                422,
+                "OLD_VEHICLE_REQUIRED",
+                "Old vehicle number is required for Swap."
+            )
+
+        old_vehicle = frappe.db.get_value(
+            "Vehicle",
+            old_vehicle_number,
+            [
+                "name",
+                "custom_customer",
+            ],
+            as_dict=True,
+        )
+
+        if not old_vehicle and str(raw_vehicle_number).strip():
+            old_vehicle = frappe.db.get_value(
+                "Vehicle",
+                str(raw_vehicle_number).strip(),
+                [
+                    "name",
+                    "custom_customer",
+                ],
+                as_dict=True,
+            )
+
+        if not old_vehicle:
+            return _error(
+                404,
+                "OLD_VEHICLE_NOT_FOUND",
+                f"Old Vehicle {old_vehicle_number} was not found."
+            )
+
+        job_doc.vehicle_number = old_vehicle.name
+
+        if (
+            old_vehicle.custom_customer
+            and job_doc.customer
+            and old_vehicle.custom_customer != job_doc.customer
+        ):
+            return _error(
+                422,
+                "CUSTOMER_MISMATCH",
+                f"Vehicle {old_vehicle_number} belongs to "
+                f"{old_vehicle.custom_customer}, not {job_doc.customer}."
+            )
+
+        # NEW VEHICLE NUMBER
+        if new_vehicle_number is None:
+            new_vehicle_number = swap_vehicle_number or kwargs.get("swap_vehicle_number")
+
+        if new_vehicle_number is not None:
+
+            normalized_new = (
+                str(new_vehicle_number)
+                .replace(" ", "")
+                .upper()
+                .strip()
+            )
+
+            if not normalized_new:
+                return _error(
+                    400,
+                    "INVALID_VEHICLE",
+                    "New vehicle number is invalid."
+                )
+
+            if normalized_new == old_vehicle_number:
+                return _error(
+                    422,
+                    "SAME_VEHICLE",
+                    "New vehicle number cannot be the same as old vehicle number."
+                )
+
+            if frappe.db.exists(
+                "Vehicle",
+                normalized_new
+            ):
+                return _error(
+                    422,
+                    "NEW_VEHICLE_ALREADY_EXISTS",
+                    f"New Vehicle {normalized_new} is already registered in the system."
+                )
+
+            job_doc.new_vehicle_number = normalized_new
+
+        # Also validate already stored new vehicle
+        saved_new_vehicle = (
+            str(job_doc.new_vehicle_number or "")
+            .replace(" ", "")
+            .upper()
+            .strip()
+        )
+
+        if saved_new_vehicle:
+
+            if saved_new_vehicle == old_vehicle_number:
+                return _error(
+                    422,
+                    "SAME_VEHICLE",
+                    "New vehicle number cannot be the same as old vehicle number."
+                )
+
+            if frappe.db.exists(
+                "Vehicle",
+                saved_new_vehicle
+            ):
+                return _error(
+                    422,
+                    "NEW_VEHICLE_ALREADY_EXISTS",
+                    f"New Vehicle {saved_new_vehicle} is already registered in the system."
+                )
+
+        # OLD VEHICLE DETAILS
+
+        if make is not None and str(make).strip():
+            job_doc.make = str(make).strip()
+
+        if model is not None and str(model).strip():
+            job_doc.model = str(model).strip()
+
+        if color is not None and str(color).strip():
+            job_doc.color = str(color).strip()
+
+        if type is not None and str(type).strip():
+            clean_type = str(type).strip()
+            if not frappe.db.exists("Vehicle Type", clean_type):
+                try:
+                    frappe.get_doc({
+                        "doctype": "Vehicle Type",
+                        "vehicle_type": clean_type
+                    }).insert(ignore_permissions=True)
+                except Exception:
+                    pass
+            job_doc.type = clean_type
+
+        # NEW VEHICLE DETAILS
+
+        if swap_make is not None:
+            job_doc.swap_make = swap_make or None
+
+        if swap_model is not None:
+            job_doc.swap_model = swap_model or None
+
+        if swap_color is not None:
+            job_doc.swap_color = swap_color or None
+
+        if swap_type is not None:
+
+            valid_vehicle_types = _get_valid_vehicle_types() if swap_type else set()
+            if (
+                swap_type
+                and swap_type not in valid_vehicle_types
+            ):
+                return _error(
+                    400,
+                    "INVALID_VEHICLE_TYPE",
+                    "swap_type must be one of: "
+                    + ", ".join(
+                        sorted(valid_vehicle_types)
+                    )
+                )
+
+            job_doc.swap_type = swap_type or None
+
+        # PARSE ASSET MAPPING
+
+        parsed_mapping = None
+
+        if asset_mapping is not None:
+
+            if isinstance(asset_mapping, str):
+                try:
+                    parsed_mapping = json.loads(
+                        asset_mapping
+                    )
+                except Exception:
+                    return _error(
+                        400,
+                        "INVALID_PARAMS",
+                        "asset_mapping must be a valid JSON array."
+                    )
+            else:
+                parsed_mapping = asset_mapping
+
+            if not isinstance(
+                parsed_mapping,
+                list
+            ):
+                return _error(
+                    400,
+                    "INVALID_PARAMS",
+                    "asset_mapping must be an array."
+                )
+
+        # PARSE NEW ASSETS
+
+        parsed_new_assets = None
+
+        if new_assets is not None:
+
+            if isinstance(new_assets, str):
+                try:
+                    parsed_new_assets = json.loads(
+                        new_assets
+                    )
+                except Exception:
+                    return _error(
+                        400,
+                        "INVALID_PARAMS",
+                        "new_assets must be a valid JSON array."
+                    )
+            else:
+                parsed_new_assets = new_assets
+
+            if not isinstance(
+                parsed_new_assets,
+                list
+            ):
+                return _error(
+                    400,
+                    "INVALID_PARAMS",
+                    "new_assets must be an array."
+                )
+
+        # OLD VEHICLE INSTALLED ITEMS
+
+        old_vehicle_rows = frappe.db.get_all(
+            "Vehicle Item",
+            filters={
+                "parent": old_vehicle.name,
+                "status": "Installed",
+            },
+            fields=[
+                "item",
+                "item_type",
+            ],
+        )
+
+        old_vehicle_map = {
+            row.item: row
+            for row in old_vehicle_rows
+            if row.item
+        }
+
+        old_vehicle_codes = set(
+            old_vehicle_map.keys()
+        )
+
+        # EXISTING ITEMS
+        # Used only when Flutter does NOT send that particular
+        # section in the current request.
+
+        existing_old_vehicle_items = []
+        existing_technician_items = []
+
+        for row in (job_doc.items or []):
+
+            if not row.items:
+                continue
+
+            if row.source == "Old Vehicle":
+
+                existing_old_vehicle_items.append({
+                    "item": row.items,
+                    "item_type": row.item_type,
+                    "source": "Old Vehicle",
+                })
+
+            elif row.source == "Technician":
+
+                existing_technician_items.append({
+                    "item": row.items,
+                    "item_type": row.item_type,
+                    "source": "Technician",
+                })
+
+        # OLD VEHICLE ASSET MAPPING
+
+        old_to_new_items = []
+
+        if parsed_mapping is not None:
+
+            seen_mapping = set()
+
+            # IMPORTANT:
+            # asset_mapping is treated as FULL final mapping.
+            # Clear old removal rows and rebuild.
+            job_doc.item_installed_removed = []
+
+            for row in parsed_mapping:
+
+                if not isinstance(row, dict):
+                    return _error(
+                        400,
+                        "INVALID_PARAMS",
+                        "Every asset_mapping row must be an object."
+                    )
+
+                item_code = row.get("item")
+                move_to = row.get("move_to")
+
+                if not item_code:
+                    return _error(
+                        400,
+                        "MISSING_ITEM",
+                        "Every asset_mapping row requires item."
+                    )
+
+                if move_to in ("Technician", "My Assets"):
+                    move_to = "My Assets"
+
+                if move_to not in (
+                    "My Assets",
+                    "New Vehicle",
+                ):
+                    return _error(
+                        400,
+                        "INVALID_MOVE_TO",
+                        f"move_to for {item_code} must be "
+                        f"'My Assets' or 'New Vehicle'."
+                    )
+
+                if item_code in seen_mapping:
+                    return _error(
+                        400,
+                        "DUPLICATE_ITEM",
+                        f"Item {item_code} appears more than once."
+                    )
+
+                seen_mapping.add(item_code)
+
+                if item_code not in old_vehicle_map:
+                    return _error(
+                        422,
+                        "ITEM_NOT_ON_OLD_VEHICLE",
+                        f"Item {item_code} is not installed on "
+                        f"old vehicle {old_vehicle_number}."
+                    )
+
+                item_data = frappe.db.get_value(
+                    "Item",
+                    item_code,
+                    [
+                        "item_name",
+                        "custom_item_type",
+                        "brand",
+                    ],
+                    as_dict=True,
+                )
+
+                if not item_data:
+                    return _error(
+                        404,
+                        "ITEM_NOT_FOUND",
+                        f"Item {item_code} not found."
+                    )
+
+                item_type = (
+                    old_vehicle_map[
+                        item_code
+                    ].item_type
+                    or item_data.custom_item_type
+                )
+
+                # Every selected old-vehicle item is removed
+                job_doc.append(
+                    "item_installed_removed",
+                    {
+                        "item": item_code,
+                        "item_name": item_data.item_name,
+                        "item_type": item_type,
+                        "brand": item_data.brand,
+                        "installed_or_removed": "Removed",
+                    }
+                )
+
+                # Old vehicle -> New Vehicle
+                if move_to == "New Vehicle":
+
+                    old_to_new_items.append({
+                        "item": item_code,
+                        "item_type": item_type,
+                        "source": "Old Vehicle",
+                    })
+
+        # TECHNICIAN -> NEW VEHICLE
+
+        technician_items = []
+
+        if parsed_new_assets is not None:
+
+            if not job_doc.technician_warehouse:
+                return _error(
+                    422,
+                    "WAREHOUSE_NOT_SET",
+                    "Technician warehouse is not set."
+                )
+
+            seen_new = set()
+
+            for row in parsed_new_assets:
+
+                if isinstance(row, str):
+                    item_code = row
+
+                elif isinstance(row, dict):
+                    item_code = (
+                        row.get("item")
+                        or row.get("items")
+                    )
+
+                else:
+                    item_code = None
+
+                if not item_code:
+                    return _error(
+                        400,
+                        "INVALID_ITEM",
+                        "Every new asset requires an item code."
+                    )
+
+                if item_code in seen_new:
+                    return _error(
+                        400,
+                        "DUPLICATE_ITEM",
+                        f"Item {item_code} appears more than once."
+                    )
+
+                seen_new.add(item_code)
+
+                # Already belongs to old vehicle
+                if item_code in old_vehicle_codes:
+                    return _error(
+                        422,
+                        "OLD_VEHICLE_ITEM",
+                        f"Item {item_code} is already installed on "
+                        f"old vehicle {old_vehicle_number}. "
+                        f"Use asset_mapping with move_to='New Vehicle'."
+                    )
+
+                item_data = frappe.db.get_value(
+                    "Item",
+                    item_code,
+                    [
+                        "item_name",
+                        "custom_item_type",
+                        "brand",
+                    ],
+                    as_dict=True,
+                )
+
+                if not item_data:
+                    return _error(
+                        404,
+                        "ITEM_NOT_FOUND",
+                        f"Item {item_code} not found."
+                    )
+
+                actual_qty = (
+                    frappe.db.get_value(
+                        "Bin",
+                        {
+                            "item_code": item_code,
+                            "warehouse":
+                                job_doc.technician_warehouse,
+                        },
+                        "actual_qty",
+                    )
+                    or 0
+                )
+
+                if actual_qty <= 0:
+                    return _error(
+                        422,
+                        "ITEM_NOT_AVAILABLE",
+                        f"Item {item_code} is not available in "
+                        f"Technician Warehouse "
+                        f"{job_doc.technician_warehouse}."
+                    )
+
+                technician_items.append({
+                    "item": item_code,
+                    "item_type":
+                        item_data.custom_item_type,
+                    "source": "Technician",
+                })
+
+        # FINAL OLD VEHICLE ITEMS
+
+        if parsed_mapping is not None:
+            final_old_items = old_to_new_items
+        else:
+            final_old_items = (
+                existing_old_vehicle_items
+            )
+
+        # FINAL TECHNICIAN ITEMS
+        # THIS IS THE IMPORTANT REPLACEMENT LOGIC.
+        # If new_assets is sent, previous technician rows are
+        # NOT preserved.
+
+        if parsed_new_assets is not None:
+            final_technician_items = (
+                technician_items
+            )
+        else:
+            final_technician_items = (
+                existing_technician_items
+            )
+
+        final_items = (
+            final_old_items
+            + final_technician_items
+        )
+
+        # DUPLICATE VALIDATION
+
+        seen_final = set()
+
+        for row in final_items:
+
+            if row["item"] in seen_final:
+                return _error(
+                    400,
+                    "DUPLICATE_ITEM",
+                    f"Item {row['item']} appears more than once "
+                    f"in new vehicle items."
+                )
+
+            seen_final.add(
+                row["item"]
+            )
+
+        # REBUILD ITEMS TABLE
+        # IMPORTANT:
+        # Completely clear old rows and recreate final state.
+
+        if (
+            parsed_mapping is not None
+            or parsed_new_assets is not None
+        ):
+
+            job_doc.items = []
+
+            for row in final_items:
+
+                item_data = frappe.db.get_value(
+                    "Item",
+                    row["item"],
+                    [
+                        "item_name",
+                        "custom_item_type",
+                        "brand",
+                    ],
+                    as_dict=True,
+                )
+
+                job_doc.append(
+                    "items",
+                    {
+                        "source":
+                            row["source"],
+
+                        "items":
+                            row["item"],
+
+                        "item_type":
+                            (
+                                row["item_type"]
+                                or (
+                                    item_data.custom_item_type
+                                    if item_data
+                                    else None
+                                )
+                            ),
+
+                        "item_name":
+                            (
+                                item_data.item_name
+                                if item_data
+                                else None
+                            ),
+
+                        "brand":
+                            (
+                                item_data.brand
+                                if item_data
+                                else None
+                            ),
+                    }
+                )
+
+        # STATUS
+
+        if (
+            job_doc.status == "Pending"
+            and (
+                job_doc.items
+                or job_doc.item_installed_removed
+            )
+        ):
+            job_doc.status = "In Progress"
+
+        # SAVE
+
+        try:
+            job_doc.flags.from_mobile_api = True
+            job_doc.save(
+                ignore_permissions=True
+            )
+
+        except frappe.ValidationError as e:
+            return _error(
+                422,
+                "VALIDATION_ERROR",
+                str(e)
+            )
+
+        # RELOAD
+        # So response shows actual final DB values.
+
+        job_doc.reload()
+
+        swap_changed_scalars = {
+            "vehicle_number": job_doc.vehicle_number,
+            "new_vehicle_number": job_doc.new_vehicle_number,
+        }
+        if job_doc.make:
+            swap_changed_scalars["make"] = job_doc.make
+        if job_doc.model:
+            swap_changed_scalars["model"] = job_doc.model
+        if job_doc.color:
+            swap_changed_scalars["color"] = job_doc.color
+        if job_doc.type:
+            swap_changed_scalars["type"] = job_doc.type
+        if job_doc.swap_make:
+            swap_changed_scalars["swap_make"] = job_doc.swap_make
+        if job_doc.swap_model:
+            swap_changed_scalars["swap_model"] = job_doc.swap_model
+        if job_doc.swap_color:
+            swap_changed_scalars["swap_color"] = job_doc.swap_color
+        if job_doc.swap_type:
+            swap_changed_scalars["swap_type"] = job_doc.swap_type
+
+        _post_job_update_message(
+            job_doc,
+            employee,
+            swap_changed_scalars,
+            set_items=True if (parsed_mapping is not None or parsed_new_assets is not None or job_doc.items or job_doc.item_installed_removed) else None,
+        )
+
+        # RESPONSE ITEMS
+
+        response_items = []
+
+        for row in (
+            job_doc.items or []
+        ):
+
+            response_items.append({
+                "item":
+                    row.items,
+
+                "source":
+                    row.source,
+
+                "item_type":
+                    row.item_type,
+
+                "item_name":
+                    row.item_name,
+
+                "brand":
+                    row.brand,
+            })
+
+        removal_items = []
+
+        for row in (
+            job_doc.item_installed_removed
+            or []
+        ):
+
+            removal_items.append({
+                "item":
+                    row.item,
+
+                "installed_or_removed":
+                    row.installed_or_removed,
+
+                "item_type":
+                    row.item_type,
+
+                "item_name":
+                    row.item_name,
+
+                "brand":
+                    row.brand,
+            })
+
+        frappe.publish_realtime(
+            event="job_details_updated",
+            message={
+                "job":
+                    job_doc.name,
+
+                "status":
+                    job_doc.status,
+
+                "task_type":
+                    job_doc.task_type,
+
+                "vehicle_number":
+                    job_doc.vehicle_number,
+
+                "new_vehicle_number":
+                    job_doc.new_vehicle_number,
+            },
+            after_commit=True,
+        )
+
+        return {
+            "status":
+                "success",
+
+            "msg":
+                "Swap job updated.",
+
+            "job":
+                job_doc.name,
+
+            "job_status":
+                job_doc.status,
+
+            "old_vehicle":
+                job_doc.vehicle_number,
+
+            "new_vehicle":
+                job_doc.new_vehicle_number,
+
+            "items":
+                response_items,
+
+            "item_installed_removed":
+                removal_items,
+        }
+
+
+    type = type or None
+    make = make or None
+    model = model or None
+    color = color or None
+
+    if vehicle_number is not None:
+
+        vehicle_number = (
+            vehicle_number
+            .replace(" ", "")
+            .upper()
+            .strip()
+        )
+
+    valid_vehicle_types = _get_valid_vehicle_types() if type else set()
+    if (
+        type is not None
+        and type not in valid_vehicle_types
+    ):
+        return _error(
+            400,
+            "INVALID_PARAMS",
+            f"type must be one of: "
+            f"{', '.join(sorted(valid_vehicle_types))}"
+        )
+
+    changed_scalars = {}
+
+    if (
+        is_chargeable is not None
+        and job_doc.task_type in ("Checkup", "Re-Installation")
+    ):
+        normalized_chargeable = (
+            1
+            if str(is_chargeable).strip().lower()
+            in ("1", "true", "yes", "on")
+            else 0
+        )
+
+        job_doc.is_chargeable = normalized_chargeable
+        changed_scalars["is_chargeable"] = normalized_chargeable
+
+        job_doc.chargeable_reason = chargeable_reason
+        job_doc.chargeable_reason_description = chargeable_reason_description.strip() if chargeable_reason_description else ""
+
+    if vehicle_number is not None:
+
+        if (
+            job_doc.task_type == "Re-Installation"
+            and not vehicle_number
+        ):
+            return _error(
+                400,
+                "VEHICLE_REQUIRED",
+                "vehicle_number is required for Re-Installation."
+            )
+
+        if (
+            vehicle_number
+            and job_doc.task_type
+            != "Installation"
+        ):
+
+            vehicle_data = frappe.db.get_value(
+                "Vehicle",
+                vehicle_number,
+                [
+                    "name",
+                    "custom_customer",
+                    "make",
+                    "model",
+                    "color",
+                    "custom_vehicle_type",
+                ],
+                as_dict=True,
+            )
+
+            if (
+                job_doc.task_type == "Re-Installation"
+                and not vehicle_data
+            ):
+                return _error(
+                    404,
+                    "VEHICLE_NOT_FOUND",
+                    f"Vehicle {vehicle_number} is not registered in the system."
+                )
+
+            vehicle_customer = (
+                vehicle_data.custom_customer
+                if vehicle_data
+                else None
+            )
+
+            if (
+                vehicle_customer
+                and vehicle_customer
+                != job_doc.customer
+            ):
+                return _error(
+                    422,
+                    "CUSTOMER_MISMATCH",
+                    f"Vehicle {vehicle_number} belongs to "
+                    f"{vehicle_customer}, not {job_doc.customer}."
+                )
+
+            if (
+                job_doc.task_type == "Re-Installation"
+                and vehicle_data
+            ):
+                job_doc.make = vehicle_data.make
+                job_doc.model = vehicle_data.model
+                job_doc.color = vehicle_data.color
+                job_doc.type = vehicle_data.custom_vehicle_type
+
+        job_doc.vehicle_number = (
+            vehicle_number
+        )
+
+        changed_scalars[
+            "vehicle_number"
+        ] = vehicle_number
+
+
+    if make is not None and str(make).strip():
+        job_doc.make = str(make).strip()
+        changed_scalars["make"] = job_doc.make
+
+    if model is not None and str(model).strip():
+        job_doc.model = str(model).strip()
+        changed_scalars["model"] = job_doc.model
+
+    if color is not None and str(color).strip():
+        job_doc.color = str(color).strip()
+        changed_scalars["color"] = job_doc.color
+
+    if type is not None and str(type).strip():
+        clean_type = str(type).strip()
+        if not frappe.db.exists("Vehicle Type", clean_type):
+            try:
+                frappe.get_doc({
+                    "doctype": "Vehicle Type",
+                    "vehicle_type": clean_type
+                }).insert(ignore_permissions=True)
+            except Exception:
+                pass
+        job_doc.type = clean_type
+        changed_scalars["type"] = clean_type
+
+
+    # Support asset_mapping as fallback for Removal jobs if passed
+    if set_items is None and asset_mapping is not None and job_doc.task_type == "Removal":
+        set_items = asset_mapping
+
+    if set_items is not None:
+
+        if isinstance(
+            set_items,
+            str
+        ):
+            try:
+                set_items = json.loads(
+                    set_items
+                )
+
+            except Exception:
+                return _error(
+                    400,
+                    "INVALID_PARAMS",
+                    "set_items must be a valid JSON array."
+                )
+
+        if not isinstance(
+            set_items,
+            list
+        ):
+            return _error(
+                400,
+                "INVALID_PARAMS",
+                "set_items must be an array."
+            )
+
+        # Full replacement
+        job_doc.item_installed_removed = []
+        if hasattr(job_doc, "removal_items"):
+            job_doc.removal_items = []
+
+        seen_items = set()
+
+        reinstallation_vehicle_items = set()
+
+        if job_doc.task_type == "Re-Installation":
+
+            current_vehicle_number = (
+                (job_doc.vehicle_number or "")
+                .replace(" ", "")
+                .upper()
+                .strip()
+            )
+
+            if not current_vehicle_number:
+                return _error(
+                    422,
+                    "VEHICLE_REQUIRED",
+                    "Vehicle number is required for Re-Installation."
+                )
+
+            current_vehicle = frappe.db.get_value(
+                "Vehicle",
+                current_vehicle_number,
+                [
+                    "name",
+                    "custom_customer",
+                ],
+                as_dict=True,
+            )
+
+            if not current_vehicle:
+                return _error(
+                    404,
+                    "VEHICLE_NOT_FOUND",
+                    f"Vehicle {current_vehicle_number} not found."
+                )
+
+            if (
+                current_vehicle.custom_customer
+                and job_doc.customer
+                and current_vehicle.custom_customer
+                != job_doc.customer
+            ):
+                return _error(
+                    422,
+                    "CUSTOMER_MISMATCH",
+                    f"Vehicle {current_vehicle_number} belongs to "
+                    f"{current_vehicle.custom_customer}, not {job_doc.customer}."
+                )
+
+            reinstallation_vehicle_items = {
+                r.item
+                for r in frappe.get_all(
+                    "Vehicle Item",
+                    filters={
+                        "parent": current_vehicle.name,
+                        "status": "Installed",
+                    },
+                    fields=["item"],
+                )
+                if r.item
+            }
+
+        for row in set_items:
+
+            if not isinstance(
+                row,
+                dict
+            ):
+                return _error(
+                    400,
+                    "INVALID_PARAMS",
+                    "Each set_items row must be an object."
+                )
+
+            item_code = (
+                row.get("item")
+                or row.get("items")
+            )
+
+            if not item_code:
+                return _error(
+                    400,
+                    "MISSING_PARAMS",
+                    "Each item row must have an 'item'."
+                )
+
+            if item_code in seen_items:
+                return _error(
+                    400,
+                    "DUPLICATE_ITEM",
+                    f"Item {item_code} appears more than once."
+                )
+
+            seen_items.add(
+                item_code
+            )
+
+            fetched = frappe.db.get_value(
+                "Item",
+                item_code,
+                [
+                    "item_name",
+                    "custom_item_type",
+                    "brand",
+                ],
+                as_dict=True,
+            )
+
+            if not fetched:
+                return _error(
+                    404,
+                    "NOT_FOUND",
+                    f"Item {item_code} not found."
+                )
+
+            # Destination handling
+            raw_dest = row.get("destination") or row.get("move_to") or row.get("dest")
+            dest = None
+            dest_wh = None
+
+            if raw_dest:
+                raw_dest_str = str(raw_dest).strip()
+                if raw_dest_str.lower() in ("customer", "customer warehouse", "cust"):
+                    dest = "Customer"
+                    dest_wh = job_doc.customer_warehouse
+                elif raw_dest_str.lower() in ("technician", "technicians", "my assets", "my asset", "myassets", "technician warehouse", "tech"):
+                    dest = "Technician"
+                    dest_wh = job_doc.technician_warehouse
+                else:
+                    if "customer" in raw_dest_str.lower():
+                        dest = "Customer"
+                        dest_wh = job_doc.customer_warehouse
+                    else:
+                        dest = "Technician"
+                        dest_wh = job_doc.technician_warehouse
+
+            # For Removal jobs: only items that have a destination are added
+            if job_doc.task_type == "Removal" and not dest:
+                continue
+
+            inst_or_rem = row.get("installed_or_removed")
+
+            if job_doc.task_type == "Re-Installation":
+
+                if item_code in reinstallation_vehicle_items:
+                    return _error(
+                        422,
+                        "ITEM_ON_VEHICLE",
+                        f"Item {item_code} is currently Installed on "
+                        f"Vehicle {job_doc.vehicle_number}."
+                    )
+
+                if (
+                    inst_or_rem
+                    and inst_or_rem != "Installed"
+                ):
+                    return _error(
+                        400,
+                        "INVALID_DIRECTION",
+                        "Re-Installation only allows Installed items."
+                    )
+
+                inst_or_rem = "Installed"
+
+            elif not inst_or_rem:
+                if job_doc.task_type == "Removal" or dest:
+                    inst_or_rem = "Removed"
+                else:
+                    inst_or_rem = "Installed"
+
+            raw_replace = row.get("replace_against") or row.get("replace_agaist") or row.get("replace_item") or None
+            if raw_replace:
+                raw_replace = str(raw_replace).strip() or None
+                if raw_replace and job_doc.task_type == "Checkup":
+                    if not frappe.db.exists("Item", raw_replace):
+                        return _error(
+                            404,
+                            "REPLACE_ITEM_NOT_FOUND",
+                            f"Replace item '{raw_replace}' not found."
+                        )
+                else:
+                    raw_replace = None
+
+            job_doc.append(
+                "item_installed_removed",
+                {
+                    "item":
+                        item_code,
+
+                    "item_name":
+                        fetched.item_name,
+
+                    "item_type":
+                        fetched.custom_item_type,
+
+                    "brand":
+                        fetched.brand,
+
+                    "installed_or_removed":
+                        inst_or_rem,
+
+                    "replace_against":
+                        raw_replace if (job_doc.task_type == "Checkup" and inst_or_rem == "Installed") else None,
+
+                    "destination":
+                        dest if job_doc.task_type == "Removal" else None,
+
+                    "removal_reason":
+                        ((row.get("removal_reason") or "").strip() or None) if (job_doc.task_type == "Removal" and dest == "Customer") else None,
+
+                    "is_chargeable":
+                        (1 if inst_or_rem == "Installed" else 0) if (job_doc.task_type in ("Installation", "Accessory", "Swap")) else ((1 if str(row.get("is_chargeable", "")).strip().lower() in ("1", "true", "yes", "on") else 0) if ("is_chargeable" in row and str(row.get("is_chargeable", "")).strip() != "") else ((1 if getattr(job_doc, "is_chargeable", 0) else 0) if (job_doc.task_type == "Re-Installation" and inst_or_rem == "Installed") else 0)),
+
+                    "chargeable_reason":
+                        (row.get("chargeable_reason") or None) if (inst_or_rem == "Installed" and job_doc.task_type != "Removal" and (str(row.get("is_chargeable", "")).strip().lower() in ("1", "true", "yes", "on") or ("is_chargeable" not in row and job_doc.task_type in ("Installation", "Accessory", "Swap")))) else None,
+
+                    "chargeable_reason_description":
+                        ((row.get("chargeable_reason_description") or "").strip() or None) if (inst_or_rem == "Installed" and job_doc.task_type != "Removal" and (str(row.get("is_chargeable", "")).strip().lower() in ("1", "true", "yes", "on") or ("is_chargeable" not in row and job_doc.task_type in ("Installation", "Accessory", "Swap")))) else None,
+                }
+            )
+
+            raw_ch_reason = (row.get("chargeable_reason") or None) if (inst_or_rem == "Installed" and job_doc.task_type != "Removal") else None
+            if raw_ch_reason and not frappe.db.exists("Job Chargeable Reason", raw_ch_reason):
+                try:
+                    frappe.get_doc({
+                        "doctype": "Job Chargeable Reason",
+                        "reason": raw_ch_reason,
+                        "job_type": job_doc.task_type if frappe.db.exists("Task Type", job_doc.task_type) else None,
+                    }).insert(ignore_permissions=True)
+                except Exception:
+                    pass
+
+            # Populate removal_items child table when destination is given or for Removal task type
+            if (
+                job_doc.task_type != "Re-Installation"
+                and hasattr(job_doc, "removal_items")
+                and (
+                    dest
+                    or (
+                        job_doc.task_type == "Removal"
+                        and inst_or_rem == "Removed"
+                    )
+                )
+            ):
+                final_dest = dest or "Technician"
+                if job_doc.task_type == "Removal":
+                    final_wh = job_doc.technician_warehouse
+                else:
+                    final_wh = dest_wh or (
+                        job_doc.customer_warehouse
+                        if final_dest == "Customer"
+                        else job_doc.technician_warehouse
+                    )
+                job_doc.append(
+                    "removal_items",
+                    {
+                        "item":
+                            item_code,
+
+                        "item_name":
+                            fetched.item_name,
+
+                        "item_type":
+                            fetched.custom_item_type,
+
+                        "brand":
+                            fetched.brand,
+
+                        "destination":
+                            final_dest,
+
+                        "removal_reason":
+                            ((row.get("removal_reason") or "").strip() or None) if (job_doc.task_type == "Removal" and final_dest == "Customer") else None,
+
+                        "warehouse":
+                            final_wh,
+                    }
+                )
+
+        if (
+            job_doc.status
+            == "Pending"
+        ):
+            job_doc.status = (
+                "In Progress"
+            )
+
+    if replaced_items is not None and job_doc.task_type == "Checkup":
+        if isinstance(replaced_items, str):
+            try:
+                replaced_items = json.loads(replaced_items)
+            except Exception:
+                return _error(
+                    400,
+                    "INVALID_PARAMS",
+                    "replaced_items must be a valid JSON array."
+                )
+
+        if not isinstance(replaced_items, list):
+            return _error(
+                400,
+                "INVALID_PARAMS",
+                "replaced_items must be an array."
+            )
+
+        #if not hasattr(job_doc, "item_installed_removed") or job_doc.item_installed_removed is None:
+        #    job_doc.item_installed_removed = []
+        job_doc.item_installed_removed = []
+
+        for r_item in replaced_items:
+            if not isinstance(r_item, dict):
+                continue
+
+            new_asset = str(r_item.get("new_asset") or "").strip()
+            # If the new_asset key is missing then ignore that row of the request
+            if not new_asset:
+                continue
+
+            old_asset = str(r_item.get("old_asset") or "").strip() or None
+
+            new_item_data = frappe.db.get_value(
+                "Item",
+                new_asset,
+                ["name", "item_name", "custom_item_type", "brand"],
+                as_dict=True,
+            )
+            if not new_item_data:
+                return _error(
+                    404,
+                    "NEW_ASSET_NOT_FOUND",
+                    f"New asset '{new_asset}' not found."
+                )
+
+            is_ch_raw = r_item.get("ischargeable") if "ischargeable" in r_item else r_item.get("is_chargeable")
+            is_ch = 1 if str(is_ch_raw or "").strip().lower() in ("1", "true", "yes", "on") else 0
+            ch_reason = r_item.get("chargeable_reason") or None
+            if ch_reason and not frappe.db.exists("Job Chargeable Reason", ch_reason):
+                try:
+                    frappe.get_doc({
+                        "doctype": "Job Chargeable Reason",
+                        "reason": ch_reason,
+                        "job_type": job_doc.task_type if frappe.db.exists("Task Type", job_doc.task_type) else None,
+                    }).insert(ignore_permissions=True)
+                except Exception:
+                    pass
+            ch_desc = (r_item.get("reason_description") or r_item.get("chargeable_reason_description") or "").strip() or None
+            item_type_val = r_item.get("item_type") or new_item_data.get("custom_item_type")
+
+            # 1. Add/Update new_asset as Installed, set replace_against = old_asset, set is_chargeable
+            is_checkup = job_doc.task_type == "Checkup"
+            existing_new = next((r for r in job_doc.item_installed_removed if r.item == new_asset), None)
+            if existing_new:
+                existing_new.installed_or_removed = "Installed"
+                existing_new.replace_against = old_asset if is_checkup else None
+                existing_new.is_chargeable = is_ch if is_checkup else 0
+                existing_new.chargeable_reason = ch_reason if is_checkup else None
+                existing_new.chargeable_reason_description = ch_desc if is_checkup else None
+                if not existing_new.item_name:
+                    existing_new.item_name = new_item_data.item_name
+                if not existing_new.item_type:
+                    existing_new.item_type = item_type_val
+                if not existing_new.brand:
+                    existing_new.brand = new_item_data.brand
+            else:
+                job_doc.append(
+                    "item_installed_removed",
+                    {
+                        "item": new_asset,
+                        "item_name": new_item_data.item_name,
+                        "item_type": item_type_val,
+                        "brand": new_item_data.brand,
+                        "installed_or_removed": "Installed",
+                        "replace_against": old_asset if is_checkup else None,
+                        "is_chargeable": is_ch if is_checkup else 0,
+                        "chargeable_reason": ch_reason if is_checkup else None,
+                        "chargeable_reason_description": ch_desc if is_checkup else None,
+                    }
+                )
+
+            # 2. Mark old_asset as Removed
+            if old_asset:
+                existing_old = next((r for r in job_doc.item_installed_removed if r.item == old_asset), None)
+                if existing_old:
+                    existing_old.installed_or_removed = "Removed"
+                    existing_old.replace_against = None
+                    existing_old.is_chargeable = 0
+                    existing_old.chargeable_reason = None
+                    existing_old.chargeable_reason_description = None
+                else:
+                    old_item_data = frappe.db.get_value(
+                        "Item",
+                        old_asset,
+                        ["name", "item_name", "custom_item_type", "brand"],
+                        as_dict=True,
+                    ) or {}
+                    job_doc.append(
+                        "item_installed_removed",
+                        {
+                            "item": old_asset,
+                            "item_name": old_item_data.get("item_name"),
+                            "item_type": old_item_data.get("custom_item_type") or r_item.get("item_type"),
+                            "brand": old_item_data.get("brand"),
+                            "installed_or_removed": "Removed",
+                            "replace_against": None,
+                            "is_chargeable": 0,
+                            "chargeable_reason": None,
+                            "chargeable_reason_description": None,
+                        }
+                    )
+
+                if (
+                    job_doc.task_type != "Re-Installation"
+                    and hasattr(job_doc, "removal_items")
+                ):
+                    existing_rem = next((r for r in (job_doc.removal_items or []) if r.item == old_asset), None)
+                    if not existing_rem:
+                        old_item_data = frappe.db.get_value(
+                            "Item",
+                            old_asset,
+                            ["name", "item_name", "custom_item_type", "brand"],
+                            as_dict=True,
+                        ) or {}
+                        job_doc.append(
+                            "removal_items",
+                            {
+                                "item": old_asset,
+                                "item_name": old_item_data.get("item_name"),
+                                "item_type": old_item_data.get("custom_item_type") or r_item.get("item_type"),
+                                "brand": old_item_data.get("brand"),
+                                "destination": "Technician",
+                                "warehouse": job_doc.technician_warehouse,
+                            }
+                        )
+
+            if is_ch:
+                job_doc.is_chargeable = 1
+
+        if (
+            job_doc.status == "Pending"
+            and (job_doc.item_installed_removed or [])
+        ):
+            job_doc.status = "In Progress"
+
+    if job_doc.task_type == "Checkup":
+        for r in (job_doc.item_installed_removed or []):
+            if r.installed_or_removed == "Removed":
+                r.replace_against = None
+                r.is_chargeable = 0
+                r.chargeable_reason = None
+                r.chargeable_reason_description = None
+
+
+    try:
+        job_doc.flags.from_mobile_api = True
+        job_doc.save(
+            ignore_permissions=True
+        )
+
+    except frappe.ValidationError as e:
+        return _error(
+            422,
+            "VALIDATION_ERROR",
+            str(e)
+        )
+
+    frappe.publish_realtime(
+        event="job_details_updated",
+        message={
+            "job":
+                job_doc.name,
+
+            "status":
+                job_doc.status,
+
+            "vehicle_number":
+                job_doc.vehicle_number,
+
+            "make":
+                job_doc.make,
+
+            "model":
+                job_doc.model,
+
+            "color":
+                job_doc.color,
+
+            "type":
+                job_doc.type,
+        },
+        after_commit=True,
+    )
+
+    _post_job_update_message(
+        job_doc,
+        employee,
+        changed_scalars,
+        set_items if set_items is not None else (replaced_items if replaced_items is not None else None),
+    )
+
+    response = {
+        "status":
+            "success",
+
+        "msg":
+            "Job updated.",
+
+        "job":
+            job_doc.name,
+
+        "job_status":
+            job_doc.status,
+
+        "vehicle_number":
+            job_doc.vehicle_number,
+
+        "make":
+            job_doc.make,
+
+        "model":
+            job_doc.model,
+
+        "color":
+            job_doc.color,
+
+        "type":
+            job_doc.type,
+    }
+
+    if hasattr(job_doc, "removal_items") and job_doc.removal_items:
+        job_item_removal_map = {
+            r.item: getattr(r, "removal_reason", None)
+            for r in (job_doc.item_installed_removed or [])
+            if getattr(r, "removal_reason", None)
+        }
+        response["removal_items"] = [
+            {
+                "item": r.item,
+                "item_name": r.item_name,
+                "item_type": r.item_type,
+                "brand": r.brand,
+                "destination": r.destination,
+                "warehouse": r.warehouse,
+                "removal_reason": (getattr(r, "removal_reason", None) or job_item_removal_map.get(r.item)) if (job_doc.task_type == "Removal" and r.destination == "Customer") else None,
+            }
+            for r in job_doc.removal_items
+        ]
+
+    if hasattr(job_doc, "item_installed_removed") and job_doc.item_installed_removed:
+        rem_dest_map = {r.item: r.destination for r in (job_doc.removal_items or []) if r.item} if job_doc.task_type == "Removal" else {}
+        response["item_installed_removed"] = [
+            {
+                "item": r.item,
+                "item_name": r.item_name,
+                "item_type": r.item_type,
+                "brand": r.brand,
+                "installed_or_removed": r.installed_or_removed,
+                "destination": (getattr(r, "destination", None) or rem_dest_map.get(r.item)) if job_doc.task_type == "Removal" else None,
+                "replace_against": getattr(r, "replace_against", None),
+                "replace_item": getattr(r, "replace_against", None),
+                "removal_reason": getattr(r, "removal_reason", None) if (job_doc.task_type == "Removal" and (getattr(r, "destination", None) == "Customer" or rem_dest_map.get(r.item) == "Customer")) else None,
+                "is_chargeable": getattr(r, "is_chargeable", 0),
+                "chargeable_reason": getattr(r, "chargeable_reason", None),
+                "chargeable_reason_description": getattr(r, "chargeable_reason_description", None),
+            }
+            for r in job_doc.item_installed_removed
+        ]
+
+    if job_doc.task_type == "Re-Installation":
+        response["is_chargeable"] = 1 if job_doc.is_chargeable else 0
+        response["chargeable_reason"] = job_doc.chargeable_reason or ""
+        response["chargeable_reason_description"] = job_doc.chargeable_reason_description or ""
+
+    return response
+
+@frappe.whitelist()
+def update_swap_job(
+    job: str,
+    vehicle_number: str | None = None,
+    make: str | None = None,
+    model: str | None = None,
+    color: str | None = None,
+    type: str | None = None,
+    set_items=None,
+    is_chargeable: int | str | None = None,
+    chargeable_reason: int | str | None = None,
+    chargeable_reason_description: int | str | None = None,
+    new_vehicle_number: str | None = None,
+    swap_make: str | None = None,
+    swap_model: str | None = None,
+    swap_color: str | None = None,
+    swap_type: str | None = None,
+    asset_mapping=None,
+    new_assets=None,
+    **kwargs,
+) -> dict:
+    """
+    POST /api/method/fleet.v2.task_v2.update_swap_job
+    Alias for update_job.
+    """
+    return update_job(
+        job=job,
+        vehicle_number=vehicle_number,
+        make=make,
+        model=model,
+        color=color,
+        type=type,
+        set_items=set_items,
+        is_chargeable=is_chargeable,
+        chargeable_reason=chargeable_reason,
+        chargeable_reason_description=chargeable_reason_description,
+        new_vehicle_number=new_vehicle_number,
+        swap_make=swap_make,
+        swap_model=swap_model,
+        swap_color=swap_color,
+        swap_type=swap_type,
+        asset_mapping=asset_mapping,
+        new_assets=new_assets,
+    )
+
+@frappe.whitelist()
+def upload_job_image(job: str, image_data: str = None, filename: str = None, comment: str = None) -> dict:
+    """
+    POST /api/method/fleet.v2.task_v2.upload_job_image
+
+    multipart/form-data:
+    {
+        "job": "JOB-2026-09-000001",
+        "images": "<file or multiple files>",
+        "comment": "Before installation"
+    }
+
+    Base64 fallback:
+    {
+        "job": "JOB-2026-09-000001",
+        "image_data": "<base64-image>",
+        "filename": "before.jpg",
+        "comment": "Before installation"
+    }
+    """
+    if not job:
+        return _error(400, "MISSING_PARAMS", "job is required.")
+
+    employee, err = _get_auth()
+    if err:
+        return err
+
+    if not frappe.db.exists("Job", {"name": job, "assigned_technician": employee}):
+        return _error(404, "NOT_FOUND", "Job not found or you are not assigned to it.")
+
+    job_doc = frappe.get_doc("Job", job)
+
+    if job_doc.status not in ("Pending", "In Progress", "On Hold"):
+        return _error(422, "INVALID_STATE", "Job can only be updated when Pending, In Progress, or On Hold.")
+
+    uploaded_files = frappe.request.files.getlist("images")  # list of FileStorage objects
+    files_to_save = []
+    if uploaded_files:
+        for idx, uf in enumerate(uploaded_files):
+            img_bytes = uf.read()
+            fname = uf.filename or f"job_{job}_{now_datetime().strftime('%Y%m%d_%H%M%S')}_{idx}.jpg"
+            files_to_save.append((img_bytes, fname))
+
+    elif image_data:
+        # fallback: support comma-separated base64 strings or a JSON array
+        entries = json.loads(image_data) if image_data.strip().startswith("[") else [image_data]
+        for idx, entry in enumerate(entries):
+            if "," in entry:
+                entry = entry.split(",", 1)[1]
+            try:
+                img_bytes = base64.b64decode(entry)
+            except Exception:
+                return _error(400, "INVALID_PARAMS", f"image_data[{idx}] is not valid base64.")
+            fname = f"job_{job}_{now_datetime().strftime('%Y%m%d_%H%M%S')}_{idx}.jpg"
+            files_to_save.append((img_bytes, fname))
+    else:
+        return _error(400, "MISSING_PARAMS", "Either upload file(s) or provide image_data.")
+
+    if not filename:
+        filename = f"job_{job}_{now_datetime().strftime('%Y%m%d_%H%M%S')}.jpg"
+
+    # save to Frappe file system — attached to this Job doc, public
+    results = []
+    for img_bytes, fname in files_to_save:
+        file_doc = frappe.utils.file_manager.save_file(
+            fname, img_bytes, "Job", job, is_private=0
+        )
+        job_doc.append("job_images", {"image": file_doc.file_url, "comment": comment})
+        results.append(file_doc.file_url)
+
+    job_doc.save(ignore_permissions=True)
+
+    # return all new rows
+    new_rows = job_doc.job_images[-len(files_to_save):]
+    return {
+        "status":   "success",
+        "uploaded": [
+            {"file_url": r.image, "row_name": r.name}
+            for r in new_rows
+        ],
+    }
+
+
+@frappe.whitelist()
+def get_job_images(job: str) -> dict:
+    """
+    GET /api/method/fleet.v2.task_v2.get_job_images
+
+    Sample payload:
+    {
+        "job": "JOB-2026-09-000001"
+    }
+
+    Send as query parameters.
+    """
+    if not job:
+        return _error(400, "MISSING_PARAMS", "job is required.")
+
+    employee, err = _get_auth()
+    if err:
+        return err
+
+    if not frappe.db.exists("Job", {"name": job, "assigned_technician": employee}):
+        return _error(404, "NOT_FOUND", "Job not found or you are not assigned to it.")
+
+    images = frappe.db.get_all(
+        "Job Image",
+        filters={"parent": job},
+        fields=["name", "image", "comment"],
+        order_by="idx asc",
+    )
+
+    base_url = frappe.utils.get_url()
+    for img in images:
+        path = img.get("image") or ""
+        if path and path.startswith("/"):
+            img["image"] = f"{base_url}{path}"
+
+    return {
+        "status": "success",
+        "job":    job,
+        "images": images,
+    }
+
+
+@frappe.whitelist()
+def delete_job_image(job: str, row_name: str) -> dict:
+    """
+    DELETE /api/method/fleet.v2.task_v2.delete_job_image
+
+    Sample payload:
+    {
+        "job": "JOB-2026-09-000001",
+        "row_name": "JOB-IMAGE-ROW-0001"
+    }
+    """
+    if not job or not row_name:
+        return _error(400, "MISSING_PARAMS", "job and row_name are required.")
+
+    employee, err = _get_auth()
+    if err:
+        return err
+
+    if not frappe.db.exists("Job", {"name": job, "assigned_technician": employee}):
+        return _error(404, "NOT_FOUND", "Job not found or you are not assigned to it.")
+
+    job_doc = frappe.get_doc("Job", job)
+
+    if job_doc.status not in ("Pending", "In Progress", "On Hold"):
+        return _error(422, "INVALID_STATE", "Job can only be updated when Pending, In Progress, or On Hold.")
+
+    # Find the row in the child table
+    row = next((r for r in job_doc.job_images if r.name == row_name), None)
+    if not row:
+        return _error(404, "NOT_FOUND", f"Image row {row_name} not found in job {job}.")
+
+    file_url = row.image
+
+    # Remove the child row and save
+    job_doc.remove(row)
+    job_doc.save(ignore_permissions=True)
+
+    # Delete the underlying Frappe File document if it exists
+    if file_url:
+        file_doc = frappe.db.get_value("File", {"file_url": file_url}, "name")
+        if file_doc:
+            frappe.delete_doc("File", file_doc, ignore_permissions=True)
+
+    return {"status": "success", "msg": "Image deleted."}
+
+
+@frappe.whitelist()
+def mark_job_done(job: str, done_comment: str) -> dict:
+    """
+    Deprecated — use job_action(action="done", comment=...) instead.
+    Kept for backward compatibility.
+    """
+    return job_action(job=job, action="done", comment=done_comment)
+
+
+@frappe.whitelist()
+def job_action(job: str, action: str, comment: str = None, hold_until_date: str = None) -> dict:
+    """
+    POST /api/method/fleet.v2.task_v2.job_action
+    Headers:
+        Cookie: sid=<logged_in_user_sid>
+    Body:
+        job             — job name (e.g. JOB-2026-03-000001)
+        action          — "done" | "hold" | "reopen"
+        comment         — required when action is "done" or "hold"
+        hold_until_date — optional (defaults automatically to now + 24 hours)
+
+    Technician-facing actions only. Support handles hold/complete/cancel.
+
+    Transitions:
+        hold   : Pending / In Progress → On Hold for 24 hours (comment required)
+        done   : Pending / On Hold → In Review  (comment required)
+        reopen : On Hold → Pending
+    """
+    if not job:
+        return _error(400, "MISSING_PARAMS", "job is required.")
+
+    if action not in ("done", "hold", "reopen"):
+        return _error(400, "INVALID_PARAMS", "action must be 'done', 'hold', or 'reopen'.")
+
+    if action in ("done", "hold") and not comment:
+        return _error(400, "MISSING_PARAMS", f"comment is required when action is '{action}'.")
+
+    employee, err = _get_auth()
+    if err:
+        return err
+
+    assigned = frappe.db.get_value(
+        "Job", {"name": job, "assigned_technician": employee}, "name"
+    )
+    if not assigned:
+        return _error(404, "NOT_FOUND", "Job not found or you are not assigned to it.")
+
+    from fleet.fleet.doctype.job.job import job_action as _job_action
+    try:
+        result = _job_action(job=job, action=action, comment=comment, hold_until_date=hold_until_date)
+    except frappe.ValidationError as e:
+        return _error(400, "VALIDATION_ERROR", str(e))
+    return {"status": "success", **result}
+
+
+# available actions helpers
+
+def _task_available_actions(status: str) -> list:
+    # actions a technician can perform on a task in the given status
+    return {
+        "Open":     ["accept", "reject"],
+        "Accepted": ["start"],
+    }.get(status, [])
+
+
+def _job_available_actions(status: str) -> list:
+    # actions a technician can perform on a job in the given status
+    # complete / cancel are support-only — never exposed here
+    return {
+        "Pending":     ["hold"],
+        "In Progress": ["done"],
+        "On Hold":     ["reopen"],
+        # In Review → technician has no actions; support completes it
+    }.get(status, [])
+
+
+def _post_job_update_message(job_doc, employee, changed_scalars: dict, set_items):
+    """Auto-post a Technician chat message summarising what was updated in the job."""
+    if not changed_scalars and set_items is None:
+        return
+
+    _SCALAR_LABELS = {
+        "vehicle_number": "Vehicle",
+        "make":           "Make",
+        "model":          "Model",
+        "color":          "Color",
+        "type":           "Type",
+    }
+
+    lines = ["**Updated**"]
+
+    if job_doc.task_type == "Swap":
+        # Old Vehicle section
+        old_veh = job_doc.vehicle_number or changed_scalars.get("vehicle_number") or ""
+        lines.append(f"Old Vehicle: {old_veh or '—'}")
+        old_veh_name = (
+            old_veh
+            if (old_veh and frappe.db.exists("Vehicle", old_veh))
+            else (frappe.db.get_value("Vehicle", {"license_plate": old_veh}, "name") if old_veh else None)
+        )
+        old_veh_data = frappe.db.get_value("Vehicle", old_veh_name, ["make", "model", "color", "custom_vehicle_type"], as_dict=True) if old_veh_name else {}
+
+        make = (job_doc.make or changed_scalars.get("make") or (old_veh_data.get("make") if old_veh_data else "") or "").strip()
+        if make:
+            lines.append(f"Make: {make}")
+        model = (job_doc.model or changed_scalars.get("model") or (old_veh_data.get("model") if old_veh_data else "") or "").strip()
+        if model:
+            lines.append(f"Model: {model}")
+        color = (job_doc.color or changed_scalars.get("color") or (old_veh_data.get("color") if old_veh_data else "") or "").strip()
+        if color:
+            lines.append(f"Color: {color}")
+        veh_type = (job_doc.type or changed_scalars.get("type") or (old_veh_data.get("custom_vehicle_type") if old_veh_data else "") or "").strip()
+        if veh_type:
+            lines.append(f"Type: {veh_type}")
+
+        # Old Vehicle Installed Items
+        if old_veh_name:
+            veh_items = frappe.db.get_all(
+                "Vehicle Item",
+                filters={"parent": old_veh_name, "status": "Installed"},
+                fields=["item", "item_type"]
+            )
+            old_veh_codes = {vi.item for vi in veh_items if vi.item}
+            for row in (job_doc.get("items") or []):
+                if getattr(row, "source", None) == "Old Vehicle" and row.items and row.items not in old_veh_codes:
+                    veh_items.append(frappe._dict({"item": row.items, "item_type": row.item_type}))
+                    old_veh_codes.add(row.items)
+            for row in (job_doc.get("item_installed_removed") or []):
+                if row.installed_or_removed == "Removed" and row.item and row.item not in old_veh_codes:
+                    veh_items.append(frappe._dict({"item": row.item, "item_type": row.item_type}))
+                    old_veh_codes.add(row.item)
+
+            if veh_items:
+                lines.append("")
+                lines.append("Item:")
+                for idx, row in enumerate(veh_items):
+                    if idx > 0:
+                        lines.append("")
+                    item_type = row.item_type or "Item"
+                    item_code = row.item or "—"
+                    brand     = frappe.db.get_value("Item", item_code, "brand") or "—"
+                    if item_type == "SIM":
+                        details = frappe.db.get_value("Item", item_code, ["custom_sim_type", "custom_serial_no", "custom_mobile_number"], as_dict=True) or {}
+                        sim_type = details.get("custom_sim_type") or "—"
+                        serial_no = details.get("custom_serial_no") or "—"
+                        mobile_no = details.get("custom_mobile_number") or "—"
+                        lines.append(f"  {item_type}: {item_code} - {brand}")
+                        lines.append(f"  SIM Mobile No: {mobile_no}")
+                        lines.append(f"  SIM Type: {sim_type}")
+                    else:
+                        lines.append(f"  {item_type}: {item_code} - {brand}")
+
+        # Items removed from Old Vehicle (from job_doc.item_installed_removed where installed_or_removed == "Removed")
+        removed_items = [r for r in (job_doc.item_installed_removed or []) if r.installed_or_removed == "Removed" and r.item]
+        if removed_items:
+            lines.append("")
+            lines.append("Removed:")
+            for idx, row in enumerate(removed_items):
+                if idx > 0:
+                    lines.append("")
+                item_type = row.item_type or "Item"
+                item_code = row.item or "—"
+                brand     = row.brand or "—"
+                lines.append(f"  {item_type}: {item_code} - {brand}")
+
+        # New Vehicle section
+        lines.append("")
+        new_veh = job_doc.new_vehicle_number or changed_scalars.get("new_vehicle_number") or ""
+        lines.append(f"New Vehicle: {new_veh or '—'}")
+        swap_make = job_doc.swap_make or changed_scalars.get("swap_make")
+        if swap_make:
+            lines.append(f"Make: {swap_make}")
+        swap_model = job_doc.swap_model or changed_scalars.get("swap_model")
+        if swap_model:
+            lines.append(f"Model: {swap_model}")
+        swap_color = job_doc.swap_color or changed_scalars.get("swap_color")
+        if swap_color:
+            lines.append(f"Color: {swap_color}")
+        swap_type = job_doc.swap_type or changed_scalars.get("swap_type")
+        if swap_type:
+            lines.append(f"Type: {swap_type}")
+
+        # Items installed on New Vehicle (from job_doc.items)
+        swap_items = job_doc.get("items") or []
+        if swap_items:
+            lines.append("")
+            lines.append("Installed:")
+            for idx, row in enumerate(swap_items):
+                if idx > 0:
+                    lines.append("")
+                item_type = row.item_type or "Item"
+                item_code = row.items or "—"
+                brand     = row.brand or "—"
+                source_str = f" ({row.source})" if getattr(row, "source", None) else ""
+                if item_type == "SIM":
+                    details = frappe.db.get_value("Item", item_code, ["custom_sim_type", "custom_serial_no", "custom_mobile_number"], as_dict=True) or {}
+                    sim_type = details.get("custom_sim_type") or "—"
+                    serial_no = details.get("custom_serial_no") or "—"
+                    mobile_no = details.get("custom_mobile_number") or "—"
+                    lines.append(f"  {item_type}: {item_code} - {brand}{source_str}")
+                    lines.append(f"  SIM Mobile No: {mobile_no}")
+                    lines.append(f"  SIM Type: {sim_type}")
+                else:
+                    lines.append(f"  {item_type}: {item_code} - {brand}{source_str}")
+
+    else:
+        veh = job_doc.vehicle_number or changed_scalars.get("vehicle_number")
+        veh_name = (
+            veh
+            if (veh and frappe.db.exists("Vehicle", veh))
+            else (frappe.db.get_value("Vehicle", {"license_plate": veh}, "name") if veh else None)
+        )
+        veh_data = frappe.db.get_value("Vehicle", veh_name, ["make", "model", "color", "custom_vehicle_type"], as_dict=True) if veh_name else {}
+
+        if veh:
+            lines.append(f"Vehicle: {veh}")
+        make = (job_doc.make or changed_scalars.get("make") or (veh_data.get("make") if veh_data else "") or "").strip()
+        if make:
+            lines.append(f"Make: {make}")
+        model = (job_doc.model or changed_scalars.get("model") or (veh_data.get("model") if veh_data else "") or "").strip()
+        if model:
+            lines.append(f"Model: {model}")
+        color = (job_doc.color or changed_scalars.get("color") or (veh_data.get("color") if veh_data else "") or "").strip()
+        if color:
+            lines.append(f"Color: {color}")
+        veh_type = (job_doc.type or changed_scalars.get("type") or (veh_data.get("custom_vehicle_type") if veh_data else "") or "").strip()
+        if veh_type:
+            lines.append(f"Type: {veh_type}")
+
+        # Fetch currently installed/available items on the vehicle
+        if veh_name:
+            veh_items = frappe.db.get_all(
+                "Vehicle Item",
+                filters={"parent": veh_name, "status": "Installed"},
+                fields=["item", "item_type"]
+            )
+            veh_codes = {vi.item for vi in veh_items if vi.item}
+
+            if job_doc.task_type == "Checkup":
+                for row in (job_doc.item_installed_removed or []):
+                    old_code = getattr(row, "replace_against", None) or (row.item if row.installed_or_removed == "Removed" else None)
+                    if old_code and old_code not in veh_codes:
+                        itype = frappe.db.get_value("Item", old_code, "custom_item_type") or getattr(row, "item_type", None) or "Item"
+                        veh_items.append(frappe._dict({"item": old_code, "item_type": itype}))
+                        veh_codes.add(old_code)
+                for row in (getattr(job_doc, "removal_items", None) or []):
+                    if row.item and row.item not in veh_codes:
+                        itype = row.item_type or frappe.db.get_value("Item", row.item, "custom_item_type") or "Item"
+                        veh_items.append(frappe._dict({"item": row.item, "item_type": itype}))
+                        veh_codes.add(row.item)
+
+                # In Checkup, exclude new items being installed in this job so they only appear under Installed:
+                new_installed_codes = {
+                    r.item for r in (job_doc.item_installed_removed or [])
+                    if r.installed_or_removed == "Installed" and r.item
+                }
+                display_veh_items = [vi for vi in veh_items if vi.item not in new_installed_codes]
+            else:
+                # Exclude items that are being removed or replaced in this job
+                removed_codes = {
+                    r.item for r in (job_doc.item_installed_removed or [])
+                    if r.installed_or_removed == "Removed" and r.item
+                }
+                display_veh_items = [vi for vi in veh_items if vi.item not in removed_codes]
+
+            if display_veh_items:
+                lines.append("")
+                lines.append("Item:")
+                for idx, row in enumerate(display_veh_items):
+                    if idx > 0:
+                        lines.append("")
+                    item_type = row.item_type or frappe.db.get_value("Item", row.item, "custom_item_type") or "Item"
+                    item_code = row.item or "—"
+                    brand     = frappe.db.get_value("Item", item_code, "brand") or "—"
+                    if item_type == "SIM":
+                        details = frappe.db.get_value("Item", item_code, ["custom_sim_type", "custom_serial_no", "custom_mobile_number"], as_dict=True) or {}
+                        sim_type = details.get("custom_sim_type") or "—"
+                        serial_no = details.get("custom_serial_no") or "—"
+                        mobile_no = details.get("custom_mobile_number") or "—"
+                        lines.append(f"  {item_type}: {item_code} - {brand}")
+                        lines.append(f"  SIM Mobile No: {mobile_no}")
+                        lines.append(f"  SIM Type: {sim_type}")
+                    else:
+                        lines.append(f"  {item_type}: {item_code} - {brand}")
+
+        if set_items is not None:
+            installed_items = [r for r in job_doc.item_installed_removed if r.installed_or_removed == "Installed"]
+            removed_items = [r for r in job_doc.item_installed_removed if r.installed_or_removed == "Removed"]
+
+            if installed_items:
+                lines.append("")
+                lines.append("Installed:")
+                for idx, row in enumerate(installed_items):
+                    if idx > 0:
+                        lines.append("")
+                    item_type = row.item_type or "Item"
+                    item_code = row.item or "—"
+                    brand     = row.brand or "—"
+                    if item_type == "SIM":
+                        details = frappe.db.get_value("Item", item_code, ["custom_sim_type", "custom_serial_no", "custom_mobile_number"], as_dict=True) or {}
+                        sim_type = details.get("custom_sim_type") or "—"
+                        serial_no = details.get("custom_serial_no") or "—"
+                        mobile_no = details.get("custom_mobile_number") or "—"
+                        lines.append(f"  {item_type}: {item_code} - {brand}")
+                        lines.append(f"  SIM Mobile No: {mobile_no}")
+                        lines.append(f"  SIM Type: {sim_type}")
+                    else:
+                        lines.append(f"  {item_type}: {item_code} - {brand}")
+
+            if hasattr(job_doc, "removal_items") and job_doc.removal_items:
+                lines.append("")
+                lines.append("Removed:")
+                for idx, row in enumerate(job_doc.removal_items):
+                    if idx > 0:
+                        lines.append("")
+                    item_type = row.item_type or "Item"
+                    item_code = row.item or "—"
+                    brand     = row.brand or "—"
+                    dest_str  = f" ({row.destination})" if row.destination else ""
+                    lines.append(f"  {item_type}: {item_code} - {brand}{dest_str}")
+                    reason = getattr(row, "removal_reason", None) or next((r.removal_reason for r in (job_doc.item_installed_removed or []) if r.item == row.item and getattr(r, "removal_reason", None)), None)
+                    if reason and row.destination == "Customer":
+                        lines.append(f"  Removal Reason: {reason}")
+            elif removed_items:
+                lines.append("")
+                lines.append("Removed:")
+                for idx, row in enumerate(removed_items):
+                    if idx > 0:
+                        lines.append("")
+                    item_type = row.item_type or "Item"
+                    item_code = row.item or "—"
+                    brand     = row.brand or "—"
+                    lines.append(f"  {item_type}: {item_code} - {brand}")
+                    if getattr(row, "removal_reason", None) and getattr(row, "destination", None) == "Customer":
+                        lines.append(f"  Removal Reason: {row.removal_reason}")
+
+    if len(lines) == 1:   # only "Updated" header, nothing to report
+        return
+
+    message = "\n".join(lines)
+
+    tech_user   = frappe.db.get_value("Employee", employee, "user_id") if employee else None
+    sender_name = frappe.db.get_value("User", tech_user, "full_name") if tech_user else "Technician"
+
+    msg = frappe.get_doc({
+        "doctype":      "Job Message",
+        "job":          job_doc.name,
+        "sender":       tech_user or frappe.session.user,
+        "sender_name":  sender_name,
+        "sender_role":  "Technician",
+        "message":      message,
+        "message_type": "Text",
+        "is_read":      0,
+    })
+    frappe.flags.skip_chat_after_insert = True
+    msg.insert(ignore_permissions=True)
+    frappe.flags.skip_chat_after_insert = False
+
+    frappe.db.set_value(
+        "Job", job_doc.name, "unread_count_support",
+        (frappe.db.get_value("Job", job_doc.name, "unread_count_support") or 0) + 1,
+    )
+
+    payload = {
+        "task_name":   job_doc.task,
+        "job":         job_doc.name,
+        "name":        msg.name,
+        "content":     message,
+        "message":     message,
+        "sent_by":     tech_user or frappe.session.user,
+        "sender_name": sender_name,
+        "sender_role": "Technician",
+        "role":        "Technician",
+        "tech_user":   tech_user,
+        "creation":    str(msg.creation),
+    }
+
+    frappe.publish_realtime(event="support_dashboard_new_message", message=payload, after_commit=True)
+    frappe.publish_realtime(event="task_job_chat_list_update",    message=payload, after_commit=True)
+
+
+import json
+import frappe
+
+
+def _normalize_vehicle_number(vehicle_number):
+    if not vehicle_number:
+        return None
+
+    return (
+        str(vehicle_number)
+        .replace(" ", "")
+        .strip()
+        .upper()
+    )
+
+
+def _parse_swap_list(value, fieldname):
+    if value is None:
+        return None
+
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except Exception:
+            return _error(
+                400,
+                "INVALID_PARAMS",
+                f"{fieldname} must be a valid JSON array."
+            )
+
+    if not isinstance(value, list):
+        return _error(
+            400,
+            "INVALID_PARAMS",
+            f"{fieldname} must be an array."
+        )
+
+    return value
+
+
+def _get_swap_item_details(item_code):
+    if not item_code:
+        return None
+
+    return frappe.db.get_value(
+        "Item",
+        item_code,
+        [
+            "name",
+            "item_name",
+            "brand",
+            "custom_item_type",
+            "custom_imei_no",
+            "custom_sim_type",
+            "custom_sensor_unique_number",
+            "custom_temperature_serial_number",
+            "custom_dashcam_unique_number",
+            "custom_is_locked",
+        ],
+        as_dict=True,
+    )
+
+
+def _serialize_swap_item(item_code):
+    item = _get_swap_item_details(item_code)
+
+    if not item:
+        return {
+            "item": item_code,
+            "item_name": None,
+            "item_type": None,
+            "brand": None,
+        }
+
+    return {
+        "item": item.name,
+        "item_name": item.item_name,
+        "item_type": item.custom_item_type,
+        "brand": item.brand,
+        "custom_imei_no": item.custom_imei_no,
+        "custom_sim_type": item.custom_sim_type,
+        "custom_sensor_unique_number":
+            item.custom_sensor_unique_number,
+        "custom_temperature_serial_number":
+            item.custom_temperature_serial_number,
+        "custom_dashcam_unique_number":
+            item.custom_dashcam_unique_number,
+        "custom_is_locked":
+            item.custom_is_locked,
+    }
+
+
+@frappe.whitelist()
+def check_swap_new_vehicle(
+    job: str = None,
+    new_vehicle_number: str = None,
+) -> dict:
+
+    """
+    GET /api/method/fleet.v2.task_v2.check_swap_new_vehicle
+
+    Sample payload:
+    {
+        "job": "JOB-SWAP-0001",
+        "new_vehicle_number": "GJ05NEW1234"
+    }
+
+    Send as query parameters.
+    """
+    if not job:
+        return _error(
+            400,
+            "MISSING_PARAMS",
+            "job is required."
+        )
+
+    if not new_vehicle_number:
+        return _error(
+            400,
+            "MISSING_PARAMS",
+            "new_vehicle_number is required."
+        )
+
+    employee, err = _get_auth()
+    if err:
+        return err
+
+    job_data = frappe.db.get_value(
+        "Job",
+        {
+            "name": job,
+            "assigned_technician": employee,
+        },
+        [
+            "name",
+            "task_type",
+            "vehicle_number",
+        ],
+        as_dict=True,
+    )
+
+    if not job_data:
+        return _error(
+            404,
+            "NOT_FOUND",
+            "Job not found or you are not assigned to it."
+        )
+
+    if job_data.task_type != "Swap":
+        return _error(
+            422,
+            "INVALID_JOB_TYPE",
+            "This API can only be used for Swap jobs."
+        )
+
+    old_vehicle_number = _normalize_vehicle_number(
+        job_data.vehicle_number
+    )
+
+    new_vehicle_number = _normalize_vehicle_number(
+        new_vehicle_number
+    )
+
+    if not new_vehicle_number:
+        return _error(
+            400,
+            "INVALID_VEHICLE",
+            "New vehicle number is invalid."
+        )
+
+    if (
+        new_vehicle_number
+        == old_vehicle_number
+    ):
+        return _error(
+            422,
+            "SAME_VEHICLE",
+            "New vehicle number cannot be the same as old vehicle number."
+        )
+
+    if frappe.db.exists(
+        "Vehicle",
+        new_vehicle_number
+    ):
+        return {
+            "status": "failed",
+            "available": False,
+            "new_vehicle_number":
+                new_vehicle_number,
+            "message":
+                f"Vehicle {new_vehicle_number} is already registered in the system.",
+        }
+
+    return {
+        "status": "success",
+        "available": True,
+        "new_vehicle_number":
+            new_vehicle_number,
+        "message":
+            f"Vehicle {new_vehicle_number} is available.",
+    }
+
+
+@frappe.whitelist()
+def get_swap_details(
+    job: str = None,
+) -> dict:
+
+    """
+    GET /api/method/fleet.v2.task_v2.get_swap_details
+
+    Sample payload:
+    {
+        "job": "JOB-SWAP-0001"
+    }
+
+    Send as query parameters.
+    """
+    if not job:
+        return _error(
+            400,
+            "MISSING_PARAMS",
+            "job is required."
+        )
+
+    employee, err = _get_auth()
+    if err:
+        return err
+
+    if not frappe.db.exists(
+        "Job",
+        {
+            "name": job,
+            "assigned_technician": employee,
+        }
+    ):
+        return _error(
+            404,
+            "NOT_FOUND",
+            "Job not found or you are not assigned to it."
+        )
+
+    job_doc = frappe.get_doc(
+        "Job",
+        job
+    )
+
+    if job_doc.task_type != "Swap":
+        return _error(
+            422,
+            "INVALID_JOB_TYPE",
+            "This API can only be used for Swap jobs."
+        )
+
+    old_vehicle_number = _normalize_vehicle_number(
+        job_doc.vehicle_number
+    )
+
+    if not old_vehicle_number:
+        return _error(
+            422,
+            "OLD_VEHICLE_REQUIRED",
+            "Old vehicle number is required."
+        )
+
+    vehicle = frappe.db.get_value(
+        "Vehicle",
+        old_vehicle_number,
+        [
+            "name",
+            "license_plate",
+            "make",
+            "model",
+            "color",
+            "custom_vehicle_type",
+            "custom_customer",
+        ],
+        as_dict=True,
+    )
+
+    if not vehicle:
+        return _error(
+            404,
+            "OLD_VEHICLE_NOT_FOUND",
+            f"Vehicle {old_vehicle_number} was not found."
+        )
+
+    vehicle_items = frappe.db.get_all(
+        "Vehicle Item",
+        filters={
+            "parent": vehicle.name,
+            "status": "Installed",
+        },
+        fields=[
+            "item",
+            "item_type",
+            "date",
+        ],
+        order_by="idx asc",
+    )
+
+    new_vehicle_map = {}
+
+    for row in (
+        job_doc.items or []
+    ):
+        if row.items:
+            new_vehicle_map[
+                row.items
+            ] = row.source
+
+    old_assets = []
+
+    for row in vehicle_items:
+
+        item_data = _get_swap_item_details(
+            row.item
+        )
+
+        if not item_data:
+            continue
+
+        move_to = "My Assets"
+
+        if (
+            row.item in new_vehicle_map
+            and new_vehicle_map.get(row.item)
+            == "Old Vehicle"
+        ):
+            move_to = "New Vehicle"
+
+        old_assets.append({
+            "item":
+                row.item,
+
+            "item_name":
+                item_data.item_name,
+
+            "item_type":
+                row.item_type
+                or item_data.custom_item_type,
+
+            "brand":
+                item_data.brand,
+
+            "custom_imei_no":
+                item_data.custom_imei_no,
+
+            "custom_sim_type":
+                item_data.custom_sim_type,
+
+            "custom_sensor_unique_number":
+                item_data.custom_sensor_unique_number,
+
+            "custom_temperature_serial_number":
+                item_data.custom_temperature_serial_number,
+
+            "custom_dashcam_unique_number":
+                item_data.custom_dashcam_unique_number,
+
+            "date":
+                str(row.date or ""),
+
+            "move_to":
+                move_to,
+        })
+
+    new_vehicle_assets = []
+
+    for row in (
+        job_doc.items or []
+    ):
+
+        if not row.items:
+            continue
+
+        item_data = _get_swap_item_details(
+            row.items
+        )
+
+        new_vehicle_assets.append({
+            "item":
+                row.items,
+
+            "item_name":
+                item_data.item_name
+                if item_data else None,
+
+            "item_type":
+                row.item_type
+                or (
+                    item_data.custom_item_type
+                    if item_data else None
+                ),
+
+            "brand":
+                item_data.brand
+                if item_data else None,
+
+            "source":
+                row.source,
+        })
+
+    return {
+        "status": "success",
+
+        "job": {
+            "name":
+                job_doc.name,
+
+            "status":
+                job_doc.status,
+
+            "task_type":
+                job_doc.task_type,
+
+            "customer":
+                job_doc.customer,
+        },
+
+        "old_vehicle": {
+            "vehicle_number":
+                job_doc.vehicle_number,
+
+            "make":
+                job_doc.make,
+
+            "model":
+                job_doc.model,
+
+            "color":
+                job_doc.color,
+
+            "type":
+                job_doc.type,
+        },
+
+        "old_vehicle_assets":
+            old_assets,
+
+        "new_vehicle": {
+            "vehicle_number":
+                job_doc.new_vehicle_number,
+
+            "make":
+                job_doc.swap_make,
+
+            "model":
+                job_doc.swap_model,
+
+            "color":
+                job_doc.swap_color,
+
+            "type":
+                job_doc.swap_type,
+        },
+
+        "new_vehicle_assets":
+            new_vehicle_assets,
+
+        "technician_warehouse":
+            job_doc.technician_warehouse,
+
+        "customer_warehouse":
+            job_doc.customer_warehouse,
+    }
+
+
+@frappe.whitelist()
+def get_swap_new_asset_options(
+    job: str = None,
+) -> dict:
+
+    """
+    GET /api/method/fleet.v2.task_v2.get_swap_new_asset_options
+
+    Sample payload:
+    {
+        "job": "JOB-SWAP-0001"
+    }
+
+    Send as query parameters.
+    """
+    if not job:
+        return _error(
+            400,
+            "MISSING_PARAMS",
+            "job is required."
+        )
+
+    employee, err = _get_auth()
+    if err:
+        return err
+
+    job_data = frappe.db.get_value(
+        "Job",
+        {
+            "name": job,
+            "assigned_technician": employee,
+        },
+        [
+            "name",
+            "task_type",
+            "technician_warehouse",
+        ],
+        as_dict=True,
+    )
+
+    if not job_data:
+        return _error(
+            404,
+            "NOT_FOUND",
+            "Job not found or you are not assigned to it."
+        )
+
+    if job_data.task_type != "Swap":
+        return _error(
+            422,
+            "INVALID_JOB_TYPE",
+            "This API can only be used for Swap jobs."
+        )
+
+    warehouse = (
+        job_data.technician_warehouse
+    )
+
+    if not warehouse:
+        return _error(
+            422,
+            "WAREHOUSE_NOT_SET",
+            "Technician warehouse is not set."
+        )
+
+    rows = frappe.db.sql(
+        """
+        SELECT
+            i.name AS item,
+            i.item_name,
+            i.brand,
+            i.custom_item_type AS item_type,
+            i.custom_imei_no,
+            i.custom_sim_type,
+            i.custom_sensor_unique_number,
+            i.custom_temperature_serial_number,
+            i.custom_dashcam_unique_number,
+            i.custom_is_locked,
+            b.actual_qty
+        FROM `tabBin` b
+        INNER JOIN `tabItem` i
+            ON i.name = b.item_code
+        WHERE
+            b.warehouse = %(warehouse)s
+            AND b.actual_qty > 0
+            AND i.disabled = 0
+            AND COALESCE(
+                i.custom_is_locked,
+                0
+            ) = 0
+        ORDER BY
+            i.custom_item_type,
+            i.item_name
+        """,
+        {
+            "warehouse":
+                warehouse
+        },
+        as_dict=True,
+    )
+
+    items = []
+
+    for row in rows:
+
+        items.append({
+            "item":
+                row.item,
+
+            "item_name":
+                row.item_name,
+
+            "brand":
+                row.brand,
+
+            "item_type":
+                row.item_type,
+
+            "custom_imei_no":
+                row.custom_imei_no,
+
+            "custom_sim_type":
+                row.custom_sim_type,
+
+            "custom_sensor_unique_number":
+                row.custom_sensor_unique_number,
+
+            "custom_temperature_serial_number":
+                row.custom_temperature_serial_number,
+
+            "custom_dashcam_unique_number":
+                row.custom_dashcam_unique_number,
+
+            "actual_qty":
+                row.actual_qty,
+
+            "source":
+                "Technician",
+        })
+
+    return {
+        "status":
+            "success",
+
+        "warehouse":
+            warehouse,
+
+        "total":
+            len(items),
+
+        "items":
+            items,
+    }

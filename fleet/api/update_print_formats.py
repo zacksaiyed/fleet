@@ -308,16 +308,15 @@ table.gps-stmt-table tbody tr.gps-grandtotal-row td {
 .avoid-break { page-break-inside: avoid !important; }
 .no-print { display: none !important; }
 
-table.gps-installation-table th:nth-child(1), table.gps-installation-table td:nth-child(1) { width: 4%; }
+table.gps-installation-table th:nth-child(1), table.gps-installation-table td:nth-child(1) { width: 13%; }
 table.gps-installation-table th:nth-child(2), table.gps-installation-table td:nth-child(2) { width: 11%; }
-table.gps-installation-table th:nth-child(3), table.gps-installation-table td:nth-child(3) { width: 10%; }
-table.gps-installation-table th:nth-child(4), table.gps-installation-table td:nth-child(4) { width: 11%; }
-table.gps-installation-table th:nth-child(5), table.gps-installation-table td:nth-child(5) { width: 9%; }
-table.gps-installation-table th:nth-child(6), table.gps-installation-table td:nth-child(6) { width: 9%; }
-table.gps-installation-table th:nth-child(7), table.gps-installation-table td:nth-child(7) { width: 12%; }
-table.gps-installation-table th:nth-child(8), table.gps-installation-table td:nth-child(8) { width: 13%; }
-table.gps-installation-table th:nth-child(9), table.gps-installation-table td:nth-child(9) { width: 6%; }
-table.gps-installation-table th:nth-child(10), table.gps-installation-table td:nth-child(10) { width: 15%; }
+table.gps-installation-table th:nth-child(3), table.gps-installation-table td:nth-child(3) { width: 11%; }
+table.gps-installation-table th:nth-child(4), table.gps-installation-table td:nth-child(4) { width: 10%; }
+table.gps-installation-table th:nth-child(5), table.gps-installation-table td:nth-child(5) { width: 10%; }
+table.gps-installation-table th:nth-child(6), table.gps-installation-table td:nth-child(6) { width: 13%; }
+table.gps-installation-table th:nth-child(7), table.gps-installation-table td:nth-child(7) { width: 13%; }
+table.gps-installation-table th:nth-child(8), table.gps-installation-table td:nth-child(8) { width: 5%; }
+table.gps-installation-table th:nth-child(9), table.gps-installation-table td:nth-child(9) { width: 14%; }
 
 table.gps-summary-table { margin-top: 12px; }
 table.gps-summary-table th:nth-child(1) { width: 70%; text-align: center !important; }
@@ -406,7 +405,7 @@ tr.gps-lumpsum-row td { background-color: #ffff00 !important; font-weight: bold;
         {% set matches_page = true %}
     {% endif %}
 
-    {% set model_name = (item.custom_model or frappe.db.get_value("Item", item.item_code, "custom_model") or item.item_name or item.item_code or "") | string %}
+    {% set model_name = (item.custom_model or item.item_name or item.item_code or "") | string %}
     {% set is_lumpsum_item = (item.custom_is_lumpsum_amount_item or 0) | int %}
     {% set item_code_str = (item.item_code or "") | string %}
     {% set item_name_str = (item.item_name or "") | string %}
@@ -816,7 +815,12 @@ tr.gps-lumpsum-row td { background-color: #ffff00 !important; font-weight: bold;
 
         {% set veh_totals = {} %}
         {% for r in inst_rows %}
-            {% set plate = (r.license_plate or r.registration_number or r.vehicle_no or "") | string %}
+            {% set raw_veh = (r.custom_vehicle or r.vehicle or r.license_plate or r.registration_number or r.vehicle_no or "") | string %}
+            {% set v_doc = frappe.db.get_value("Vehicle", raw_veh, ["name", "custom_cleaned_licence_plate_number"], as_dict=True) if raw_veh else None %}
+            {% if not v_doc and (r.license_plate or r.registration_number) %}
+                {% set v_doc = frappe.db.get_value("Vehicle", {"license_plate": (r.license_plate or r.registration_number)}, ["name", "custom_cleaned_licence_plate_number"], as_dict=True) %}
+            {% endif %}
+            {% set plate = (v_doc.custom_cleaned_licence_plate_number or v_doc.name or r.license_plate or r.registration_number or r.vehicle_no or "") | string if v_doc else ((r.license_plate or r.registration_number or r.vehicle_no or "") | string) %}
             {% set rate_val = (r.rate or r.installation_cost or 0) | float %}
             {% if plate %}
                 {% set _ = veh_totals.update({plate: (veh_totals.get(plate) or 0) + rate_val}) %}
@@ -826,7 +830,6 @@ tr.gps-lumpsum-row td { background-color: #ffff00 !important; font-weight: bold;
         <table class="gps-stmt-table gps-installation-table">
             <thead>
                 <tr>
-                    <th>Sr.<br>No.</th>
                     <th>License Plate</th>
                     <th>Item Type</th>
                     <th>Code</th>
@@ -846,18 +849,22 @@ tr.gps-lumpsum-row td { background-color: #ffff00 !important; font-weight: bold;
                     {% set sr.total_rate = sr.total_rate + rate_val %}
                     {% set sr.total_cost = sr.total_cost + rate_val %}
                     {% set code_val = (r.code or r.device_number or r.item_code or "") | string %}
-                    {% set model_val = r.model or (code_val and frappe.db.get_value("Item", code_val, "custom_model")) or "-" %}
+                    {% set model_val = r.model or (code_val and frappe.db.get_value("Item", code_val, "item_name")) or "-" %}
                     {% set brand_val = r.brand or (code_val and frappe.db.get_value("Item", code_val, "brand")) or "-" %}
                     {% set type_val = r.item_type or (code_val and frappe.db.get_value("Item", code_val, "item_group")) or "GPS Tracker" %}
 
-                    {% set plate = (r.license_plate or r.registration_number or r.vehicle_no or "") | string %}
+                    {% set raw_veh = (r.custom_vehicle or r.vehicle or r.license_plate or r.registration_number or r.vehicle_no or "") | string %}
+                    {% set v_doc = frappe.db.get_value("Vehicle", raw_veh, ["name", "custom_cleaned_licence_plate_number"], as_dict=True) if raw_veh else None %}
+                    {% if not v_doc and (r.license_plate or r.registration_number) %}
+                        {% set v_doc = frappe.db.get_value("Vehicle", {"license_plate": (r.license_plate or r.registration_number)}, ["name", "custom_cleaned_licence_plate_number"], as_dict=True) %}
+                    {% endif %}
+                    {% set plate = (v_doc.custom_cleaned_licence_plate_number or v_doc.name or r.license_plate or r.registration_number or r.vehicle_no or "") | string if v_doc else ((r.license_plate or r.registration_number or r.vehicle_no or "") | string) %}
                     {% set is_first_for_plate = (plate and plate not in sr.seen_plates) %}
                     {% if is_first_for_plate %}
                         {% set _ = sr.seen_plates.append(plate) %}
                     {% endif %}
 
                     <tr>
-                        <td>{{ sr.val }}</td>
                         <td class="left">{{ plate if is_first_for_plate else "" }}</td>
                         <td class="left">{{ type_val }}</td>
                         <td class="left">{{ code_val or "-" }}</td>
@@ -879,14 +886,14 @@ tr.gps-lumpsum-row td { background-color: #ffff00 !important; font-weight: bold;
                 {# VAT ROW #}
                 {% set inst_vat_amt = sr.total_cost * (vat.rate / 100) %}
                 <tr class="gps-vat-row">
-                    <td colspan="9" style="text-align: right; font-weight: bold;">VAT {{ vat.rate|int if vat.rate == (vat.rate|int) else vat.rate }}%</td>
+                    <td colspan="8" style="text-align: right; font-weight: bold;">VAT {{ vat.rate|int if vat.rate == (vat.rate|int) else vat.rate }}%</td>
                     <td style="font-weight: bold;">{{ frappe.utils.fmt_money(inst_vat_amt, currency=doc.currency) if inst_vat_amt > 0 else "-" }}</td>
                 </tr>
 
                 {# TOTAL INCLUSIVE VAT ROW #}
                 {% set inst_inc_tot = sr.total_cost + inst_vat_amt %}
                 <tr class="gps-grandtotal-row">
-                    <td colspan="9" style="text-align: right; font-weight: bold;">Total Inclusive VAT {{ vat.rate|int if vat.rate == (vat.rate|int) else vat.rate }}%</td>
+                    <td colspan="8" style="text-align: right; font-weight: bold;">Total Inclusive VAT {{ vat.rate|int if vat.rate == (vat.rate|int) else vat.rate }}%</td>
                     <td style="font-weight: bold;">{{ frappe.utils.fmt_money(inst_inc_tot, currency=doc.currency) if inst_inc_tot > 0 else "-" }}</td>
                 </tr>
             </tbody>
@@ -921,7 +928,13 @@ tr.gps-lumpsum-row td { background-color: #ffff00 !important; font-weight: bold;
                     {% endfor %}
 
                     {% for row in rows %}
-                        {% set reg_no = (row.registration_number or row.vehicle_no or "") | string %}
+                        {% set orig_reg_no = (row.registration_number or row.vehicle_no or "") | string %}
+                        {% set raw_veh = (row.vehicle_no or row.vehicle or row.registration_number or "") | string %}
+                        {% set v_doc = frappe.db.get_value("Vehicle", raw_veh, ["name", "custom_cleaned_licence_plate_number"], as_dict=True) if raw_veh else None %}
+                        {% if not v_doc and row.registration_number %}
+                            {% set v_doc = frappe.db.get_value("Vehicle", {"license_plate": row.registration_number}, ["name", "custom_cleaned_licence_plate_number"], as_dict=True) %}
+                        {% endif %}
+                        {% set reg_no = (v_doc.custom_cleaned_licence_plate_number or v_doc.name or orig_reg_no) | string if v_doc else orig_reg_no %}
                         {% set dev_code = (row.device_number or row.item_code or "") | string %}
 
                         {# FIND VEHICLE SUBSCRIPTION RATE FROM INVOICE ITEMS #}
@@ -929,7 +942,7 @@ tr.gps-lumpsum-row td { background-color: #ffff00 !important; font-weight: bold;
                         {% for item in (doc.items or []) %}
                             {% set item_veh = (item.custom_registration_number or item.custom_vehicle or "") | string %}
                             {% set is_sub = (item.custom_is_subscription or 0) | int %}
-                            {% if item_veh and item_veh == reg_no and is_sub == 1 and item.item_code != "LUMPSUM-SRV-01" %}
+                            {% if item_veh and (item_veh == reg_no or item_veh == orig_reg_no or item_veh == (row.vehicle_no|string) or (v_doc and (item_veh == (v_doc.name|string) or item_veh == (v_doc.custom_cleaned_licence_plate_number|string)))) and is_sub == 1 and item.item_code != "LUMPSUM-SRV-01" %}
                                 {% set veh_sub_rate.amt = (item.rate or item.custom_original_rate or 0) | float %}
                             {% endif %}
                         {% endfor %}
