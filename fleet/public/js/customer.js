@@ -13,21 +13,115 @@ frappe.ui.form.on("Customer", {
         });
         setup_invoice_generation_mode(frm);
         
-        if (!frm.is_new()) {
+       if (!frm.is_new()) {
             frm.add_custom_button(__("Create Vehicle Invoice"), function() {
                 show_vehicle_invoice_dialog(frm);
             }, __("Actions"));
+            
             frm.add_custom_button(__("Create Advance Invoice"), function() {
                 show_advance_invoice_dialog(frm);
             }, __("Actions"));
+
+            frm.add_custom_button(__('Vehicle Activities'), function() {
+                frappe.route_options = {
+                    "customer": frm.doc.name 
+                };
+                frappe.new_doc('Vehicle Activities');
+            }).addClass('btn-danger text-white');
+        }   
+
+        frm.doc.__old_invoice_frequency = frm.doc.custom_invoice_frequency_months;
+        frm.frequency_validated = false;
+        frm.tpin_validated = false;
+
+        // ====================================================
+        // UPDATE: Page load hone par purani rows lock karein
+        // ====================================================
+        lock_saved_rows(frm);
+
+        // ====================================================
+        // NAYA CODE: Vehicle Activity Pagination Setup
+        // ====================================================
+        if (!frm.is_new()) {
+            frm.activity_page = 0; // Page number tracking
+            frm.page_length = 20; // 100 records per page
+            load_vehicle_activities(frm); // Table load karne ka function call
         }
     },
+	//       if (!frm.is_new()) {
+    //         load_vehicle_activities(frm); 
+    //     }
+    // },
+
+    before_save: function(frm) {
+        let old_val = frm.doc.__old_invoice_frequency;
+        let new_val = frm.doc.custom_invoice_frequency_months;
+        let freq_changed = (old_val && new_val && old_val !== new_val);
+
+        // STEP 1: Pehle Invoice Frequency Check Karein
+        if (freq_changed && !frm.frequency_validated) {
+            frappe.validated = false; // Save ko yahin rok dein
+
+            frappe.confirm(
+                `Change Invoice Frequency from <b>${old_val}</b> to <b>${new_val}</b> months?<br><br>This will affect upcoming automatic billing cycles.`,
+                function() {
+                    // YES Action
+                    frm.frequency_validated = true;
+                    frm.save(); // Ab dubara save trigger hoga jo Step 2 par jayega
+                },
+                function() {
+                    // NO Action
+                    frm.frequency_validated = false;
+                    frappe.model.set_value(frm.doctype, frm.docname, 'custom_invoice_frequency_months', old_val);
+                }
+            );
+            return; // Execution yahi rok dein taaki dono popup ek sath na khulein
+        }
+
+        // STEP 2: Uske baad TPIN Check Karein (Yeh tabhi chalega jab Step 1 clear ho jayega)
+        if (frm.doc.custom_tpin && !frm.tpin_validated) {
+            frappe.validated = false; // Save ko yahin rok dein
+            
+            frappe.call({
+                method: "fleet.api.billing.check_tpin_existence",
+                args: {
+                    tpin: frm.doc.custom_tpin,
+                    docname: frm.doc.name,
+                    doc_type: "Customer"
+                },
+                callback: function(r) {
+                    if (r.message && r.message.exists) {
+                        let existing = r.message;
+                        let msg = `TPIN ${frm.doc.custom_tpin} already exists in ${existing.type} "${existing.name}"`;
+                        if (existing.customer) {
+                            msg += ` (linked to Customer: ${existing.customer})`;
+                        }
+                        msg += `. Do you still want to save?`;
+                        
+                        frappe.confirm(msg, function() {
+                            frm.tpin_validated = true;
+                            frm.save(); // TPIN confirm hone ke baad final save
+                        }, function() {
+                            frm.tpin_validated = false;
+                        });
+                    } else {
+                        frm.tpin_validated = true;
+                        frm.save(); // Bina problem ke direct save
+                    }
+                }
+            });
+            return; // Execution yahi rok dein
+        }
+    },
+    
     custom_parent_customer(frm) {
         setup_invoice_generation_mode(frm);
     },
+    
     custom_is_group(frm) {
         setup_invoice_generation_mode(frm);
     },
+    
     custom_generate_pending_invoice(frm) {
         frappe.call({
             method: "fleet.api.billing.generate_customer_invoice",
@@ -52,43 +146,76 @@ frappe.ui.form.on("Customer", {
                 }
             }
         });
+    }
+});
+
+// =====================================================================
+// UPDATE: Child table events (Add row & Expand row)
+// =====================================================================
+frappe.ui.form.on("Customer Component Price", {
+    // Jab naya row add ho tab check karein
+    custom_customer_component_price_add: function(frm, cdt, cdn) {
+        lock_saved_rows(frm);
     },
-    before_save: function(frm) {
-        if (frm.doc.custom_tpin && !frm.tpin_validated) {
-            frappe.validated = false;
-            frappe.call({
-                method: "fleet.api.billing.check_tpin_existence",
-                args: {
-                    tpin: frm.doc.custom_tpin,
-                    docname: frm.doc.name,
-                    doc_type: "Customer"
-                },
-                callback: function(r) {
-                    if (r.message && r.message.exists) {
-                        let existing = r.message;
-                        let msg = `TPIN ${frm.doc.custom_tpin} already exists in ${existing.type} "${existing.name}"`;
-                        if (existing.customer) {
-                            msg += ` (linked to Customer: ${existing.customer})`;
-                        }
-                        msg += `. Do you still want to save?`;
-                        
-                        frappe.confirm(msg, function() {
-                            frm.tpin_validated = true;
-                            frm.save();
-                        }, function() {
-                            frm.tpin_validated = false;
-                        });
-                    } else {
-                        frm.tpin_validated = true;
-                        frm.save();
-                    }
-                }
-            });
-        } else {
-            frm.tpin_validated = false;
+    // Jab user purani row ko expand (Editing Row #...) kare
+    form_render: function(frm, cdt, cdn) {
+        let row = frappe.get_doc(cdt, cdn);
+        if (!row.__islocal) {
+            setTimeout(() => {
+                $('.grid-row-form input, .grid-row-form select, .grid-row-form textarea').prop('disabled', true);
+                $('.grid-row-form .form-group').css('pointer-events', 'none');
+                frappe.show_alert({message: "Saved rows cannot be edited.", indicator: "orange"});
+            }, 100);
         }
     }
 });
+
+// =====================================================================
+// UPDATE: 100% Working DOM-Based Row Locker (Exact Fieldname use kiya)
+// =====================================================================
+function lock_saved_rows(frm) {
+    // Screenshot ke hisaab se exact fieldname 'custom_customer_component_price' hai
+    let child_fieldname = 'custom_customer_component_price'; 
+    
+    let freeze_rows = function() {
+        if (frm.fields_dict[child_fieldname] && frm.fields_dict[child_fieldname].grid) {
+            let grid = frm.fields_dict[child_fieldname].grid;
+            grid.grid_rows.forEach(row => {
+                // Agar row database me saved hai (purani row hai)
+                if (row.doc && !row.doc.__islocal) {
+                    if (row.wrapper) {
+                        let $row = $(row.wrapper);
+                        // Sabhi input fields disable kar dein
+                        $row.find('input, select, textarea').prop('disabled', true);
+                        // Edit icon (pencil) aur checkmark chhupa dein
+                        $row.find('.edit-grid-row, .grid-row-check').hide();
+                        // Row par koi bhi click kaam nahi karega, complete freeze
+                        $row.css({
+                            'pointer-events': 'none', 
+                            // 'background-color': '#f8f9fa' // Thoda grey background
+                        });
+                    }
+                }
+            });
+        }
+    };
+
+    // Form khulte hi thodi der me lock lagayein
+    setTimeout(freeze_rows, 500);
+
+    // ERPNext me grid scroll ya data add karne par re-render hota hai. 
+    // Isliye hum native render event ko override karke lock wapas laga rahe hain.
+    let grid = frm.fields_dict[child_fieldname].grid;
+    if (grid && !grid.__freeze_binded) {
+        let original_render = grid.render;
+        grid.render = function() {
+            original_render.apply(this, arguments); // Standard render chalne dein
+            setTimeout(freeze_rows, 100); // Render hone ke turant baad lock wapas lagayein
+        };
+        grid.__freeze_binded = true; // Flag taaki ek hi baar bind ho
+    }
+}
+// =====================================================================
 
 frappe.ui.form.on("Customer Branch Details", {
     branches_add(frm) {
@@ -117,7 +244,7 @@ function setup_invoice_generation_mode(frm) {
 function show_vehicle_invoice_dialog(frm) {
     let customers = [frm.doc.name];
     
-    // Fetch child customers if any (only if this is a parent, i.e., custom_parent_customer is not set)
+    // Fetch child customers if any
     let child_promise;
     if (frm.doc.custom_parent_customer) {
         child_promise = Promise.resolve([]);
@@ -380,3 +507,83 @@ frappe.ui.form.on("Vehicle Invoice Detail", {
         }
     }
 });
+
+function load_vehicle_activities(frm) {
+    if (!frm.fields_dict['custom_vehicle_activity_html']) return;
+    
+    let wrapper = frm.get_field('custom_vehicle_activity_html').$wrapper;
+    wrapper.html('<p class="text-muted">Loading activities...</p>');
+
+    let limit_start = frm.activity_page * frm.page_length;
+
+    frappe.call({
+        method: 'frappe.client.get_list',
+        args: {
+            doctype: 'Vehicle Activity Details',
+            filters: { 'customer': frm.doc.name },
+            fields: ['name', 'vehicle', 'last_activity_date', 'item'],
+            limit_start: limit_start,
+            limit_page_length: frm.page_length,
+            order_by: 'creation desc'
+        },
+        callback: function(r) {
+            let data = r.message || [];
+            
+            let html = `
+                <table class="table table-bordered table-hover">
+                    <thead style="background-color: #ec7d7d;">
+                        <tr>
+                            <th>ID</th>
+                            <th>Vehicle</th>
+                            <th>Last Activity Date</th>
+                            <th>Item</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            if (data.length > 0) {
+                data.forEach(row => {
+                    html += `
+                        <tr>
+                            <td><a href="/app/vehicle-activity-details/${row.name}" target="_blank"><strong>${row.name}</strong></a></td>
+                            <td>${row.vehicle || ''}</td>
+                            <td>${row.last_activity_date || ''}</td>
+                            <td>${row.item || ''}</td>
+                        </tr>
+                    `;
+                });
+            } else {
+                html += `<tr><td colspan="4" class="text-center text-muted">No vehicle activities found on this page.</td></tr>`;
+            }
+            html += `</tbody></table>`;
+
+            html += `
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
+                    <button class="btn btn-default btn-sm btn-prev" ${frm.activity_page === 0 ? 'disabled' : ''}>
+                        &larr; Previous
+                    </button>
+                    
+                    <strong>Page ${frm.activity_page + 1}</strong>
+                    
+                    <button class="btn btn-default btn-sm btn-next" ${data.length < frm.page_length ? 'disabled' : ''}>
+                        Next &rarr;
+                    </button>
+                </div>
+            `;
+
+            wrapper.html(html);
+
+            // Pagination Button Clicks
+            wrapper.find('.btn-prev').on('click', function() {
+                frm.activity_page -= 1;
+                load_vehicle_activities(frm);
+            });
+
+            wrapper.find('.btn-next').on('click', function() {
+                frm.activity_page += 1;
+                load_vehicle_activities(frm);
+            });
+        }
+    });
+}
