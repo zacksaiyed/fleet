@@ -1595,3 +1595,12 @@ def create_vehicle_type(vehicle_type=None):
         return {"message": "Vehicle Type created", "vehicle_type": doc.name}
 
     frappe.throw(_("Vehicle Type must be a Select or Link field."))
+
+
+@frappe.whitelist()
+def get_uom():
+    return frappe.get_all(
+        "UOM",
+        pluck="name",
+        order_by="name asc"
+    )
