@@ -31,3 +31,16 @@ frappe.listview_settings["Customer"] = {
 
 	},
 };
+
+
+frappe.ui.form.on('Customer', {
+    refresh: function(frm) {
+        frm.set_query('custom_parent_customer', function() {
+            return {
+                filters: {
+                    'custom_is_group': 1
+                }
+            };
+        });
+    }
+});

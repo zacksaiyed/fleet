@@ -463,6 +463,3 @@ function _render_table(dialog, rows, customer_vehicles) {
 function _parse_vehicles(raw) {
 	return (raw || "").split(",").map(v => v.trim()).filter(Boolean);
 }
-
-// ####################### END OF CODE ######################
-

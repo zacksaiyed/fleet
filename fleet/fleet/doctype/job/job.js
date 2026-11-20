@@ -722,7 +722,6 @@ frappe.ui.form.on("Job", {
 	job_images_remove(frm) {
 		render_job_images(frm);
 	},
-
 	vehicle_number(frm) {
 		fetch_vehicle_details(frm);
 		render_vehicle_items(frm);
@@ -838,14 +837,50 @@ function set_get_queries(frm){
 }
 
 function _job_action_with_comment(frm, action, label, field) {
-	frappe.prompt(
-		[{ fieldtype: "Small Text", fieldname: "comment", label: label, reqd: 1 }],
-		(values) => {
-			_job_action(frm, action, values.comment, field);
-		},
-		__(label),
-		__("Submit")
-	);
+    let prompt_fields = [];
+
+    if (action === "complete") {
+        prompt_fields.push({
+            fieldtype: "Link",
+            fieldname: "branch",
+            label: __("Branch"),
+            options: "Customer Branch",
+            reqd: 0,
+            get_query: function() {
+                return {
+                    filters: {
+                        customer: frm.doc.customer || ""
+                    }
+                };
+            }
+        });
+    }
+
+    prompt_fields.push({
+        fieldtype: "Small Text",
+        fieldname: "comment",
+        label: label,
+        reqd: 1
+    });
+
+    let d = frappe.prompt(
+        prompt_fields,
+        (values) => {
+            _job_action(frm, action, values.comment, field, null, values.branch);
+        },
+        __(label),
+        __("Submit")
+    );
+
+    if (action === "complete" && d && d.fields_dict && d.fields_dict["branch"]) {
+        d.fields_dict["branch"].get_query = function() {
+            return {
+                filters: {
+                    customer: frm.doc.customer || ""
+                }
+            };
+        };
+    }
 }
 
 function _job_hold_action(frm) {
@@ -866,10 +901,10 @@ function _job_hold_action(frm) {
 	}, __("Put Job On Hold"), __("Submit"));
 }
 
-function _job_action(frm, action, comment, comment_field, hold_until_date) {
+function _job_action(frm, action, comment, comment_field, hold_until_date, branch) {
 	frappe.call({
 		method: "fleet.fleet.doctype.job.job.job_action",
-		args: { job: frm.doc.name, action, comment, comment_field, hold_until_date },
+		args: { job: frm.doc.name, action, comment, comment_field, hold_until_date, branch },
 		freeze: true,
 		freeze_message: __("Updating…"),
 		callback(r) {
@@ -1032,6 +1067,66 @@ function open_job_chat(technician_user, job_name, job_status) {
 	}, 100);
 }
 
+function render_vehicle_items(frm) {
+	if (frm.doc.task_type === "Installation") {
+		return;
+	}
+	const wrapper = frm.fields_dict.item_details.$wrapper;
+
+	if (!frm.doc.vehicle_number) {
+		wrapper.empty();
+		return;
+	}
+
+	frappe.db.get_doc("Vehicle", frm.doc.vehicle_number).then((vehicle) => {
+		const items = (vehicle.custom_vehicle_item || []).filter(
+			(row) => row.status === "Installed"
+		);
+
+		if (!items.length) {
+			wrapper.html(`
+				<div class="text-muted">
+					No installed vehicle items found.
+				</div>
+			`);
+			return;
+		}
+
+		let rows = "";
+
+		items.forEach((row, index) => {
+			rows += `
+				<tr>
+					<td>${index + 1}</td>
+					<td>${frappe.utils.escape_html(row.item_type || "")}</td>
+					<td>${frappe.utils.escape_html(row.item || "")}</td>
+					<td>${frappe.utils.escape_html(row.status || "")}</td>
+					<td>${row.date ? frappe.datetime.str_to_user(row.date) : ""}</td>
+				</tr>
+			`;
+		});
+
+		wrapper.html(`
+			<div style="margin-top: 10px;">
+				<table class="table table-bordered">
+					<thead>
+						<tr>
+							<th style="width: 60px;">No.</th>
+							<th>Item Type</th>
+							<th>Item</th>
+							<th>Status</th>
+							<th>Date</th>
+						</tr>
+					</thead>
+					<tbody>
+						${rows}
+					</tbody>
+				</table>
+			</div>
+		`);
+	});
+}
+
 
 function wait_for_job(instance, job_name, technician) {
 	let attempts = 0;
@@ -1059,6 +1154,7 @@ function wait_for_job(instance, job_name, technician) {
 		}
 	}, 100);
 }
+
 function render_vehicle_items(frm) {
 	if (frm.doc.task_type === "Installation") {
 		return;

@@ -842,14 +842,18 @@ def _create_stock_entry(doc_name):
 	errors = []
 
 	for mt_item in doc.items:
-		actual_qty = frappe.db.get_value(
+		result = frappe.get_all(
 			"Bin",
-			{
+			filters={
 				"item_code": mt_item.item,
 				"warehouse": doc.source,
 			},
-			"actual_qty",
-		) or 0
+			fields=["actual_qty"],
+			limit=1,
+			ignore_permissions=True,
+		)
+
+		actual_qty = result[0].actual_qty if result else 0
 
 		if frappe.utils.flt(actual_qty) < 1:
 			errors.append(
@@ -1211,3 +1215,4 @@ def get_return_warehouse(return_type):
 		)
 
 	return warehouse
+

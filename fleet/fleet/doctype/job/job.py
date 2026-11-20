@@ -1,12 +1,12 @@
-																									# /home/umar/f/apps/fleet/fleet/fleet/doctype/job/job.py
 import re
 
 import frappe
 from frappe.model.document import Document
 from frappe.query_builder.functions import Max
-from frappe.utils import add_to_date, get_datetime, getdate, now_datetime, now
+from frappe.utils import add_to_date, flt, get_datetime, getdate, now, now_datetime, nowdate
 
 # _VEH_RE = re.compile(r"^[A-Z]{3}\d{3,4}$")
+GPS_ITEM_TYPE = "GPS Device"
 
 
 class Job(Document):
@@ -347,6 +347,7 @@ class Job(Document):
 				self._handle_warehouse_movement()
 
 			self._unlock_completed_job_items()
+			self._update_customer_component_price()
 
 		self._post_chat_message_on_update()
 
@@ -887,7 +888,7 @@ class Job(Document):
 
 		# Only re-derive if technician changed (or it's a new doc)
 		before = self.get_doc_before_save()
-		if before and before.get("assigned_technician") == self.assigned_technician:
+		if before and before.get("assigned_technician") == self.assigned_technician and self.technician_warehouse:
 			return  # technician unchanged, don't touch warehouse
 
 		wh = frappe.db.get_value(
@@ -901,7 +902,7 @@ class Job(Document):
 
 		# Only re-derive if customer changed (or it's a new doc)
 		before = self.get_doc_before_save()
-		if before and before.get("customer") == self.customer:
+		if before and before.get("customer") == self.customer and self.customer_warehouse:
 			return  # customer unchanged, don't touch warehouse
 
 		wh = frappe.db.get_value(
@@ -1144,11 +1145,13 @@ class Job(Document):
 		vehicle = frappe.get_doc({
 			"doctype": "Vehicle",
 			"license_plate": self.vehicle_number,
+			"custom_cleaned_licence_plate_number": self.vehicle_number,
 			"make" : self.make,
 			"model" : self.model,
 			"color" : self.color,
 			"custom_vehicle_type": self.type or None,
 			"custom_customer": self.customer or None,
+			"custom_branch": self.flags.selected_branch or None,
 		})
 		for row in self.item_installed_removed:
 			is_ch = 1
@@ -1205,6 +1208,8 @@ class Job(Document):
 			)
 
 		vehicle = frappe.get_doc("Vehicle", self.vehicle_number)
+		if self.flags.selected_branch:
+			vehicle.custom_branch = self.flags.selected_branch
 		vehicle_items = {r.item: r for r in vehicle.get("custom_vehicle_item", [])}
 
 		# Validate all items exist on vehicle before making any changes
@@ -1259,6 +1264,8 @@ class Job(Document):
 			)
 
 		vehicle = frappe.get_doc("Vehicle", self.vehicle_number)
+		if self.flags.selected_branch:
+			vehicle.custom_branch = self.flags.selected_branch
 		vehicle_items = {r.item: r for r in vehicle.get("custom_vehicle_item", [])}
 
 		# Validate removals first — fail before making any changes
@@ -1358,6 +1365,8 @@ class Job(Document):
 			)
 
 		vehicle = frappe.get_doc("Vehicle", self.vehicle_number)
+		if self.flags.selected_branch:
+			vehicle.custom_branch = self.flags.selected_branch
 		vehicle_items = {r.item: r for r in vehicle.get("custom_vehicle_item", [])}
 
 		for row in self.item_installed_removed:
@@ -1542,6 +1551,67 @@ class Job(Document):
 				"attached_to_name":    vehicle_number,
 				"is_private":          0,
 			}).insert(ignore_permissions=True)
+
+	def _update_customer_component_price(self):
+		if not self.customer or not self.item_installed_removed:
+			return
+
+		try:
+			customer = frappe.get_doc("Customer", self.customer)
+			updated = False
+			for row in self.item_installed_removed:
+				if row.installed_or_removed != "Installed":
+					continue
+
+				item_doc = frappe.db.get_value(
+					"Item",
+					row.item,
+					["custom_model", "custom_default_billing_price", "brand", "item_name"],
+					as_dict=True
+				) or {}
+
+				model = item_doc.get("custom_model")
+				if not model and item_doc.get("brand"):
+					model = frappe.db.get_value("Item Model", {"brand": item_doc.get("brand")}, "name")
+				if not model:
+					model = frappe.db.get_value("Item Model", row.item, "name") or frappe.db.get_value("Item Model", item_doc.get("item_name"), "name")
+
+				if not model:
+					continue
+
+				item_price = flt(item_doc.get("custom_default_billing_price") or 0)
+				model_price = 0
+				if frappe.db.exists("DocType", "Item Model"):
+					model_price = flt(frappe.db.get_value("Item Model", model, "price") or 0)
+
+				default_price = model_price or item_price
+				customer_price = item_price or model_price
+
+				existing_rows = customer.get("custom_customer_component_price", {"model": model})
+
+				if existing_rows:
+					existing_row = existing_rows[0]
+					existing_row.last_vehicle = self.vehicle_number
+					existing_row.last_job = self.name
+					existing_row.effective_from = self.completed_on_support or nowdate()
+					existing_row.default_price = default_price
+					existing_row.customer_price = customer_price
+					updated = True
+				else:
+					customer.append("custom_customer_component_price", {
+						"model": model,
+						"default_price": default_price,
+						"effective_from": self.completed_on_support or nowdate(),
+						"last_vehicle": self.vehicle_number,
+						"last_job": self.name,
+						"customer_price": customer_price
+					})
+					updated = True
+
+			if updated:
+				customer.save(ignore_permissions=True)
+		except Exception:
+			frappe.log_error(frappe.get_traceback(), "Failed to update customer component price on job completion")
 
 
 # Item search by warehouse
@@ -1738,58 +1808,58 @@ def get_reinstallation_items(
 @frappe.whitelist()
 @frappe.validate_and_sanitize_search_inputs
 def get_removable_items(doctype, txt, searchfield, start, page_len, filters):
-	"""Items eligible for Removal: in customer warehouse AND installed on the vehicle."""
-	warehouse = filters.get("warehouse") if filters else None
-	vehicle_number = filters.get("vehicle_number") if filters else None
-	customer = filters.get("customer") if filters else None
+    """Items eligible for Removal: in customer warehouse AND installed on the vehicle."""
+    warehouse = filters.get("warehouse") if filters else None
+    vehicle_number = filters.get("vehicle_number") if filters else None
+    customer = filters.get("customer") if filters else None
 
-	if not warehouse:
-		return []
+    if not warehouse:
+        return []
 
-	txt_filter = f"%{txt}%" if txt else "%"
-	base_params = {"warehouse": warehouse, "txt": txt_filter, "start": start, "page_len": page_len}
+    txt_filter = f"%{txt}%" if txt else "%"
+    base_params = {"warehouse": warehouse, "txt": txt_filter, "start": start, "page_len": page_len}
 
-	if vehicle_number and customer:
-		vehicle_name = frappe.db.get_value(
-			"Vehicle",
-			{"license_plate": vehicle_number, "custom_customer": customer},
-			"name",
-		)
-		if vehicle_name:
-			return frappe.db.sql(
-				"""
-				SELECT i.name, i.item_name
-				FROM `tabItem` i
-				INNER JOIN `tabBin` b ON b.item_code = i.name
-				INNER JOIN `tabVehicle Item` vi
-					ON vi.item = i.name
-					AND vi.parent = %(vehicle)s
-					AND vi.status = 'Installed'
-				WHERE b.warehouse = %(warehouse)s
-				  AND b.actual_qty > 0
-				  AND i.disabled = 0
-				  AND (i.name LIKE %(txt)s OR i.item_name LIKE %(txt)s)
-				ORDER BY i.item_name
-				LIMIT %(start)s, %(page_len)s
-				""",
-				{**base_params, "vehicle": vehicle_name},
-			)
+    if vehicle_number and customer:
+        vehicle_name = frappe.db.get_value(
+            "Vehicle",
+            {"license_plate": vehicle_number, "custom_customer": customer},
+            "name",
+        )
+        if vehicle_name:
+            return frappe.db.sql(
+                """
+                SELECT i.name, i.item_name
+                FROM `tabItem` i
+                INNER JOIN `tabBin` b ON b.item_code = i.name
+                INNER JOIN `tabVehicle Item` vi
+                    ON vi.item = i.name
+                    AND vi.parent = %(vehicle)s
+                    AND vi.status = 'Installed'
+                WHERE b.warehouse = %(warehouse)s
+                  AND b.actual_qty > 0
+                  AND i.disabled = 0
+                  AND (i.name LIKE %(txt)s OR i.item_name LIKE %(txt)s)
+                ORDER BY i.item_name
+                LIMIT %(start)s, %(page_len)s
+                """,
+                {**base_params, "vehicle": vehicle_name},
+            )
 
-	# Fallback: no vehicle match, just show warehouse items
-	return frappe.db.sql(
-		"""
-		SELECT i.name, i.item_name
-		FROM `tabItem` i
-		INNER JOIN `tabBin` b ON b.item_code = i.name
-		WHERE b.warehouse = %(warehouse)s
-		  AND b.actual_qty > 0
-		  AND i.disabled = 0
-		  AND (i.name LIKE %(txt)s OR i.item_name LIKE %(txt)s)
-		ORDER BY i.item_name
-		LIMIT %(start)s, %(page_len)s
-		""",
-		base_params,
-	)
+    # Fallback: no vehicle match, just show warehouse items
+    return frappe.db.sql(
+        """
+        SELECT i.name, i.item_name
+        FROM `tabItem` i
+        INNER JOIN `tabBin` b ON b.item_code = i.name
+        WHERE b.warehouse = %(warehouse)s
+          AND b.actual_qty > 0
+          AND i.disabled = 0
+          AND (i.name LIKE %(txt)s OR i.item_name LIKE %(txt)s)
+        ORDER BY i.item_name
+        LIMIT %(start)s, %(page_len)s
+        """,
+        base_params,
+    )
 
 
 @frappe.whitelist()
@@ -1813,7 +1883,7 @@ def check_item_available(item, current_job=None):
 # Job Actions
 
 @frappe.whitelist()
-def job_action(job, action, comment=None, comment_field=None, hold_until_date=None):
+def job_action(job, action, comment=None, comment_field=None, hold_until_date=None, branch=None):
 	"""Handle Job status transitions. Called from job.js and mobile API."""
 	doc        = frappe.get_doc("Job", job)
 	roles      = frappe.get_roles()
@@ -1890,6 +1960,8 @@ def job_action(job, action, comment=None, comment_field=None, hold_until_date=No
 		doc.completed_on_support    = now()
 		doc.complete_date           = frappe.utils.today()
 		msg = "Job completed."
+		if branch:
+			doc.flags.selected_branch = branch
 
 	elif action == "mark_pending":
 		if doc.status != "In Review":
@@ -1926,6 +1998,19 @@ def validate_installation_requirements(job):
 		doc = job
 	doc._validate_installation_job_requirements()
 	return {"status": "ok"}
+
+
+@frappe.whitelist()
+def add_in_customer_row(job: str, comment: str | None = None):
+	doc = frappe.get_doc("Job", job)
+	if not doc.customer:
+		frappe.throw("Customer is required in Job")
+
+	doc._update_customer_component_price()
+	return {
+		"status": True,
+		"message": "Customer component price updated successfully"
+	}
 
 
 def set_progress_jobs_to_pending():

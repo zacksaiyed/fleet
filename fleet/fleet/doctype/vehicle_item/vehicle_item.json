@@ -87,6 +87,7 @@
    "default": "0",
    "fieldname": "billed",
    "fieldtype": "Check",
+   "in_list_view": 1,
    "label": "Billed"
   },
   {

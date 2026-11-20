@@ -1,0 +1,90 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-06-16 22:22:55.863798",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "model",
+  "default_price",
+  "column_break_aezv",
+  "effective_from",
+  "effective_to",
+  "column_break_qdza",
+  "customer_price",
+  "last_vehicle",
+  "last_job"
+ ],
+ "fields": [
+  {
+   "fieldname": "model",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Model",
+   "options": "Item Model"
+  },
+  {
+   "fieldname": "default_price",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Default Price",
+   "read_only": 1
+  },
+  {
+   "fieldname": "customer_price",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Customer Price"
+  },
+  {
+   "fieldname": "effective_from",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Effective From"
+  },
+  {
+   "fieldname": "effective_to",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Effective To"
+  },
+  {
+   "fieldname": "last_job",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Last Job",
+   "options": "Job"
+  },
+  {
+   "fieldname": "last_vehicle",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Last Vehicle",
+   "options": "Vehicle"
+  },
+  {
+   "fieldname": "column_break_aezv",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_qdza",
+   "fieldtype": "Column Break"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-06-16 22:30:07.577022",
+ "modified_by": "Administrator",
+ "module": "Fleet",
+ "name": "Customer Component Price",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
