@@ -1,3 +1,4 @@
+from IPython.core import display_functions
 from fleet.apis.list_filter_utils import apply_screen_filters, apply_screen_sort
 
 """Job APIs for the Fleet Administrator interface.
@@ -1782,9 +1783,16 @@ def update_job(
 
         )
 
-        if not (uploaded_file.mimetype and uploaded_file.mimetype.startswith("image/")):
+        import io
+        from PIL import Image, UnidentifiedImageError
 
-            frappe.throw(_("Only image files are allowed: {0}").format(filename))
+        try:
+            with Image.open(io.BytesIO(image_bytes)) as img:
+                img.verify()
+        except (UnidentifiedImageError, OSError, ValueError):
+            frappe.throw(
+                _("Only valid image files are allowed: {0}").format(filename)
+            )
 
         file_doc = save_file(
 
