@@ -267,6 +267,14 @@ def get_my_tasks(
 
             params[f"{key}_to"] = filter_value[1]
 
+        elif operator in ("is", "is not"):
+            if filter_value not in ("set", "not set"):
+                frappe.throw(_("IS requires set or not set"))
+            is_set = filter_value == "set"
+            if operator == "is not":
+                is_set = not is_set
+            conditions.append(f"({column} IS NOT NULL AND {column} != '')" if is_set else f"({column} IS NULL OR {column} = '')")
+
         else:
 
             frappe.throw(_("Unsupported filter operator"))

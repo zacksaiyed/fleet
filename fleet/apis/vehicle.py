@@ -672,19 +672,33 @@ def create_vehicle(
         )
 
         if installation_date:
+
+            installation_date = str(installation_date).strip()
+            year = installation_date.rsplit("-", 1)[-1]
+            date_format = "%d-%m-%Y" if len(year) == 4 else "%d-%m-%y"
+
             try:
+
                 installation_date = datetime.strptime(
-                    str(installation_date).strip(),
-                    "%d-%m-%Y"
+                    installation_date,
+                    date_format,
+
                 ).strftime("%Y-%m-%d")
 
             except ValueError:
+
                 frappe.throw(
+
                     _(
+
                         "Invalid Date of Installation for Item {0}. "
-                        "Use DD-MM-YYYY format."
+
+                        "Use DD-MM-YY or DD-MM-YYYY format."
+
                     ).format(item)
+
                 )
+
         elif status == "Installed":
 
             installation_date = nowdate()
@@ -1595,7 +1609,6 @@ def create_vehicle_type(vehicle_type=None):
         return {"message": "Vehicle Type created", "vehicle_type": doc.name}
 
     frappe.throw(_("Vehicle Type must be a Select or Link field."))
-
 
 @frappe.whitelist()
 def get_uom():
