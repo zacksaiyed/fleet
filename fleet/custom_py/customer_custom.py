@@ -176,7 +176,8 @@ def create_history_log(customer, model, customer_price, effective_from, effectiv
         "effective_from": effective_from,
         "effective_to": effective_to,
         "changed_by": frappe.session.user,
-        "changed_on": now_datetime()
+        "changed_on": now_datetime(),
+        "custom_changed_": now_datetime()
     })
     history_doc.flags.ignore_links = True  
     history_doc.insert(ignore_permissions=True)

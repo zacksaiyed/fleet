@@ -41,7 +41,8 @@
    "fieldname": "effective_from",
    "fieldtype": "Date",
    "in_list_view": 1,
-   "label": "Effective From"
+   "label": "Effective From",
+   "reqd": 1
   },
   {
    "fieldname": "effective_to",
@@ -76,7 +77,7 @@
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2026-06-16 22:30:07.577022",
+ "modified": "2026-11-05 20:21:14.929779",
  "modified_by": "Administrator",
  "module": "Fleet",
  "name": "Customer Component Price",
