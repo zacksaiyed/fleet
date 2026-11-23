@@ -1,4 +1,3 @@
-from IPython.core import display_functions
 from fleet.apis.list_filter_utils import apply_screen_filters, apply_screen_sort
 
 """Job APIs for the Fleet Administrator interface.
@@ -1006,7 +1005,6 @@ def _payload(job):
 
         'item_installed_removed': [r.as_dict() for r in job.get('item_installed_removed') or []],
 
-        'new_make': job.swap_make, 'new_model': job.swap_model, 'new_color': job.swap_color,'new_type': job.swap_type,
         "swap_items": [
 
             row.as_dict()
@@ -1285,6 +1283,7 @@ def create_job(task=None, task_type=None, vehicle_number=None, assigned_technici
 
 @frappe.whitelist(methods=["POST"])
 def update_job(
+
     name=None,
 
     task=None,
@@ -1783,16 +1782,9 @@ def update_job(
 
         )
 
-        import io
-        from PIL import Image, UnidentifiedImageError
+        if not (uploaded_file.mimetype and uploaded_file.mimetype.startswith("image/")):
 
-        try:
-            with Image.open(io.BytesIO(image_bytes)) as img:
-                img.verify()
-        except (UnidentifiedImageError, OSError, ValueError):
-            frappe.throw(
-                _("Only valid image files are allowed: {0}").format(filename)
-            )
+            frappe.throw(_("Only image files are allowed: {0}").format(filename))
 
         file_doc = save_file(
 

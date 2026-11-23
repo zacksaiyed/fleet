@@ -855,41 +855,11 @@ def get_approval_requests(
 
     ).strip().lower()
 
-    meta = frappe.get_meta("Material Transfer")
+    from fleet.apis.list_filter_utils import get_order_by
+    order_field = get_order_by("Material Request", sort_by, sort_order)
+    order_by = f"mt.{order_field}, mt.`name` DESC"
 
-    allowed_fields = set(meta.get_valid_columns())
-
-    if sort_by not in allowed_fields:
-
-        frappe.throw(
-
-            _("Invalid sort field: {0}").format(sort_by)
-
-        )
-
-    if sort_order not in ("asc", "desc"):
-
-        frappe.throw(
-
-            _("sort_order must be asc or desc")
-
-        )
-
-    order_by = (
-
-        f"mt.`{sort_by}` {sort_order.upper()}, "
-
-        "mt.`name` DESC"
-
-    )
-
-    normalized_filters = parse_filters(
-
-        "Material Transfer",
-
-        filters
-
-    )
+    normalized_filters = parse_filters("Material Request", filters)
 
     result = {}
 
