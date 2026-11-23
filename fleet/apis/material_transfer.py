@@ -23,6 +23,10 @@ PURPOSE_RULES = {
 
     "Customer to Technician": ("customer", "technician"),
 
+    "Technician to Customer": ("technician", "customer"),
+
+    "Technician to customer": ("technician", "customer"),
+
     "Material Restore": ("restore", "store"),
 
     "Store to Customer": ("store", "customer"),

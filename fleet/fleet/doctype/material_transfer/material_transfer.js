@@ -345,6 +345,7 @@ function apply_immediate_purpose_queries(frm) {
 			break;
 			
 		case "Technician to Customer":
+		case "Technician to customer":
 			set_source_query(frm, { warehouse_type: "Technician" });
 			set_target_query(frm, { warehouse_type: "Customer" });
 			break;
@@ -493,14 +494,16 @@ async function set_warehouse_filters(frm) {
 			}
 			break;
 			
-		case "Customer to Technician":
-			set_source_query(frm, { warehouse_type: "Customer" });
-			set_target_query(frm, { warehouse_type: "Technician" });
-			if (!frm.doc.source && customer_warehouse) {
-				frm.set_value("source", customer_warehouse);
+		case "Technician to Customer":
+		case "Technician to customer":
+			if (is_technician_only && user_warehouse) {
+				fixed_source(user_warehouse);
+			} else {
+				set_source_query(frm, { warehouse_type: "Technician" });
 			}
-			if (!frm.doc.target && user_warehouse) {
-				frm.set_value("target", user_warehouse);
+			set_target_query(frm, { warehouse_type: "Customer" });
+			if (!frm.doc.target && customer_warehouse) {
+				frm.set_value("target", customer_warehouse);
 			}
 			break;
 

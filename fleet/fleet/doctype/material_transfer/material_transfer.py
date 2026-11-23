@@ -232,7 +232,7 @@ class MaterialTransfer(Document):
 			if not self.target or warehouse_type(self.target) != "Technician":
 				frappe.throw(_("Target Warehouse for Customer to Technician must be a Technician warehouse."))
 
-		elif self.purpose == "Technician to Customer":
+		elif self.purpose in ("Technician to Customer", "Technician to customer"):
 			if not self.source or warehouse_type(self.source) != "Technician":
 				frappe.throw(_("Source Warehouse for Technician to Customer must be a Technician warehouse."))
 			if not self.target or warehouse_type(self.target) != "Customer":
