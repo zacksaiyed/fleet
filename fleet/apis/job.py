@@ -1005,6 +1005,9 @@ def _payload(job):
 
         'item_installed_removed': [r.as_dict() for r in job.get('item_installed_removed') or []],
 
+        'new_make': job.swap_make, 'new_model': job.swap_model,
+        'new_color': job.swap_color, 'new_type': job.swap_type,
+
         "swap_items": [
 
             row.as_dict()

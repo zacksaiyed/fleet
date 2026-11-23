@@ -16,6 +16,10 @@ FILTER_FIELDS = {
         ("Date", "Material Transfer", ("creation",), "date"),
         ("Purpose", "Material Transfer", ("purpose",), "values"),
         ("Initiated By", "Material Transfer", ("initiated_by", "owner"), "values"),
+        ("Status", "Material Transfer", ("workflow_state", "status"), "values"),
+        ("Target", "Material Transfer", ("target", "target_warehouse"), "values"),
+        ("ID", "Material Transfer", ("name",), "values"),
+        ("Source", "Material Transfer", ("source", "source_warehouse"), "values"),
     ],
     "Vehicle": [
         ("Number", "Vehicle", ("license_plate", "name"), "values"),
