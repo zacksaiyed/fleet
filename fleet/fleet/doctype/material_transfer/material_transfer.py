@@ -185,6 +185,8 @@ class MaterialTransfer(Document):
 				frappe.throw(_("Target Warehouse is required for {0}.").format(self.purpose))
 			if warehouse_type(self.target) != "Technician":
 				frappe.throw(_("Target Warehouse for {0} must be a Technician warehouse.").format(self.purpose))
+			if frappe.db.get_value("Warehouse", self.target, "company") != config.get("company"):
+				frappe.throw(_("Target Warehouse must belong to Company {0}.").format(config.get("company")))
 
 		elif self.purpose == "Material Return":
 			if not self.source:
@@ -1134,7 +1136,13 @@ def _set_items_locked(item_codes, locked):
 
 def _get_material_transfer_warehouse_config(company=None):
 	if not company:
+		company = frappe.db.get_single_value("Global Defaults", "default_company")
+	if not company:
 		company = frappe.defaults.get_user_default("Company")
+	if not company:
+		companies = frappe.get_all("Company", pluck="name", limit_page_length=2)
+		if len(companies) == 1:
+			company = companies[0]
 
 	store_warehouse = None
 	damage_warehouse = None
@@ -1156,30 +1164,23 @@ def _get_material_transfer_warehouse_config(company=None):
 		lost_warehouse = company_default("custom_default_lost_warehouse")
 		customer_warehouse = company_default("custom_default_customer_warehouse")
 
-		# Store fallback 1: warehouse_name = Stores / Store for this Company.
+		active_warehouse = {"company": company, "is_group": 0, "disabled": 0}
+		if store_warehouse:
+			store_warehouse = frappe.db.exists("Warehouse", {**active_warehouse, "name": store_warehouse})
 		if not store_warehouse:
 			store_warehouse = frappe.db.get_value(
-				"Warehouse",
-				{
-					"company": company,
-					"is_group": 0,
-					"warehouse_name": ["in", ["Stores", "Store"]],
-				},
-				"name",
+				"Warehouse", {**active_warehouse, "warehouse_name": ["in", ["Stores", "Store"]]}, "name"
 			)
-
-		# Store fallback 2: use the Company's abbreviation, e.g. Stores - FM.
 		if not store_warehouse:
 			abbr = frappe.db.get_value("Company", company, "abbr")
 			if abbr:
-				for candidate in (f"Stores - {abbr}", f"Store - {abbr}"):
-					if frappe.db.exists("Warehouse", candidate):
-						store_warehouse = candidate
-						break
-
-	# Final compatibility fallback for the existing fleet setup.
-	if not store_warehouse and frappe.db.exists("Warehouse", "Stores - FM"):
-		store_warehouse = "Stores - FM"
+				store_warehouse = frappe.db.get_value(
+					"Warehouse", {**active_warehouse, "name": ["in", [f"Stores - {abbr}", f"Store - {abbr}"]]}, "name"
+				)
+		if not store_warehouse:
+			store_warehouse = frappe.db.get_value(
+				"Warehouse", {**active_warehouse, "warehouse_type": ["in", ["Stores", "Store"]]}, "name"
+			)
 
 	return {
 		"company": company,

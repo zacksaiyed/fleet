@@ -378,9 +378,7 @@ async function set_warehouse_filters(frm) {
 		return;
 	}
 
-	// Stores - FM is retained as a final compatibility fallback because your
-	// existing implementation already uses this warehouse name.
-	const store_warehouse = cfg.store_warehouse || "Stores - FM";
+	const store_warehouse = cfg.store_warehouse;
 	const damage_warehouse = cfg.damage_warehouse || "";
 	const lost_warehouse = cfg.lost_warehouse || "";
 	const customer_warehouse = cfg.customer_warehouse || "";
@@ -428,7 +426,7 @@ async function set_warehouse_filters(frm) {
 		case "Material Issue":
 			// Stores -> Technician
 			fixed_source(store_warehouse);
-			set_target_query(frm, { warehouse_type: "Technician" });
+			set_target_query(frm, { warehouse_type: "Technician", company: cfg.company });
 			break;
 
 		case "Material Request":
@@ -436,9 +434,12 @@ async function set_warehouse_filters(frm) {
 			fixed_source(store_warehouse);
 			if (is_technician_only && user_warehouse) {
 				fixed_target(user_warehouse);
-			} else {
-				set_target_query(frm, { warehouse_type: "Technician" });
 			}
+			set_target_query(frm, {
+				warehouse_type: "Technician",
+				company: cfg.company,
+				...(is_technician_only && user_warehouse ? { name: user_warehouse } : {}),
+			});
 			break;
 
 		case "Material Return":
