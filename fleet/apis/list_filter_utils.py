@@ -1,8 +1,8 @@
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 import frappe
 from frappe import _
-from frappe.utils import cint, add_days, getdate
+from frappe.utils import cint, add_days, getdate, nowdate, add_months
 FILTER_FIELDS = {
     "Customer": [
         ("Customer Name", "Customer", ("customer_name",), "values"),
@@ -51,12 +51,14 @@ FILTER_FIELDS = {
     ],
 }
 STANDARD_FIELDS = {"name", "owner", "creation", "modified"}
+
 def _resolve_field(doctype, candidates):
     meta = frappe.get_meta(doctype)
     for fieldname in candidates:
         if fieldname in STANDARD_FIELDS or meta.has_field(fieldname):
             return fieldname
     frappe.throw(_("No configured field found on {0}: {1}").format(doctype, ", ".join(candidates)))
+
 def _screen_config(screen):
     if screen not in FILTER_FIELDS:
         frappe.throw(_("Unsupported screen: {0}").format(screen))
@@ -67,6 +69,7 @@ def _screen_config(screen):
         if fieldname:
             config[label] = (doctype, fieldname, kind)
     return config
+
 def _read_json(value):
     if isinstance(value, str):
         try:
@@ -74,6 +77,7 @@ def _read_json(value):
         except (TypeError, ValueError):
             frappe.throw(_("Invalid filters JSON."))
     return value
+
 @frappe.whitelist(methods=["GET", "POST"])
 def get_filter_values(screen, field=None, search=None, start=0, page_length=100):
     if screen not in FILTER_FIELDS:
@@ -119,6 +123,7 @@ def get_filter_values(screen, field=None, search=None, start=0, page_length=100)
             entry["has_more"] = False
         output[label] = entry
     return {"screen": screen, "filters": output, "start": start, "page_length": page_length}
+
 def parse_filter_date(value):
     if value in (None, ""):
         return None
@@ -126,21 +131,86 @@ def parse_filter_date(value):
         return datetime.strptime(str(value).strip(), "%d-%m-%Y").strftime("%Y-%m-%d")
     except (ValueError, TypeError):
         frappe.throw(_("Date must be in DD-MM-YYYY format."))
+
 def _is_datetime_field(doctype, fieldname):
     if fieldname in ("creation", "modified"):
         return True
     field = frappe.get_meta(doctype).get_field(fieldname)
     return bool(field and field.fieldtype == "Datetime")
 FILTER_OPERATORS = {"=", "!=", ">", ">=", "<", "<=", "like", "not like", "in", "not in", "between", "is", "is not"}
+
+def normalize_operator(operator):
+    operator = " ".join(str(operator or "=").lower().split())
+    aliases = {
+        "equal": "=", "equals": "=", "equal to": "=", "==": "=",
+        "not equal": "!=", "not equals": "!=", "not equal to": "!=", "<>": "!=",
+        "greater than": ">", "greater than or equal": ">=", "greater than or equal to": ">=",
+        "less than": "<", "less than or equal": "<=", "less than or equal to": "<=",
+        "time span": "timespan",
+        "after": ">", "before": "<", "on or after": ">=", "on or before": "<=",
+    }
+    return aliases.get(operator, operator)
+
+def get_timespan_range(value):
+    value = " ".join(str(value or "").lower().split())
+    today = getdate(nowdate())
+    week = today - timedelta(days=today.weekday())
+    month = today.replace(day=1)
+    quarter = today.replace(month=((today.month - 1) // 3) * 3 + 1, day=1)
+    year = today.replace(month=1, day=1)
+    ranges = {"today": (today, today), "yesterday": (today - timedelta(days=1), today - timedelta(days=1)), "tomorrow": (today + timedelta(days=1), today + timedelta(days=1))}
+    for prefix, offset in (("last", -1), ("this", 0), ("next", 1)):
+        start = week + timedelta(days=7 * offset)
+        ranges[f"{prefix} week"] = (start, start + timedelta(days=6))
+        for name, base, size in (("month", month, 1), ("quarter", quarter, 3), ("year", year, 12)):
+            start = getdate(add_months(base, offset * size))
+            end = getdate(add_months(start, size)) - timedelta(days=1)
+            ranges[f"{prefix} {name}"] = (start, end)
+    for days in (7, 14, 30, 90):
+        ranges[f"last {days} days"] = (today - timedelta(days=days - 1), today)
+        ranges[f"next {days} days"] = (today, today + timedelta(days=days - 1))
+    ranges["last 6 months"] = (getdate(add_months(today, -6)), today)
+    ranges["last 1 year"] = (getdate(add_months(today, -12)), today)
+    if value not in ranges:
+        frappe.throw(_("Unsupported Timespan: {0}").format(value))
+    return [date.strftime("%d-%m-%Y") for date in ranges[value]]
+
 def _filter_conditions(doctype, fieldname, kind, operator, value, label):
-    operator = str(operator or "=").strip().lower()
+    operator = normalize_operator(operator)
+    if operator == "fiscal year":
+        if kind != "date":
+            frappe.throw(_("Fiscal Year is only supported for date fields."))
+        if not isinstance(value, str) or not value.strip():
+            frappe.throw(_("Fiscal Year is required."))
+        year = frappe.db.get_value("Fiscal Year", value.strip(), ["year_start_date", "year_end_date"], as_dict=True)
+        if not year:
+            frappe.throw(_("Invalid Fiscal Year: {0}").format(value))
+        value = [getdate(year.year_start_date).strftime("%d-%m-%Y"), getdate(year.year_end_date).strftime("%d-%m-%Y")]
+        operator = "between"
+    if operator == "timespan":
+        if kind != "date":
+            frappe.throw(_("Timespan is only supported for date fields: {0}").format(label))
+        value = get_timespan_range(value)
+        operator = "between"
+    if operator in ("contains", "does not contain", "not contains", "starts with", "ends with"):
+        if kind != "values" or not isinstance(value, str):
+            frappe.throw(_("Text operator requires a text value for {0}.").format(label))
+        value = ("" if operator == "starts with" else "%") + value + ("" if operator == "ends with" else "%")
+        operator = "not like" if operator in ("does not contain", "not contains") else "like"
+    if operator in ("is set", "is not set"):
+        value = "set" if operator == "is set" else "not set"
+        operator = "is"
+    if operator in ("is", "is not") and isinstance(value, str):
+        value = " ".join(value.lower().split())
     if operator not in FILTER_OPERATORS:
         frappe.throw(_("Unsupported filter operator for {0}: {1}").format(label, operator))
     is_datetime = kind == "date" and _is_datetime_field(doctype, fieldname)
     if operator in ("is", "is not"):
         if value not in ("set", "not set"):
             frappe.throw(_("IS filter requires 'set' or 'not set' for {0}.").format(label))
-        return [[fieldname, operator, value]]
+        if operator == "is not":
+            value = "not set" if value == "set" else "set"
+        return [[fieldname, "is", value]]
     if operator in ("in", "not in", "between"):
         if not isinstance(value, (list, tuple)) or not value:
             frappe.throw(_("{0} requires a non-empty list for {1}.").format(operator, label))
@@ -149,13 +219,27 @@ def _filter_conditions(doctype, fieldname, kind, operator, value, label):
         if any(isinstance(v, (dict, list, tuple)) or v is None for v in value):
             frappe.throw(_("Invalid filter values for {0}.").format(label))
         values = [parse_filter_date(v) for v in value] if kind == "date" else list(value)
+        if kind == "date" and any(v is None for v in values):
+            frappe.throw(_("Date values are required."))
         if kind == "date" and operator == "between":
             if getdate(values[0]) > getdate(values[1]):
                 frappe.throw(_("From Date cannot exceed To Date."))
             if is_datetime:
                 return [[fieldname, ">=", values[0]], [fieldname, "<", str(add_days(getdate(values[1]), 1))]]
         if kind == "date" and is_datetime and operator in ("in", "not in"):
-            frappe.throw(_("IN operators are not supported for datetime dates; use between."))
+            # Resolve calendar dates to exact stored timestamps for standard IN filters.
+            dates = sorted(set(values))
+            clauses = []
+            params = {}
+            for index, date in enumerate(dates):
+                params[f"start_{index}"] = date
+                params[f"end_{index}"] = str(add_days(getdate(date), 1))
+                clauses.append(f"(`{fieldname}` >= %(start_{index})s AND `{fieldname}` < %(end_{index})s)")
+            matches = frappe.db.sql(
+                f"SELECT DISTINCT `{fieldname}` FROM `tab{doctype}` WHERE " + " OR ".join(clauses),
+                params, pluck=True
+            )
+            return [[fieldname, operator, matches or ["1000-01-01 00:00:00"]]]
         return [[fieldname, operator, values]]
     if isinstance(value, (list, tuple, dict)) or value is None:
         frappe.throw(_("Invalid filter value for {0}.").format(label))
@@ -163,12 +247,14 @@ def _filter_conditions(doctype, fieldname, kind, operator, value, label):
         if operator in ("like", "not like"):
             frappe.throw(_("LIKE is not supported for date filters."))
         value = parse_filter_date(value)
+        if value is None:
+            frappe.throw(_("Date value is required."))
         if is_datetime:
             next_day = str(add_days(getdate(value), 1))
             if operator == "=":
                 return [[fieldname, ">=", value], [fieldname, "<", next_day]]
             if operator == "!=":
-                frappe.throw(_("Not equal is not supported for datetime date filters; use a date range."))
+                return [[fieldname, "not like", value + "%"]]
             if operator == ">":
                 value = next_day
                 operator = ">="
@@ -176,6 +262,7 @@ def _filter_conditions(doctype, fieldname, kind, operator, value, label):
                 value = next_day
                 operator = "<"
     return [[fieldname, operator, value]]
+
 def apply_screen_filters(screen, filters=None):
     filters = _read_json(filters)
     if filters in (None, "", {}):
@@ -219,6 +306,7 @@ def apply_screen_filters(screen, filters=None):
         else:
             result.extend(_filter_conditions(doctype, fieldname, kind, "=", value, label))
     return result
+
 def apply_screen_sort(screen, sort_by=None, sort_order="desc"):
     config = _screen_config(screen)
     if not sort_by:
@@ -235,6 +323,7 @@ def apply_screen_sort(screen, sort_by=None, sort_order="desc"):
     if direction not in ("asc", "desc"):
         frappe.throw(_("sort_order must be asc or desc."))
     return f"`{fieldname}` {direction}"
+
 def parse_filters(doctype, filters=None):
     filters = _read_json(filters)
     if filters in (None, "", [], {}):
@@ -247,7 +336,6 @@ def parse_filters(doctype, filters=None):
         frappe.throw(_("Maximum 50 filters are allowed."))
     meta = frappe.get_meta("Material Transfer" if doctype == "Material Request" else doctype)
     valid = set(meta.get_valid_columns()) | STANDARD_FIELDS
-    operators = {"=", "!=", ">", ">=", "<", "<=", "like", "not like", "in", "not in", "between", "is", "is not"}
     result = []
     for condition in filters:
         if not isinstance(condition, (list, tuple)) or len(condition) not in (3, 4):
@@ -258,30 +346,15 @@ def parse_filters(doctype, filters=None):
                 frappe.throw(_("Invalid filter DocType."))
         else:
             field, operator, value = condition
-        if field not in valid or str(operator).lower() not in operators:
-            frappe.throw(_("Invalid filter field or operator."))
-        operator = str(operator).lower()
-        if operator in ("in", "not in", "between") and not isinstance(value, (list, tuple)):
-            frappe.throw(_("Filter value must be a list."))
-        if operator == "between" and len(value) != 2:
-            frappe.throw(_("Between requires two values."))
+        if field not in valid:
+            frappe.throw(_("Invalid filter field."))
         field_meta = meta.get_field(field)
         is_date = field in ("creation", "modified") or bool(field_meta and field_meta.fieldtype in ("Date", "Datetime"))
-        if is_date:
-            if operator == "between":
-                value = [parse_filter_date(v) for v in value]
-                if _is_datetime_field("Material Transfer" if doctype == "Material Request" else doctype, field):
-                    result.append([field, ">=", value[0]])
-                    result.append([field, "<", str(add_days(getdate(value[1]), 1))])
-                    continue
-            elif operator in ("=", ">=", "<=", ">", "<"):
-                value = parse_filter_date(value)
-                if _is_datetime_field("Material Transfer" if doctype == "Material Request" else doctype, field) and operator == "=":
-                    result.append([field, ">=", value])
-                    result.append([field, "<", str(add_days(getdate(value), 1))])
-                    continue
-        result.append([field, operator, value])
+        kind = "date" if is_date else "count" if field_meta and field_meta.fieldtype in ("Int", "Float", "Currency", "Percent") else "values"
+        actual_doctype = "Material Transfer" if doctype == "Material Request" else doctype
+        result.extend(_filter_conditions(actual_doctype, field, kind, operator, value, field))
     return result
+
 def get_order_by(doctype, sort_by=None, sort_order="desc", default="modified"):
     sort_by = sort_by or default
     screen = doctype if doctype in FILTER_FIELDS else None
@@ -295,6 +368,7 @@ def get_order_by(doctype, sort_by=None, sort_order="desc", default="modified"):
     if direction not in ("asc", "desc"):
         frappe.throw(_("sort_order must be asc or desc."))
     return f"`{sort_by}` {direction}"
+
 def get_pagination(start=0, page_length=20):
     start = max(0, cint(start))
     page_length = max(1, min(cint(page_length) or 20, 100))
