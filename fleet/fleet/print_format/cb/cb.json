@@ -5,7 +5,7 @@
  "doc_type": "Sales Invoice",
  "module": "Fleet",
  "standard": "Yes",
- "custom_format": 0,
+ "custom_format": 1,
  "disabled": 0,
  "pdf_generator": "wkhtmltopdf",
  "print_format_type": "Jinja",

@@ -1153,8 +1153,12 @@ def run():
             pf_doc.module = 'Fleet'
             pf_doc.insert(ignore_permissions=True)
 
-        frappe.db.set_value('Print Format', fmt, 'html', f_html)
-        frappe.db.set_value('Print Format', fmt, 'standard', 'Yes')
+        frappe.db.set_value('Print Format', fmt, {
+            'html': f_html,
+            'standard': 'Yes',
+            'custom_format': 1,
+            'print_format_type': 'Jinja',
+        })
 
         dir_path = f'/home/serpentcs/frappe-bench/apps/fleet/fleet/fleet/print_format/{dir_name}'
         os.makedirs(dir_path, exist_ok=True)
