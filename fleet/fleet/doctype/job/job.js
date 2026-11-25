@@ -626,6 +626,7 @@ frappe.ui.form.on("Job", {
 
 		// SUPPORT TEAM + TECHNICIAN
 		if (is_support || is_tech) {
+
 			if (status === "In Progress") {
 				frm.add_custom_button(__("Mark as Done"), () => {
 					if (frm.doc.task_type === "Swap") {
@@ -647,7 +648,7 @@ frappe.ui.form.on("Job", {
 						}
 					}
 					_job_action_with_comment(frm, "done", __("Done Comment"), "done_comment");
-				}).addClass("btn-primary");
+				}).addClass("btn-primary").hide();
 			}
 
 			if (status === "On Hold") {
@@ -659,31 +660,17 @@ frappe.ui.form.on("Job", {
 
 		// SUPPORT TEAM ONLY
 		if (is_support) {
-			if (status === "In Review") {
+			if (["In Progress", "In Review"].includes(status)) {
 				frm.add_custom_button(__("Complete"), () => {
-					const proceed = () => {
-						if (["Installation", "Checkup", "Accessory", "Re-Installation", "Swap"].includes(frm.doc.task_type)) {
-							frappe.call({
-								method: "fleet.fleet.doctype.job.job.validate_installation_requirements",
-								args: { job: frm.doc.name },
-								freeze: true,
-								freeze_message: __("Validating requirements..."),
-								callback(r) {
-									if (r.exc) return;
-									_job_action_with_comment(frm, "complete", __("Completion Comment"), "completion_comment");
-								}
-							});
-						} else {
-							_job_action_with_comment(frm, "complete", __("Completion Comment"), "completion_comment");
-						}
-					};
-
 					if (frm.is_dirty()) {
-						frm.save(null, proceed);
-					} else {
-						proceed();
+						frappe.msgprint(__("Save your changes before completing this job."));
+						return;
 					}
-				}).removeClass("btn-default btn-secondary").addClass("btn-success").css("background-color", "#28a745").css("border-color", "#28a745").css("color", "#fff");
+					_job_action_with_comment(frm, "complete_direct", __("Completion Comment"), "completion_comment");
+				}).removeClass("btn-default btn-secondary").addClass("btn-success");
+			}
+
+			if (status === "In Review") {
 
 				frm.add_custom_button(__("Mark as Pending"), () =>
 					_job_action(frm, "mark_pending")

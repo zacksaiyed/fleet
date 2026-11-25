@@ -132,7 +132,7 @@ class Job(Document):
 		self.validate_swap_vehicle()
 
 		if self.status == "Completed":
-			if not self.completion_comment:
+			if not self.completion_comment and not self.flags.direct_complete:
 				frappe.throw("Completion comment is mandatory before marking a Job as Completed.")
 			self._validate_installation_job_requirements()
 
@@ -1876,15 +1876,20 @@ def job_action(job, action, comment=None, comment_field=None, hold_until_date=No
 		doc.hold_until = None
 		msg = "Job reopened to Pending."
 
-	elif action == "complete":
-		if doc.status != "In Review":
-			frappe.throw("Job must be In Review to Complete.")
+	elif action in ("complete", "complete_direct"):
+		allowed_statuses = ("In Progress", "In Review") if action == "complete_direct" else ("In Review",)
+		if doc.status not in allowed_statuses:
+			frappe.throw("Job must be {0} to Complete.".format(" or ".join(allowed_statuses)))
 		if not is_support:
 			frappe.throw("Only Support Team can complete a job.")
 		doc._validate_installation_job_requirements()
-		if not comment:
+		if action == "complete_direct":
+			doc.flags.ignore_mandatory = True
+			doc.flags.direct_complete = True
+		elif not comment:
 			frappe.throw("Completion comment is required.")
-		doc.completion_comment      = comment
+		if comment:
+			doc.completion_comment = comment
 		doc.status                  = "Completed"
 		doc.completed_by_support    = frappe.session.user
 		doc.completed_on_support    = now()
