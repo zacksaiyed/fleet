@@ -624,6 +624,9 @@ def create_material_request(purpose, items, target, date=None, source=None):
 
     doc.insert()
 
+    doc.workflow_state = "Approval Pending"
+    doc.save()
+
     return {
 
         "name": doc.name,
