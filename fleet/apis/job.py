@@ -1,3 +1,4 @@
+from erpnext.patches.v11_0 import move_item_defaults_to_child_table_for_multicompany
 from fleet.apis.list_filter_utils import apply_screen_filters, apply_screen_sort
 
 """Job APIs for the Fleet Administrator interface.
@@ -988,6 +989,11 @@ def _set_images(job, rows):
 def _payload(job):
 
     site = get_url().rstrip('/')
+    vehicle_items = []
+    if frappe.db.exists("Vehicle",job.vehicle_number):
+        vehicle = frappe.get_doc("Vehicle",job.vehicle_number)
+        if vehicle:
+            vehicle_items = [r.as_dict() for r in vehicle.get('custom_vehicle_item') or []]
 
     return {
 
@@ -1018,6 +1024,7 @@ def _payload(job):
                             image_url=(site + r.image if r.image and r.image.startswith('/') else r.image),
 
                             comment=r.get('comment') or '') for r in job.get('job_images') or []],
+        'vehicle_items':vehicle_items,
 
     }
 
