@@ -988,44 +988,85 @@ def _set_images(job, rows):
 
 def _payload(job):
 
-    site = get_url().rstrip('/')
+    # site = get_url().rstrip('/')
     vehicle_items = []
-    if frappe.db.exists("Vehicle",job.vehicle_number):
-        vehicle = frappe.get_doc("Vehicle",job.vehicle_number)
-        if vehicle:
-            vehicle_items = [r.as_dict() for r in vehicle.get('custom_vehicle_item') or []]
+
+    if job.vehicle_number and frappe.db.exists("Vehicle", job.vehicle_number):
+        vehicle = frappe.get_doc("Vehicle", job.vehicle_number)
+
+        vehicle_items = [
+            r.as_dict()
+            for r in vehicle.get("custom_vehicle_item") or []
+        ]
+
+    item_installed_removed = [
+        r.as_dict()
+        for r in job.get("item_installed_removed") or []
+    ]
+
+    if job.task_type == "Swap":
+
+        job_items = {
+            row.get("item")
+            for row in item_installed_removed
+            if row.get("item")
+        }
+
+        remaining_vehicle_items = [
+            {
+                **row,
+                "installed_or_removed": "Installed"
+            }
+            for row in vehicle_items
+            if row.get("status") == "Installed"
+            and row.get("item") not in job_items
+        ]
+
+        item_installed_removed = (
+            remaining_vehicle_items + item_installed_removed
+        )
 
     return {
+        "name": job.name,
+        "title": job.title,
+        "status": job.status,
+        "task": job.task,
+        "task_type": job.task_type,
+        "customer": job.customer,
+        "vehicle_number": job.vehicle_number,
+        "assigned_technician": job.assigned_technician,
+        "technician_name": job.get("technician_name"),
+        "date": job.date,
+        "type": job.type,
+        "make": job.make,
+        "model": job.model,
+        "color": job.color,
+        "done_comment": job.get("done_comment"),
+        "hold_comment": job.get("hold_comment"),
+        "completion_comment": job.get("completion_comment"),
 
-        'name': job.name, 'title': job.title, 'status': job.status, 'task': job.task,
-
-        'task_type': job.task_type, 'customer': job.customer, 'vehicle_number': job.vehicle_number,
-
-        'assigned_technician': job.assigned_technician, 'technician_name': job.get('technician_name'),
-
-        'date': job.date, 'type': job.type, 'make': job.make, 'model': job.model, 'color': job.color,
-
-        'done_comment': job.get('done_comment'), 'hold_comment': job.get('hold_comment'),
-
-        'completion_comment': job.get('completion_comment'),
-
-        'item_installed_removed': [r.as_dict() for r in job.get('item_installed_removed') or []],
+        "item_installed_removed": item_installed_removed,
 
         "swap_items": [
-
             row.as_dict()
-
             for row in job.get("items") or []
-
         ],
 
-        'job_images': [dict(name=r.name, image=r.image,
+        "job_images": [
+            dict(
+                name=r.name,
+                image=r.image,
+                # image_url=(
+                #     site + r.image
+                #     if r.image and r.image.startswith("/")
+                #     else r.image
+                # ),
+                comment=r.get("comment") or ""
+            )
+            for r in job.get("job_images") or []
+        ],
 
-                            image_url=(site + r.image if r.image and r.image.startswith('/') else r.image),
-
-                            comment=r.get('comment') or '') for r in job.get('job_images') or []],
-        'vehicle_items':vehicle_items,
-
+        "vehicle_items": vehicle_items,
     }
 
 @frappe.whitelist(methods=["GET", "POST"])
