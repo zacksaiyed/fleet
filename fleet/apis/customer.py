@@ -512,24 +512,25 @@ def parse_customer_filters(filters):
     return validated
 
 @frappe.whitelist(methods=["GET", "POST"])
-
-@frappe.whitelist(methods=["GET", "POST"])
 def list_with_vehicle_counts(
-    txt=None,
-    filters=None,
-    limit_page_length=20,
-    start=0,
-    sort_by="modified",
-    sort_order="desc",
+    txt: str | None = None,
+    filters: str | dict | list | None = None,
+    limit_page_length: int = 20,
+    start: int = 0,
+    sort_by: str = "modified",
+    sort_order: str = "desc",
+    search: str | None = None,
+    page_length: int | None = None,
 ):
     require_admin()
 
-    txt = (get_value("txt", txt) or "").strip()
+    search = get_value("search", search)
+    txt = (search if search is not None else get_value("txt", txt) or "").strip()
     filters = get_value("filters", filters)
-    limit_page_length = max(
-        1,
-        min(cint(get_value("limit_page_length", limit_page_length) or 20), 100),
-    )
+    page_length = get_value("page_length", page_length)
+    if page_length is None:
+        page_length = get_value("limit_page_length", limit_page_length)
+    limit_page_length = max(1, min(cint(page_length or 20), 100))
     start = max(0, cint(get_value("start", start)))
     sort_by = (get_value("sort_by", sort_by) or "modified").strip()
     sort_order = (get_value("sort_order", sort_order) or "desc").strip().lower()
