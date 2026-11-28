@@ -147,3 +147,31 @@ def get_default_billing_settings():
         settings = frappe.get_cached_doc("Fleet Billing Settings")
         return {"usd0": flt(settings.get("usd0")), "usd1": flt(settings.get("usd1")), "local0": flt(settings.get("local0")), "local1": flt(settings.get("local1"))}
     return {"usd0": 0, "usd1": 0, "local0": 0, "local1": 0}
+
+
+
+def validate_customer(doc, method=None):
+    if not doc.is_new() and doc.has_value_changed("custom_customer_classification"):
+        old_doc = doc.get_doc_before_save()
+        old_val = old_doc.custom_customer_classification if old_doc else ""
+
+        if old_val and old_val != doc.custom_customer_classification:
+            doc.custom_previous_classification = old_val
+            doc.custom_conversion_approved_by = frappe.session.user
+            doc.custom_conversion_approved_on = now_datetime()
+
+
+def validate_customer(doc, method=None):
+    if doc.custom_customer_classification == "White":
+        doc.custom_vat_applicable = 1
+    elif doc.custom_customer_classification == "Black":
+        doc.custom_vat_applicable = 0
+
+    if not doc.is_new() and doc.has_value_changed("custom_customer_classification"):
+        old_doc = doc.get_doc_before_save()
+        old_val = old_doc.custom_customer_classification if old_doc else ""
+
+        if old_val and old_val != doc.custom_customer_classification:
+            doc.custom_previous_classification = old_val
+            doc.custom_conversion_approved_by = frappe.session.user
+            doc.custom_conversion_approved_on = now_datetime()
