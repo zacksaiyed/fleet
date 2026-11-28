@@ -1,6 +1,6 @@
-import re
 import frappe
-from frappe.utils import add_days, add_months, get_last_day, getdate, nowdate
+# from frappe.utils import getdate, add_months, add_days, get_last_day
+from frappe.utils import getdate, add_months, add_days, get_last_day, today
 import calendar
 import json
 
@@ -21,6 +21,7 @@ def get_all_vehicles():
     return frappe.get_all("Vehicle", fields=["license_plate"])
 
 @frappe.whitelist()
+
 def get_vehicle_classification(vehicle_name, date):
     t_date = getdate(date)
     month_start = getdate(f"{t_date.year}-{t_date.month:02d}-01")
@@ -46,14 +47,9 @@ def get_customer_billing_currency(customer):
         billing_currency = frappe.db.get_value("Customer", customer.custom_parent_customer, "custom_billing_currency")
     return billing_currency or "USD"
 
-
 @frappe.whitelist()
 def get_subscription_rate(customer, vehicle_classification, billing_currency, target_date):
     # Map rates according to specification:
-    # 1. USD Mode: CB -> USD0, Local -> USD1
-    # 2. LOCAL Mode: CB -> LOCAL0, Local -> LOCAL1
-    # 3. BOTH Mode: CB -> USD0, Local -> LOCAL0
-    
     if billing_currency == "USD":
         if vehicle_classification == "CB":
             field_history = "usd_0"
@@ -86,15 +82,24 @@ def get_subscription_rate(customer, vehicle_classification, billing_currency, ta
     first_day = getdate(f"{t_date.year}-{t_date.month:02d}-01")
     last_day = add_days(add_months(first_day, 1), -1)
 
+    # --- NAYA LOGIC YAHAN SE SHURU HAI ---
+    # Hum cutoff date 'first_day' set kar rahe hain. 
+    # Example: Agar May ki invoice ban rahi hai (first_day = 1st May), 
+    # toh jo rate 1st May '00:00:00' se pehle set hua tha wahi uthayega (yani 40).
+    # Jab June ki banegi (first_day = 1st June), toh 1st May wala naya rate (50) uthayega.
+    
+    cutoff_date = f"{first_day} 00:00:00"
+
     rate_records = frappe.db.get_all(
         "Billing Subscription Rate",
         filters=[
             ["customer", "=", customer.name],
-            ["effective_from", "<=", last_day]
+            ["custom_changed_on", "<", cutoff_date] # Changed On ke basis par filter
         ],
         fields=["effective_to", field_history],
-        order_by="effective_from desc"
+        order_by="custom_changed_on desc" # Jo sabse latest change hua hai wo pehle aayega
     )
+    
     rate = 0.0
     found = False
     for r in rate_records:
@@ -107,16 +112,17 @@ def get_subscription_rate(customer, vehicle_classification, billing_currency, ta
     if not found:
         rate = float(getattr(customer, field_customer, None) or 0.0)
         
+    # --- Parent Customer ke liye bhi same naya logic ---
     if (not found or rate == 0.0) and customer.custom_parent_customer:
         parent_doc = frappe.get_doc("Customer", customer.custom_parent_customer)
         parent_records = frappe.db.get_all(
             "Billing Subscription Rate",
             filters=[
                 ["customer", "=", parent_doc.name],
-                ["effective_from", "<=", last_day]
+                ["custom_changed_on", "<", cutoff_date] # Yahan bhi Changed On lagaya hai
             ],
             fields=["effective_to", field_history],
-            order_by="effective_from desc"
+            order_by="custom_changed_on desc"
         )
         parent_found = False
         for r in parent_records:
@@ -133,7 +139,6 @@ def get_subscription_rate(customer, vehicle_classification, billing_currency, ta
         rate = float(global_val or 0.0)
         
     return rate, field_settings.upper()
-
 
 @frappe.whitelist()
 def check_charge_subscription(customer, vehicle_name, item_code, b_y, b_m, inst_y, inst_m, install_date):
@@ -186,15 +191,7 @@ def check_charge_subscription(customer, vehicle_name, item_code, b_y, b_m, inst_
 
 
 @frappe.whitelist()
-def generate_customer_invoice(
-    customer_id,
-    from_date=None,
-    to_date=None,
-    vehicles=None,
-    is_partial=False,
-    is_advance=False,
-    waive_subscription=False,
-):
+def generate_customer_invoice(customer_id, from_date=None, to_date=None, vehicles=None, is_partial=False):
     target_customer = frappe.get_doc("Customer", customer_id)
     current_date = getdate()
     
@@ -204,10 +201,6 @@ def generate_customer_invoice(
         to_date = getdate(to_date)
         
     is_partial = True if (is_partial == True or is_partial in ["True", "1", 1]) else False
-    is_advance = True if (is_advance == True or is_advance in ["True", "1", 1]) else False
-    waive_subscription = is_advance and (
-        waive_subscription is True or waive_subscription in ["True", "1", 1]
-    )
     
     frequency_months = None
     if target_customer.custom_parent_customer:
@@ -237,9 +230,9 @@ def generate_customer_invoice(
     if vehicles:
         if isinstance(vehicles, str):
             vehicles = json.loads(vehicles)
-        linked_vehicles = frappe.get_all("Vehicle", filters={"name": ["in", vehicles]}, fields=["name", "license_plate", "custom_cleaned_licence_plate_number", "custom_customer", "custom_branch", "model"])
+        linked_vehicles = frappe.get_all("Vehicle", filters={"name": ["in", vehicles]}, fields=["name", "custom_customer", "custom_branch", "model"])
     else:
-        linked_vehicles = frappe.get_all("Vehicle", filters={"custom_customer": ["in", all_customer_ids]}, fields=["name", "license_plate", "custom_cleaned_licence_plate_number", "custom_customer", "custom_branch", "model"])
+        linked_vehicles = frappe.get_all("Vehicle", filters={"custom_customer": ["in", all_customer_ids]}, fields=["name", "custom_customer", "custom_branch", "model"])
         
     if not linked_vehicles:
         return {"status": "error", "message": f"No vehicles linked to customer {customer_id} or its children."}
@@ -251,7 +244,7 @@ def generate_customer_invoice(
         vehicle_docs[vehicle.name] = doc
         if not from_date or not to_date:
             for row in doc.get("custom_vehicle_item", []):
-                if row.status == "Installed" and row.item and row.date:
+                if row.status == "Installed" and row.date:
                     r_date = getdate(row.date)
                     if not earliest_install_date or r_date < earliest_install_date:
                         earliest_install_date = r_date
@@ -400,26 +393,9 @@ def generate_customer_invoice(
                     items_in_month[act.item] = act.last_activity_date
             
             for row in vehicle_doc.get("custom_vehicle_item", []):
-                if row.status == "Installed" and row.item:
-                    row_install_date = row.get("custom_installation_date") or row.date
-                    if not row_install_date and is_advance:
-                        row_install_date = frappe.db.get_value(
-                            "GPS Installation Status Log",
-                            {
-                                "vehicle": vehicle.name,
-                                "item": row.item,
-                                "event_type": "Installed",
-                            },
-                            "event_date",
-                            order_by="event_date asc",
-                        )
-                    if not row_install_date:
-                        continue
-
-                    inst_date = getdate(row_install_date)
-                    if is_advance and inst_date <= invoice_start_date:
-                        items_in_month.setdefault(row.item, None)
-                    elif not is_advance and inst_date >= month_start and inst_date <= month_end:
+                if row.status == "Installed" and row.date:
+                    inst_date = getdate(row.date)
+                    if inst_date >= month_start and inst_date <= month_end:
                         if row.item not in items_in_month:
                             items_in_month[row.item] = None
                         
@@ -507,13 +483,7 @@ def generate_customer_invoice(
                 if (b_y > inst_y) or (b_y == inst_y and b_m >= inst_m):
                     
                     # --- CONDITION A: INSTALLATION CHARGE ---
-                    is_first_advance_month = (
-                        is_advance
-                        and not v_last_billed
-                        and b_y == invoice_start_date.year
-                        and b_m == invoice_start_date.month
-                    )
-                    if (b_y == inst_y and b_m == inst_m) or is_first_advance_month:
+                    if b_y == inst_y and b_m == inst_m:
                         item_model = frappe.db.get_value("Item", item, "custom_model") if item else None
                         search_models = [m for m in [vehicle.model, item_model] if m]
                         rate = 0.0
@@ -561,20 +531,6 @@ def generate_customer_invoice(
                                         rate = float(p_cust_p_rows[0].customer_price)
                                         break
                         
-                        # 5. Fallback: Check Item Model price or Item default price
-                        if rate == 0.0:
-                            for m_name in search_models:
-                                im_price = frappe.db.get_value("Item Model", m_name, "price")
-                                if im_price:
-                                    rate = float(im_price)
-                                    break
-                            if rate == 0.0 and item:
-                                rate = float(
-                                    frappe.db.get_value("Item", item, "custom_default_billing_price")
-                                    or frappe.db.get_value("Item", item, "standard_rate")
-                                    or 0.0
-                                )
-
                         if inv_currency == "LOCAL":
                             rate = rate * usd_to_local
                             
@@ -590,7 +546,7 @@ def generate_customer_invoice(
                                 "custom_billing_month": target_date,
                                 "item_code": item, "qty": 1, "custom_is_installation": 1, "custom_is_removed": item_is_removed_flag,
                                 "custom_vehicle": vehicle.name,
-                                "custom_registration_number": vehicle_doc.get("custom_cleaned_licence_plate_number") or vehicle_doc.license_plate or vehicle.name,
+                                "custom_registration_number": vehicle.license_plate or vehicle.name,
                                 "custom_billing_month_label": b_month["label"], 
                                 "custom_original_rate": rate,
                                 "custom_final_rate": rate,
@@ -618,19 +574,9 @@ def generate_customer_invoice(
                     charge_subscription = True
                     waiver_reason = ""
                     
-                    if waive_subscription:
-                        charge_subscription = False
-                        waiver_reason = "Advance invoice subscription waived"
-                        final_rate = 0.0
-                        billing_decision = "Waived"
-                    elif is_partial_billing:
+                    if is_partial_billing:
                         total_days_in_month = (month_end - month_start).days + 1
-                        start_billing_date = max(month_start, install_date, invoice_start_date)
-                        if is_advance and v_last_billed:
-                            start_billing_date = max(
-                                start_billing_date,
-                                add_days(getdate(v_last_billed), 1),
-                            )
+                        start_billing_date = max(month_start, install_date)
                         
                         removal_date = None
                         if status_log and status_log[0].event_type == "Removed":
@@ -645,10 +591,7 @@ def generate_customer_invoice(
                                         removal_date = r_dt
                                         break
                                         
-                        end_billing_date = min(
-                            removal_date if removal_date else month_end,
-                            invoice_end_date,
-                        )
+                        end_billing_date = removal_date if removal_date else month_end
                         
                         if start_billing_date > end_billing_date:
                             charge_subscription = False
@@ -690,7 +633,7 @@ def generate_customer_invoice(
                             final_rate = 0.0
                             billing_decision = "Waived"
 
-                    if charge_subscription or waive_subscription:
+                    if charge_subscription:
                         billing_items.append({
                             "v_customer_id": v_customer_id,
                             "v_branch": v_branch,
@@ -705,16 +648,15 @@ def generate_customer_invoice(
                                 "qty": 1, 
                                 "custom_is_subscription": 1, "custom_is_removed": item_is_removed_flag,  
                                 "custom_vehicle": vehicle.name,
-                                "custom_registration_number": vehicle_doc.get("custom_cleaned_licence_plate_number") or vehicle_doc.license_plate or vehicle.name,
-                                "custom_cleaned_licence_plate_number": vehicle_doc.get("custom_cleaned_licence_plate_number") or vehicle_doc.license_plate or vehicle.name,
+                                "custom_registration_number": vehicle.license_plate or vehicle.name,
                                 "custom_billing_month_label": b_month["label"], 
                                 "custom_original_rate": orig_rate,
                                 "custom_final_rate": final_rate,
                                 "custom_rate_code": rate_code,
                                 "custom_billing_decision": billing_decision,
                                 "custom_included": 1,
-                                "custom_waived": 1 if waive_subscription else 0,
-                                "custom_waiver_reason": waiver_reason,
+                                "custom_waived": 0,
+                                "custom_waiver_reason": "",
                                 "custom_vehicle_type": "CB" if v_class == "CB" else ("LOCAL" if v_class in ["Local", "LOCAL"] else ""),
                                 "custom_comment": "",
                                 "custom_last_activity_date": last_act_date,
@@ -779,6 +721,12 @@ def generate_customer_invoice(
             
         inv = frappe.new_doc("Sales Invoice")
         inv.customer = group["customer"]
+        c_doc = customer_map.get(group["customer"])
+        if c_doc:
+            inv.custom_custom_email_1 = c_doc.get("email") or c_doc.get("custom_email_1")
+            inv.custom_custom_email_2 = c_doc.get("custom_email_2")
+            inv.custom_custom_email_3 = c_doc.get("custom_email_3")
+            inv.custom_enable_notification = c_doc.get("custom_enable_notification") or 0
         inv.due_date = current_date
         inv.posting_date = current_date
         inv.custom_billing_start_date = invoice_start_date
@@ -966,21 +914,16 @@ def generate_customer_invoice(
                         month_abbrev = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"][b_month_date.month - 1]
                         year_short = str(b_month_date.year)[-2:]
                         m_key = f"{month_abbrev}_{year_short}"
-                        b_decision = getattr(item_row, "custom_billing_decision", "") or "Chargeable"
-                        month_keys[m_key] = 1 if b_decision == "Chargeable" else 0
-                        month_keys[f"{m_key}_decision"] = b_decision
-                        month_keys[f"{m_key}_rate"] = float(item_row.rate or item_row.custom_original_rate or 0)
                         month_keys[f"{m_key}_last_activity_date"] = last_act_str
                         month_keys[f"{m_key}_previous_activity_date"] = last_act_str
 
-                v_name = getattr(item_row, "custom_vehicle", "") or reg_no
                 if v_type == "LOCAL" and reg_no:
                     if reg_no not in fleet_json_data:
                         fleet_json_data[reg_no] = {
                             "device_number": item_code,
                             "fleet_number": "",
                             "registration_number": reg_no,
-                            "vehicle_no": v_name,
+                            "vehicle_no": reg_no,
                             "date_of_installation": v_inst_date,
                             "comments": getattr(item_row, "custom_comment", "") or "",
                             "last_activity_date": last_act_str,
@@ -999,7 +942,7 @@ def generate_customer_invoice(
                             "device_number": item_code,
                             "fleet_number": "",
                             "registration_number": reg_no,
-                            "vehicle_no": v_name,
+                            "vehicle_no": reg_no,
                             "date_of_installation": v_inst_date,
                             "comments": getattr(item_row, "custom_comment", "") or "",
                             "last_activity_date": last_act_str,
@@ -1018,15 +961,15 @@ def generate_customer_invoice(
 
         inv.insert(ignore_permissions=True)
         created_invoices.append(inv.name)
+        if inv.custom_billing_end_date and not inv.custom_partial_invoice:
+            c_date = frappe.db.get_value("Customer", inv.customer, "custom_last_billed_upto_date")
+            if not c_date or getdate(inv.custom_billing_end_date) > getdate(c_date):
+                frappe.db.set_value("Customer", inv.customer, "custom_last_billed_upto_date", inv.custom_billing_end_date)
 
     if not created_invoices:
         return {"status": "success", "message": "No invoices generated as all items in this period were waived."}
     
-    return {
-        "status": "success",
-        "message": f"Invoices generated successfully: {', '.join(created_invoices)}",
-        "invoices": created_invoices,
-    }
+    return {"status": "success", "message": f"Invoices generated successfully: {', '.join(created_invoices)}"}
 
 
 @frappe.whitelist()
@@ -1044,137 +987,6 @@ def on_sales_invoice_submit(doc, method=None):
         c_date = frappe.db.get_value("Customer", doc.customer, "custom_last_billed_upto_date")
         if not c_date or getdate(doc.custom_billing_end_date) > getdate(c_date):
             frappe.db.set_value("Customer", doc.customer, "custom_last_billed_upto_date", doc.custom_billing_end_date)
-
-
-@frappe.whitelist()
-def process_sales_invoice_vehicle_logic(doc, method=None):
-    """
-    Validates registration numbers in Sales Invoice Items:
-    1. Normalizes custom_registration_number into custom_cleaned_licence_plate_number (uppercase, spaces removed).
-    2. Checks if Vehicle record exists or creates a new Vehicle record if none exists.
-    3. Prevents redundant updates for the same vehicle across multiple items.
-    4. Links custom_vehicle to the Vehicle record name.
-    5. Uses frappe.db.set_value with update_modified=False for item and vehicle updates.
-    """
-    if isinstance(doc, str):
-        if doc.startswith("{"):
-            doc = frappe.get_doc(json.loads(doc))
-        else:
-            doc = frappe.get_doc("Sales Invoice", doc)
-
-    if not doc.get("items"):
-        return
-
-    processed_vehicles = {}
-    is_existing_doc = not doc.is_new()
-
-    for item in doc.items:
-        reg_no = (item.get("custom_registration_number") or "").strip()
-        if not reg_no:
-            if item.get("custom_vehicle"):
-                reg_no = item.custom_vehicle
-            else:
-                continue
-
-        cleaned_plate = reg_no.strip()
-        item.custom_cleaned_licence_plate_number = cleaned_plate
-
-        vehicle_name = item.get("custom_vehicle")
-
-        if vehicle_name and frappe.db.exists("Vehicle", vehicle_name):
-            if is_existing_doc:
-                curr_v_cleaned = frappe.db.get_value("Vehicle", vehicle_name, "custom_cleaned_licence_plate_number")
-                if curr_v_cleaned != cleaned_plate:
-                    frappe.db.set_value(
-                        "Vehicle",
-                        vehicle_name,
-                        "custom_cleaned_licence_plate_number",
-                        cleaned_plate,
-                        update_modified=False
-                    )
-        else:
-            if cleaned_plate in processed_vehicles:
-                vehicle_name = processed_vehicles[cleaned_plate]
-            else:
-                if frappe.db.exists("Vehicle", reg_no):
-                    vehicle_name = reg_no
-                elif frappe.db.exists("Vehicle", cleaned_plate):
-                    vehicle_name = cleaned_plate
-                else:
-                    vehicle_name = frappe.db.get_value(
-                        "Vehicle",
-                        {"custom_cleaned_licence_plate_number": cleaned_plate},
-                        "name"
-                    )
-                    if not vehicle_name:
-                        vehicle_name = frappe.db.get_value(
-                            "Vehicle",
-                            {"license_plate": reg_no},
-                            "name"
-                        )
-
-                if vehicle_name:
-                    if is_existing_doc:
-                        curr_v_cleaned = frappe.db.get_value("Vehicle", vehicle_name, "custom_cleaned_licence_plate_number")
-                        if curr_v_cleaned != cleaned_plate:
-                            frappe.db.set_value(
-                                "Vehicle",
-                                vehicle_name,
-                                "custom_cleaned_licence_plate_number",
-                                cleaned_plate,
-                                update_modified=False
-                            )
-                else:
-                    v = frappe.new_doc("Vehicle")
-                    v.license_plate = reg_no
-                    v.custom_cleaned_licence_plate_number = cleaned_plate
-                    if doc.get("customer"):
-                        v.custom_customer = doc.customer
-                    if doc.get("custom_branch"):
-                        v.custom_branch = doc.custom_branch
-                    v.insert(ignore_permissions=True)
-                    vehicle_name = v.name
-
-                processed_vehicles[cleaned_plate] = vehicle_name
-
-            item.custom_vehicle = vehicle_name
-
-        if doc.get("name") and item.get("name") and not doc.is_new():
-            db_vals = frappe.db.get_value(
-                "Sales Invoice Item",
-                item.name,
-                ["custom_cleaned_licence_plate_number", "custom_vehicle"],
-                as_dict=True
-            )
-            if not db_vals or db_vals.get("custom_cleaned_licence_plate_number") != cleaned_plate or db_vals.get("custom_vehicle") != item.custom_vehicle:
-                frappe.db.set_value(
-                    "Sales Invoice Item",
-                    item.name,
-                    {
-                        "custom_cleaned_licence_plate_number": cleaned_plate,
-                        "custom_vehicle": item.custom_vehicle
-                    },
-                    update_modified=False
-                )
-
-
-def set_pending_customer_approval_date(doc, method=None):
-    previous_status = None
-    if not doc.is_new():
-        previous_status = frappe.db.get_value(
-            "Sales Invoice", doc.name, "custom_billing_review_status"
-        )
-
-    if (
-        doc.custom_billing_review_status == "Pending Customer Approval"
-        and previous_status != "Pending Customer Approval"
-    ):
-        doc.custom_pending_customer_approval_date = add_days(nowdate(), 7)
-    elif (
-        doc.custom_billing_review_status == "Draft"
-        and previous_status == "Pending Customer Approval"
-    ):
-        doc.custom_pending_customer_approval_date = None
 
 
 @frappe.whitelist()
@@ -1300,3 +1112,257 @@ def get_default_billing_start_date(customer_id):
                 earliest_creation = v_c_date
                 
     return earliest_creation
+
+# @frappe.whitelist()
+# def process_automatic_billing():
+#     # current_date = getdate(today())
+#     current_date = getdate("2026-05-01")
+
+#     eligible_customers = frappe.get_all(
+#         "Customer",
+#         filters={
+#             "disabled": 0 
+#         },
+#         fields=[
+#             "name", 
+#             "custom_last_billed_upto_date", 
+#             "custom_invoice_frequency_months", 
+#             "custom_ignore_billing_cycle"
+#         ]
+#     )
+    
+#     for cust in eligible_customers:
+#         freq_months = int(cust.custom_invoice_frequency_months or 1)
+#         last_billed = cust.custom_last_billed_upto_date
+#         ignore_cycle = cust.custom_ignore_billing_cycle
+        
+#         if ignore_cycle:
+#             # ==========================================================
+#             # SCENARIO 2: Dynamic Anniversary Billing (e.g. 1-Sep to 1-Sep)
+#             # ==========================================================
+            
+#             if last_billed:
+#                 cycle_start_date = add_days(getdate(last_billed), 1)
+#             else:
+#                 # Yahan aapka existing function call kiya hai!
+#                 default_start = get_default_billing_start_date(cust.name)
+                
+#                 if not default_start:
+#                     continue # Agar koi history hi nahi mili, toh skip karo
+                    
+#                 cycle_start_date = getdate(default_start)
+
+#             next_billing_date = add_months(cycle_start_date, freq_months)
+#             cycle_end_date = add_days(next_billing_date, -1)
+
+#             if current_date >= next_billing_date:
+#                 try:
+#                     generate_customer_invoice(
+#                         customer_id=cust.name,
+#                         from_date=cycle_start_date,
+#                         to_date=cycle_end_date
+#                     )
+#                     frappe.db.commit()
+#                 except Exception as e:
+#                     frappe.db.rollback()
+#                     frappe.log_error(f"Dynamic Auto Billing failed for {cust.name}: {str(e)}", "Automatic Fleet Billing Error")
+                    
+#         else:
+#             # ==========================================================
+#             # SCENARIO 1: Fixed Calendar Month Billing (Jan, Apr, Jul, Oct...)
+#             # ==========================================================
+            
+#             triggers = {
+#                 1: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+#                 2: [1, 3, 5, 7, 9, 11],  
+#                 3: [1, 4, 7, 10],        
+#                 4: [1, 5, 9],            
+#                 6: [1, 7],               
+#                 12:[1]                  
+#             }
+            
+#             trigger_months = triggers.get(freq_months, [1]) 
+            
+#             if current_date.month in trigger_months:
+#                 first_day_current_month = getdate(f"{current_date.year}-{current_date.month:02d}-01")
+#                 cycle_end_date = add_days(first_day_current_month, -1)
+                
+#                 if last_billed:
+#                     cycle_start_date = add_days(getdate(last_billed), 1)
+#                 else:
+#                     cycle_start_date = add_months(first_day_current_month, -freq_months)
+                
+#                 if cycle_start_date <= cycle_end_date:
+#                     try:
+#                         response = generate_customer_invoice(
+#                             customer_id=cust.name,
+#                             from_date=cycle_start_date,
+#                             to_date=cycle_end_date
+#                         )
+#                         frappe.db.commit()
+                        
+#                         # [NAYA CHANGE] Agar invoice successful bana hai, toh UI ko turant auto-reload ka signal bhejo
+#                         if response and isinstance(response, dict) and response.get("status") == "success":
+#                             frappe.publish_realtime("doc_update", {"doctype": "Customer", "name": cust.name})
+                            
+#                     except Exception as e:
+#                         frappe.db.rollback()
+#                         frappe.log_error(f"Fixed Auto Billing failed for {cust.name}: {str(e)}", "Automatic Fleet Billing Error")
+
+import frappe
+from frappe.utils import getdate, today, add_days, add_months
+
+@frappe.whitelist()
+def process_automatic_billing(billing_date=None, customer=None):
+    # Agar parameter me date aayi hai toh wo use karein, warna aaj ki date lein
+    if billing_date:
+        current_date = getdate(billing_date)
+    else:
+        current_date = getdate(today())
+
+    # Dynamically filters set karna
+    filters = {
+        "disabled": 0 
+    }
+    
+    # Agar specific customer pass kiya gaya hai, toh usko filter me add karein
+    if customer:
+        filters["name"] = customer
+
+    eligible_customers = frappe.get_all(
+        "Customer",
+        filters=filters,
+        fields=[
+            "name", 
+            "custom_last_billed_upto_date", 
+            "custom_invoice_frequency_months", 
+            "custom_ignore_billing_cycle"
+        ]
+    )
+    
+    for cust in eligible_customers:
+        freq_months = int(cust.custom_invoice_frequency_months or 1)
+        last_billed = cust.custom_last_billed_upto_date
+        ignore_cycle = cust.custom_ignore_billing_cycle
+        
+        if ignore_cycle:
+            # ==========================================================
+            # SCENARIO 2: Dynamic Anniversary Billing
+            # ==========================================================
+            if last_billed:
+                cycle_start_date = add_days(getdate(last_billed), 1)
+            else:
+                from fleet.api.billing import get_default_billing_start_date
+                default_start = get_default_billing_start_date(cust.name)
+                
+                if not default_start:
+                    continue
+                    
+                cycle_start_date = getdate(default_start)
+
+            next_billing_date = add_months(cycle_start_date, freq_months)
+            cycle_end_date = add_days(next_billing_date, -1)
+
+            if current_date >= next_billing_date:
+                try:
+                    from fleet.api.billing import generate_customer_invoice
+                    generate_customer_invoice(
+                        customer_id=cust.name,
+                        from_date=cycle_start_date,
+                        to_date=cycle_end_date
+                    )
+                    frappe.db.commit()
+                except Exception as e:
+                    frappe.db.rollback()
+                    frappe.log_error(f"Dynamic Auto Billing failed for {cust.name}: {str(e)}", "Automatic Fleet Billing Error")
+                    
+        else:
+            # ==========================================================
+            # SCENARIO 1: Fixed Calendar Month Billing
+            # ==========================================================
+            triggers = {
+                1: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+                2: [1, 3, 5, 7, 9, 11],  
+                3: [1, 4, 7, 10],        
+                4: [1, 5, 9],            
+                6: [1, 7],               
+                12:[1]                  
+            }
+            
+            trigger_months = triggers.get(freq_months, [1]) 
+            
+            if current_date.month in trigger_months:
+                first_day_current_month = getdate(f"{current_date.year}-{current_date.month:02d}-01")
+                cycle_end_date = add_days(first_day_current_month, -1)
+                
+                if last_billed:
+                    cycle_start_date = add_days(getdate(last_billed), 1)
+                else:
+                    cycle_start_date = add_months(first_day_current_month, -freq_months)
+                
+                if cycle_start_date <= cycle_end_date:
+                    try:
+                        from fleet.api.billing import generate_customer_invoice
+                        response = generate_customer_invoice(
+                            customer_id=cust.name,
+                            from_date=cycle_start_date,
+                            to_date=cycle_end_date
+                        )
+                        frappe.db.commit()
+                        
+                        if response and isinstance(response, dict) and response.get("status") == "success":
+                            frappe.publish_realtime("doc_update", {"doctype": "Customer", "name": cust.name})
+                            
+                    except Exception as e:
+                        frappe.db.rollback()
+                        frappe.log_error(f"Fixed Auto Billing failed for {cust.name}: {str(e)}", "Automatic Fleet Billing Error")
+
+
+def sync_additional_charges(doc, method=None):
+    doc.items = [d for d in doc.items if not d.get("custom_is_additional_charge")]
+
+    default_cost_center = frappe.get_cached_value("Company", doc.company, "cost_center")
+
+    for idx, row in enumerate(doc.get("custom_additional_charges") or [], start=1):
+        if not row.charge_item:
+            frappe.throw(f"Row #{idx}: Additional Charge Item is mandatory.")
+        if not (row.description or "").strip():
+            frappe.throw(f"Row #{idx}: Explicit Description is mandatory for {row.charge_item}.")
+        if (row.amount or 0) <= 0:
+            frappe.throw(f"Row #{idx}: Amount must be greater than zero for {row.charge_item}.")
+
+        item_details = frappe.db.get_value(
+            "Item",
+            row.charge_item,
+            ["item_name", "stock_uom"],
+            as_dict=True
+        ) or {}
+
+        income_account = frappe.db.get_value(
+            "Item Default",
+            {"parent": row.charge_item, "company": doc.company},
+            "income_account"
+        )
+        if not income_account:
+            frappe.throw(
+                f"Row #{idx}: Income GL Account mapping is missing for charge item '{row.charge_item}' under company '{doc.company}'."
+            )
+
+        row.income_account = income_account
+
+        doc.append("items", {
+            "item_code": row.charge_item,
+            "item_name": item_details.get("item_name") or row.charge_item,
+            "description": row.description.strip(),
+            "uom": item_details.get("stock_uom") or "Nos",
+            "conversion_factor": 1,
+            "qty": 1,
+            "rate": row.amount,
+            "amount": row.amount,
+            "income_account": income_account,
+            "cost_center": doc.cost_center or default_cost_center,
+            "custom_is_additional_charge": 1
+        })
+
+    doc.set_missing_values()
+    doc.calculate_taxes_and_totals()
