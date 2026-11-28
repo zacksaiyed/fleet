@@ -207,6 +207,7 @@ doc_events = {
         "on_update": [
             "fleet.erpnext_events.vehicle.on_update_vehicle",
             "fleet.erpnext_events.vehicle.handle_manual_installation_on_update",
+            "fleet.custom_py.customer_custom.sync_vehicle_component_prices",
 			 "fleet.v2.utils.update_customer_vehicle_count"
         ],
 		 "after_delete": [

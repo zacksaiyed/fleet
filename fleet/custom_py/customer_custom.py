@@ -234,3 +234,44 @@ def get_default_billing_settings():
         settings = frappe.get_cached_doc("Fleet Billing Settings")
         return {"usd0": flt(settings.get("usd0")), "usd1": flt(settings.get("usd1")), "local0": flt(settings.get("local0")), "local1": flt(settings.get("local1"))}
     return {"usd0": 0, "usd1": 0, "local0": 0, "local1": 0}
+
+
+def sync_vehicle_component_prices(doc, method=None):
+    if not doc.custom_customer:
+        return
+    installed = {
+        row.item: row for row in doc.get("custom_vehicle_item", [])
+        if row.item and row.status == "Installed"
+    }
+    if not installed:
+        return
+    items = frappe.get_all(
+        "Item", filters={"name": ["in", list(installed)]},
+        fields=["name", "custom_model", "custom_default_billing_price"],
+    )
+    models = list({item.custom_model for item in items if item.custom_model})
+    if not models:
+        return
+    prices = dict(frappe.get_all(
+        "Item Model", filters={"name": ["in", models]}, fields=["name", "price"], as_list=True
+    ))
+    frappe.db.sql("SELECT name FROM `tabCustomer` WHERE name = %s FOR UPDATE", (doc.custom_customer,))
+    customer = frappe.get_doc("Customer", doc.custom_customer)
+    existing = {row.model for row in customer.get("custom_customer_component_price", [])}
+    changed = False
+    for item in items:
+        model = item.custom_model
+        if model not in prices or model in existing:
+            continue
+        installation = installed[item.name]
+        customer.append("custom_customer_component_price", {
+            "model": model,
+            "default_price": flt(prices[model]),
+            "customer_price": flt(item.custom_default_billing_price) or flt(prices[model]),
+            "effective_from": installation.get("date_of_installation") or installation.date or today(),
+            "last_vehicle": doc.name,
+        })
+        existing.add(model)
+        changed = True
+    if changed:
+        customer.save(ignore_permissions=True)

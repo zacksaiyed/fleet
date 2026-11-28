@@ -1557,6 +1557,7 @@ class Job(Document):
 			return
 
 		try:
+			frappe.db.sql("SELECT name FROM `tabCustomer` WHERE name = %s FOR UPDATE", (self.customer,))
 			customer = frappe.get_doc("Customer", self.customer)
 			updated = False
 			for row in self.item_installed_removed:
@@ -1590,23 +1591,16 @@ class Job(Document):
 				existing_rows = customer.get("custom_customer_component_price", {"model": model})
 
 				if existing_rows:
-					existing_row = existing_rows[0]
-					existing_row.last_vehicle = self.vehicle_number
-					existing_row.last_job = self.name
-					existing_row.effective_from = self.completed_on_support or nowdate()
-					existing_row.default_price = default_price
-					existing_row.customer_price = customer_price
-					updated = True
-				else:
-					customer.append("custom_customer_component_price", {
-						"model": model,
-						"default_price": default_price,
-						"effective_from": self.completed_on_support or nowdate(),
-						"last_vehicle": self.vehicle_number,
-						"last_job": self.name,
-						"customer_price": customer_price
-					})
-					updated = True
+					continue
+				customer.append("custom_customer_component_price", {
+					"model": model,
+					"default_price": default_price,
+					"effective_from": self.completed_on_support or nowdate(),
+					"last_vehicle": self.vehicle_number,
+					"last_job": self.name,
+					"customer_price": customer_price
+				})
+				updated = True
 
 			if updated:
 				customer.save(ignore_permissions=True)

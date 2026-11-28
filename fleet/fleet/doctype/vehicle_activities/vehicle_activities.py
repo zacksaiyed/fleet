@@ -574,7 +574,14 @@ def download_errors(name):
 
 @frappe.whitelist(methods=["GET"])
 def download_gps_activity_sheet(customer: str):
-	from frappe.utils.xlsxutils import build_xlsx_response
+	from io import BytesIO
+
+	from openpyxl import load_workbook
+	from openpyxl.styles import Alignment, Font, PatternFill
+	from openpyxl.utils import get_column_letter
+
+	from frappe.desk.utils import provide_binary_file
+	from frappe.utils.xlsxutils import make_xlsx
 
 	frappe.has_permission("Vehicle Activity Details", "export", throw=True)
 	customer_doc = frappe.get_doc("Customer", customer)
@@ -600,4 +607,23 @@ def download_gps_activity_sheet(customer: str):
 		gps_items = set(gps_items)
 		for vehicle, item in dict.fromkeys((row.parent, row.item) for row in items if row.item in gps_items):
 			rows.append([customer, customer_doc.customer_name, vehicle, item, latest.get((vehicle, item))])
-	build_xlsx_response(rows, "GPS Activity")
+	workbook = load_workbook(make_xlsx(rows, "GPS Activity"))
+	sheet = workbook.active
+	sheet.freeze_panes = "D2"
+	sheet.auto_filter.ref = sheet.dimensions
+	sheet.row_dimensions[1].height = 30
+	for column, values in enumerate(zip(*rows), start=1):
+		width = max(len(str(value or "")) for value in values) + 4
+		sheet.column_dimensions[get_column_letter(column)].width = min(max(width, 24), 60)
+	for cell in sheet[1]:
+		cell.font = Font(bold=True, color="FFFFFF")
+		cell.fill = PatternFill("solid", fgColor="24476A")
+		cell.alignment = Alignment(vertical="center", wrap_text=True)
+	for row in sheet.iter_rows(min_row=2):
+		for cell in row:
+			cell.alignment = Alignment(vertical="top", wrap_text=True)
+		row[3].number_format = "@"
+		row[4].number_format = "dd-mm-yyyy"
+	xlsx = BytesIO()
+	workbook.save(xlsx)
+	provide_binary_file("GPS Activity", "xlsx", xlsx.getvalue())
