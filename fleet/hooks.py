@@ -256,6 +256,7 @@ doc_events = {
     "Sales Invoice": {
         "on_update_after_submit": "fleet.api.billing.refresh_paid_billing_flags",
         "validate": [
+            "fleet.api.billing.sync_additional_charges",
             "fleet.api.billing.process_sales_invoice_vehicle_logic",
             "fleet.api.advance_outstanding.update_summary"
         ],

@@ -9,7 +9,7 @@ from fleet.api.advance_coverage import (
 import re
 import frappe
 from frappe import _
-from frappe.utils import add_days, add_months, cint, flt, get_last_day, getdate, nowdate
+from frappe.utils import add_days, add_months, cint, flt, get_last_day, getdate, nowdate, today
 import calendar
 import json
 from typing import Any, Dict, List, Optional, Tuple, Union, Set
@@ -203,10 +203,6 @@ def get_customer_billing_currency(customer):
 @frappe.whitelist()
 def get_subscription_rate(customer, vehicle_classification, billing_currency, target_date):
     # Map rates according to specification:
-    # 1. USD Mode: CB -> USD0, Local -> USD1
-    # 2. LOCAL Mode: CB -> LOCAL0, Local -> LOCAL1
-    # 3. BOTH Mode: CB -> USD0, Local -> LOCAL0
-    
     if billing_currency == "USD":
         if vehicle_classification == "CB":
             field_history = "usd_0"
@@ -239,15 +235,25 @@ def get_subscription_rate(customer, vehicle_classification, billing_currency, ta
     first_day = getdate(f"{t_date.year}-{t_date.month:02d}-01")
     last_day = add_days(add_months(first_day, 1), -1)
 
+    # --- NAYA LOGIC YAHAN SE SHURU HAI ---
+    # Hum cutoff date 'first_day' set kar rahe hain.
+    # Example: Agar May ki invoice ban rahi hai (first_day = 1st May),
+    # toh jo rate 1st May '00:00:00' se pehle set hua tha wahi uthayega (yani 40).
+    # Jab June ki banegi (first_day = 1st June), toh 1st May wala naya rate (50) uthayega.
+
+    cutoff_date = f"{first_day} 00:00:00"
+    history_field = "custom_changed_on" if frappe.db.has_column("Billing Subscription Rate", "custom_changed_on") else "effective_from"
+
     rate_records = frappe.db.get_all(
         "Billing Subscription Rate",
         filters=[
             ["customer", "=", customer.name],
-            ["effective_from", "<=", last_day]
+            [history_field, "<", cutoff_date] # Changed On ke basis par filter
         ],
         fields=["effective_to", field_history],
-        order_by="effective_from desc"
+        order_by=f"{history_field} desc" # Jo sabse latest change hua hai wo pehle aayega
     )
+
     rate = 0.0
     found = False
     for r in rate_records:
@@ -260,16 +266,17 @@ def get_subscription_rate(customer, vehicle_classification, billing_currency, ta
     if not found:
         rate = float(getattr(customer, field_customer, None) or 0.0)
         
+    # --- Parent Customer ke liye bhi same naya logic ---
     if (not found or rate == 0.0) and customer.custom_parent_customer:
         parent_doc = frappe.get_doc("Customer", customer.custom_parent_customer)
         parent_records = frappe.db.get_all(
             "Billing Subscription Rate",
             filters=[
                 ["customer", "=", parent_doc.name],
-                ["effective_from", "<=", last_day]
+                [history_field, "<", cutoff_date] # Yahan bhi Changed On lagaya hai
             ],
             fields=["effective_to", field_history],
-            order_by="effective_from desc"
+            order_by=f"{history_field} desc"
         )
         parent_found = False
         for r in parent_records:
@@ -286,6 +293,7 @@ def get_subscription_rate(customer, vehicle_classification, billing_currency, ta
         rate = float(global_val or 0.0)
         
     return rate, field_settings.upper()
+
 
 
 @frappe.whitelist()
@@ -1611,6 +1619,11 @@ def _create_sales_invoice_from_group(
     if company_name:
         inv.company = company_name
     inv.customer = group["customer"]
+    customer = customer_map.get(group["customer"])
+    if customer:
+        inv.custom_custom_email_1 = customer.get("email") or customer.get("custom_email_1")
+        inv.custom_custom_email_2 = customer.get("custom_email_2")
+        inv.custom_custom_email_3 = customer.get("custom_email_3")
     inv.due_date = current_date
     inv.posting_date = current_date
     inv.custom_billing_start_date = invoice_start_date
@@ -2481,7 +2494,7 @@ def get_default_billing_start_date(customer_id):
 
 
 @frappe.whitelist()
-def process_automatic_billing(billing_date=None):
+def process_automatic_billing(billing_date=None, customer=None):
     """
     Automatically processes billing for eligible customers based on frequency and billing cycle.
     """
@@ -2499,11 +2512,12 @@ def process_automatic_billing(billing_date=None):
     if has_ignore_cycle:
         customer_fields.append("custom_ignore_billing_cycle")
 
+    customer_filters = {"disabled": 0}
+    if customer:
+        customer_filters["name"] = customer
     eligible_customers = frappe.get_all(
         "Customer",
-        filters={
-            "disabled": 0,
-        },
+        filters=customer_filters,
         fields=customer_fields,
     )
 
@@ -2612,3 +2626,56 @@ def refresh_paid_billing_flags(doc, method=None):
             billed = is_item_billed_in_other_submitted_invoice(vehicle_name, row.item, paid_only=True)
             frappe.db.set_value("Vehicle Item", row.name, "billed", int(billed), update_modified=False)
         _update_subscription_billed_status(vehicle_name)
+
+
+def sync_additional_charges(doc, method=None):
+    doc.items = [d for d in doc.items if not d.get("custom_is_additional_charge")]
+
+    default_cost_center = frappe.get_cached_value("Company", doc.company, "cost_center")
+
+    for idx, row in enumerate(doc.get("custom_additional_charges") or [], start=1):
+        if not row.charge_item:
+            frappe.throw(f"Row #{idx}: Additional Charge Item is mandatory.")
+        if not (row.description or "").strip():
+            frappe.throw(f"Row #{idx}: Explicit Description is mandatory for {row.charge_item}.")
+        if (row.amount or 0) <= 0:
+            frappe.throw(f"Row #{idx}: Amount must be greater than zero for {row.charge_item}.")
+
+        item_details = frappe.db.get_value(
+            "Item",
+            row.charge_item,
+            ["item_name", "stock_uom"],
+            as_dict=True
+        ) or {}
+
+        income_account = frappe.db.get_value(
+            "Item Default",
+            {"parent": row.charge_item, "company": doc.company},
+            "income_account"
+        )
+        if not income_account:
+            frappe.throw(
+                f"Row #{idx}: Income GL Account mapping is missing for charge item '{row.charge_item}' under company '{doc.company}'."
+            )
+
+        row.income_account = income_account
+
+        doc.append("items", {
+            "item_code": row.charge_item,
+            "item_name": item_details.get("item_name") or row.charge_item,
+            "description": row.description.strip(),
+            "uom": item_details.get("stock_uom") or "Nos",
+            "conversion_factor": 1,
+            "qty": 1,
+            "rate": row.amount,
+            "amount": row.amount,
+            "income_account": income_account,
+            "cost_center": doc.cost_center or default_cost_center,
+            "custom_is_additional_charge": 1,
+            "custom_original_rate": row.amount,
+            "custom_final_rate": row.amount,
+            "custom_billing_decision": "Chargeable"
+        })
+
+    doc.set_missing_values()
+    doc.calculate_taxes_and_totals()

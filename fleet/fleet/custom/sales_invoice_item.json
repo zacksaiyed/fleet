@@ -1,6 +1,19 @@
 {
  "custom_fields": [
   {
+   "doctype": "Custom Field",
+   "dt": "Sales Invoice Item",
+   "fieldname": "custom_is_additional_charge",
+   "fieldtype": "Check",
+   "label": "Is Additional Charge",
+   "default": "0",
+   "hidden": 1,
+   "read_only": 1,
+   "insert_after": "custom_is_component",
+   "module": "Fleet",
+   "name": "Sales Invoice Item-custom_is_additional_charge"
+  },
+  {
    "_assign": null,
    "_comments": null,
    "_liked_by": null,
