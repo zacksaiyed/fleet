@@ -402,6 +402,17 @@ function show_vehicle_invoice_dialog(frm) {
 }
 
 function show_advance_invoice_dialog(frm) {
+    function update_to_date() {
+        const from_date = dialog.get_value("from_date");
+        const months = Number(dialog.get_value("months"));
+        if (!from_date || !Number.isInteger(months) || months < 1) {
+            dialog.set_value("to_date", null);
+            return;
+        }
+        const next_date = frappe.datetime.add_months(from_date, months);
+        dialog.set_value("to_date", frappe.datetime.add_days(next_date, -1));
+    }
+
     let dialog = new frappe.ui.Dialog({
                 title: __("Create Advance Invoice"),
                 size: "extra-large",
@@ -410,7 +421,16 @@ function show_advance_invoice_dialog(frm) {
                         fieldname: "from_date",
                         fieldtype: "Date",
                         label: __("From Date"),
-                        reqd: 1
+                        reqd: 1,
+                        onchange: update_to_date
+                    },
+                    {
+                        fieldname: "months",
+                        fieldtype: "Int",
+                        label: __("Months"),
+                        default: 1,
+                        reqd: 1,
+                        onchange: update_to_date
                     },
                     {
                         fieldname: "to_date",
@@ -456,6 +476,10 @@ function show_advance_invoice_dialog(frm) {
                 ],
                 primary_action_label: __("Create Advance Invoice"),
                 primary_action(values) {
+                    const months = Number(values.months);
+                    if (!Number.isInteger(months) || months < 1) {
+                        frappe.throw(__("Months must be a positive whole number."));
+                    }
                     let rows = (values.advance_vehicles || []).map(row => ({
                         vehicle: row.vehicle
                     }));

@@ -9,7 +9,18 @@ def validate_customer(doc, method=None):
     if doc.is_new():
         set_default_fleet_billing_settings(doc)
         
+    set_component_default_prices(doc)
     prepare_price_history_logs(doc)
+
+
+def set_component_default_prices(doc):
+    rows = doc.get("custom_customer_component_price", [])
+    models = list({row.model for row in rows if row.model})
+    prices = dict(frappe.get_all(
+        "Item Model", filters={"name": ["in", models]}, fields=["name", "price"], as_list=True
+    )) if models else {}
+    for row in rows:
+        row.default_price = flt(prices.get(row.model))
 
 
 def on_update(doc, method=None):

@@ -1158,6 +1158,10 @@ def run():
             'standard': 'Yes',
             'custom_format': 1,
             'print_format_type': 'Jinja',
+            'print_format_builder': 0,
+            'print_format_builder_beta': 0,
+            'format_data': None,
+            'raw_printing': 0,
         })
 
         dir_path = f'/home/serpentcs/frappe-bench/apps/fleet/fleet/fleet/print_format/{dir_name}'

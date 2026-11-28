@@ -25,6 +25,7 @@
    "options": "Item Model"
   },
   {
+   "fetch_from": "model.price",
    "fieldname": "default_price",
    "fieldtype": "Currency",
    "in_list_view": 1,

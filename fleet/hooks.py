@@ -59,6 +59,7 @@ doctype_js = {
 
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
 doctype_list_js = {
+  "Sales Invoice": "public/js/sales_invoice_list.js",
   "Item":     "public/js/item_list.js",
   "Customer": "public/js/customer_list.js",
   "Vehicle":  "public/js/vehicle_list.js",
@@ -240,8 +241,24 @@ doc_events = {
     "Item Model": {
         "on_update": "fleet.override.item.on_item_model_update"
     },
+    "Payment Ledger Entry": {
+        "on_update": "fleet.api.billing.refresh_paid_billing_flags"
+    },
+    "Payment Entry": {
+        "on_submit": "fleet.api.billing.refresh_paid_billing_flags",
+        "on_cancel": "fleet.api.billing.refresh_paid_billing_flags",
+        "on_update_after_submit": "fleet.api.billing.refresh_paid_billing_flags"
+    },
+    "Journal Entry": {
+        "on_submit": "fleet.api.billing.refresh_paid_billing_flags",
+        "on_cancel": "fleet.api.billing.refresh_paid_billing_flags"
+    },
     "Sales Invoice": {
-        "validate": "fleet.api.billing.process_sales_invoice_vehicle_logic",
+        "on_update_after_submit": "fleet.api.billing.refresh_paid_billing_flags",
+        "validate": [
+            "fleet.api.billing.process_sales_invoice_vehicle_logic",
+            "fleet.api.advance_outstanding.update_summary"
+        ],
         "before_save": "fleet.api.billing.set_pending_customer_approval_date",
         "before_submit": "fleet.api.billing.before_sales_invoice_submit",
         "on_submit": "fleet.api.billing.on_sales_invoice_submit",
@@ -279,12 +296,6 @@ scheduler_events = {
             "fleet.scheduled.task_auto_reject.auto_reject_unaccepted_tasks",
 
         ],
-	"0 22 * * *": [
-		"fleet.fleet.doctype.job.job.set_progress_jobs_to_pending",
-	],
-        "*/5 7-21 * * *": [
-		"fleet.fleet.doctype.job.job.set_progress_jobs_to_pending",
-	],
 
         "0 1 1 * *": [
             "fleet.api.classification_scheduler.generate_vehicle_classification_logs"

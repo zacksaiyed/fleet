@@ -3,6 +3,14 @@
 
 frappe.ui.form.on("Vehicle Activities", {
 	refresh(frm) {
+		if (frm.doc.customer) {
+			frm.add_custom_button(__("Download GPS Activity Sheet"), () => {
+				const customer = encodeURIComponent(frm.doc.customer);
+				window.open(frappe.urllib.get_full_url(
+					`/api/method/fleet.fleet.doctype.vehicle_activities.vehicle_activities.download_gps_activity_sheet?customer=${customer}`
+				));
+			});
+		}
 		// Add Download Errors button to the grid footer if not already added
 		let grid = frm.fields_dict.vehicle_activity_error_details ? frm.fields_dict.vehicle_activity_error_details.grid : null;
 		if (grid) {
@@ -18,6 +26,9 @@ frappe.ui.form.on("Vehicle Activities", {
 				}
 			}
 		}
+	},
+	customer(frm) {
+		frm.refresh();
 	},
 	upload_file(frm) {
 		if (frm.doc.upload_file && frm.is_dirty()) {

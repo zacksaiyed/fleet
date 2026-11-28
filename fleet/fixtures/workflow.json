@@ -235,6 +235,7 @@
    },
    {
     "allow_edit": "Accounts Manager",
+    "avoid_status_override": 1,
     "doc_status": "1",
     "parent": "Sales Invoice Approval Workflow",
     "parentfield": "states",

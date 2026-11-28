@@ -51,6 +51,7 @@ def get_eligible_advance_vehicles(doctype, txt, searchfield, start, page_len, fi
     customer_doc = frappe.get_doc("Customer", customer)
     allowed_customers = _get_allowed_customers(customer_doc)
     placeholders = ", ".join(["%s"] * len(allowed_customers))
+    start_date, end_date, _months = _validate_dates(from_date, to_date)
     search_text = f"%{txt}%"
 
     return frappe.db.sql(
@@ -59,31 +60,12 @@ def get_eligible_advance_vehicles(doctype, txt, searchfield, start, page_len, fi
         FROM `tabVehicle` vehicle
         WHERE vehicle.custom_customer IN ({placeholders})
           AND (vehicle.name LIKE %s OR vehicle.license_plate LIKE %s)
-          AND (
-            vehicle.custom_last_billed_upto_date IS NULL
-            OR vehicle.custom_last_billed_upto_date < %s
-          )
-          AND EXISTS (
-            SELECT 1
-            FROM `tabVehicle Item` installed
-            WHERE installed.parent = vehicle.name
-              AND installed.status = 'Installed'
-              AND installed.is_chargeable = 1
-              AND COALESCE(installed.billed, 0) = 0
-              AND COALESCE(installed.date_of_installation, installed.date) <= %s
-              AND NOT EXISTS (
-                SELECT 1
-                FROM `tabVehicle Item` removed
-                WHERE removed.parent = installed.parent
-                  AND removed.item = installed.item
-                  AND removed.status = 'Removed'
-                  AND COALESCE(removed.date_of_removal, removed.date) < %s
-              )
-          )
+          AND {_advance_vehicle_conditions()}
         ORDER BY vehicle.name
         LIMIT %s OFFSET %s
         """,
-        [*allowed_customers, search_text, search_text, to_date, from_date, from_date, page_len, start],
+        [*allowed_customers, search_text, search_text,
+         end_date, start_date, end_date, start_date, page_len, start],
     )
 
 
@@ -93,6 +75,14 @@ def _parse_and_validate_vehicles(customer_doc, vehicle_rows, start_date, end_dat
         frappe.throw(_("Select at least one vehicle."))
 
     allowed_customers = _get_allowed_customers(customer_doc)
+
+    # Serialize invoice creation for the selected vehicles before checking periods.
+    selected = sorted({row.get("vehicle") for row in rows if row.get("vehicle")})
+    if selected:
+        frappe.db.sql(
+            "SELECT name FROM `tabVehicle` WHERE name IN %s ORDER BY name FOR UPDATE",
+            (selected,),
+        )
 
     vehicles = []
     for row in rows:
@@ -127,33 +117,57 @@ def _get_allowed_customers(customer_doc):
 
 
 def _is_vehicle_eligible(vehicle, start_date, end_date):
-    last_billed = frappe.db.get_value("Vehicle", vehicle, "custom_last_billed_upto_date")
-    if last_billed and getdate(last_billed) >= end_date:
-        return False
+    return bool(frappe.db.sql(
+        f"""
+        SELECT vehicle.name FROM `tabVehicle` vehicle
+        WHERE vehicle.name = %s AND {_advance_vehicle_conditions()}
+        """,
+        (vehicle, end_date, start_date, end_date, start_date),
+    ))
 
-    return bool(
-        frappe.db.sql(
-            """
-            SELECT 1
-            FROM `tabVehicle Item` installed
-            WHERE installed.parent = %s
+
+def _advance_vehicle_conditions():
+    return """
+        EXISTS (
+            SELECT 1 FROM `tabVehicle Item` installed
+            WHERE installed.parent = vehicle.name
               AND installed.status = 'Installed'
               AND installed.is_chargeable = 1
-              AND COALESCE(installed.billed, 0) = 0
               AND COALESCE(installed.date_of_installation, installed.date) <= %s
               AND NOT EXISTS (
-                SELECT 1
-                FROM `tabVehicle Item` removed
-                WHERE removed.parent = installed.parent
-                  AND removed.item = installed.item
-                  AND removed.status = 'Removed'
-                  AND COALESCE(removed.date_of_removal, removed.date) < %s
+                  SELECT 1 FROM `tabVehicle Item` removed
+                  WHERE removed.parent = installed.parent
+                    AND removed.item = installed.item
+                    AND removed.status = 'Removed'
+                    AND COALESCE(removed.date_of_removal, removed.date) < %s
               )
-            LIMIT 1
-            """,
-            (vehicle, start_date, start_date),
         )
-    )
+        AND NOT EXISTS (
+            SELECT 1 FROM `tabSales Invoice` invoice
+            WHERE invoice.docstatus < 2
+              AND COALESCE(invoice.is_return, 0) = 0
+              AND COALESCE(invoice.custom_billing_start_date, invoice.custom_billing_from, invoice.posting_date) <= %s
+              AND COALESCE(invoice.custom_billing_end_date, invoice.custom_billing_to, invoice.posting_date) >= %s
+              AND (
+                  EXISTS (
+                      SELECT 1 FROM `tabSales Invoice Item` line
+                      WHERE line.parent = invoice.name
+                        AND (
+                            line.custom_vehicle = vehicle.name
+                            OR line.custom_registration_number = vehicle.name
+                            OR line.custom_registration_number = vehicle.license_plate
+                        )
+                  )
+                  OR EXISTS (
+                      SELECT 1 FROM `tabVehicle Invoice Detail` detail
+                      WHERE detail.parent = invoice.name
+                        AND detail.parenttype = 'Sales Invoice'
+                        AND detail.parentfield = 'custom_advance_vehicle_details'
+                        AND detail.vehicle = vehicle.name
+                  )
+              )
+        )
+    """
 
 
 def _validate_dates(from_date, to_date):
@@ -178,6 +192,7 @@ def _store_advance_vehicle_details(invoice_names, vehicles, months):
 
     for invoice_name in invoice_names:
         invoice = frappe.get_doc("Sales Invoice", invoice_name)
+        invoice.custom_is_advance_payment = 1
         invoice_vehicles = {row.custom_vehicle for row in invoice.items if row.custom_vehicle}
         for vehicle in vehicles:
             if vehicle in invoice_vehicles:

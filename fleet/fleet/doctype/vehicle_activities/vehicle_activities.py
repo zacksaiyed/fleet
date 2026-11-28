@@ -136,6 +136,16 @@ class VehicleActivities(Document):
 	def _read_csv_rows(self):
 		file_doc = self._get_upload_file_doc()
 		content = file_doc.get_content()
+		if (file_doc.file_name or "").lower().endswith(".xlsx"):
+			from frappe.utils.xlsxutils import read_xlsx_file_from_attached_file
+
+			rows = read_xlsx_file_from_attached_file(fcontent=content, read_only=True)
+			for row in rows:
+				for index, cell in enumerate(row):
+					if isinstance(cell, datetime):
+						cell = cell.date()
+					row[index] = str(cell).strip() if cell is not None else ""
+			return rows
 		if isinstance(content, bytes):
 			for encoding in ("utf-8-sig", "utf-8", "windows-1252"):
 				try:
@@ -147,7 +157,7 @@ class VehicleActivities(Document):
 				frappe.throw("Unable to decode CSV file. Please upload UTF-8 CSV.")
 
 		if not (file_doc.file_name or self.upload_file or "").lower().endswith(".csv"):
-			frappe.throw("Please upload a CSV file.")
+			frappe.throw("Please upload a CSV or XLSX file.")
 
 		reader = csv.reader(StringIO(content))
 		return [[(cell or "").strip() for cell in row] for row in reader]
@@ -220,6 +230,11 @@ class VehicleActivities(Document):
 		item = self._get_item(raw_item)
 		if not item:
 			return self._row_error(f"Item not found: {raw_item}", meta, vehicle=vehicle, item=raw_item)
+		if frappe.db.get_value("Item", item, "custom_item_type") != "GPS Device":
+			return self._row_error("Only GPS Device items are allowed.", meta, vehicle=vehicle, item=item)
+		vehicle_customer = frappe.db.get_value("Vehicle", vehicle, "custom_customer")
+		if self.customer and self.customer != vehicle_customer:
+			return self._row_error("Vehicle does not belong to the selected customer.", meta, vehicle=vehicle)
 
 		activity_date = self._parse_date(raw_activity_date)
 		if not activity_date:
@@ -302,7 +317,7 @@ class VehicleActivities(Document):
 			)
 
 		vehicle_customer = frappe.db.get_value("Vehicle", vehicle, "custom_customer")
-		customer = self._get_customer(raw_customer) if raw_customer else vehicle_customer
+		customer = self._get_customer(raw_customer) if raw_customer else (self.customer or vehicle_customer)
 
 		if raw_customer and not customer:
 			return self._row_error(f"Customer not found: {raw_customer}", meta, vehicle=vehicle, customer=raw_customer)
@@ -328,12 +343,23 @@ class VehicleActivities(Document):
 		}
 
 	def _add_missing_vehicles(self, csv_vehicles):
+		gps_vehicles = frappe.db.sql(
+			"""SELECT DISTINCT detail.parent FROM `tabVehicle Item` detail
+			   JOIN `tabItem` item ON item.name = detail.item
+			   WHERE detail.status = 'Installed' AND item.custom_item_type = 'GPS Device'""",
+			pluck=True,
+		)
+		gps_vehicles = set(gps_vehicles)
+		filters = {}
+		if self.customer:
+			filters["custom_customer"] = self.customer
 		for vehicle in frappe.get_all(
 			"Vehicle",
+			filters=filters,
 			fields=["name", "license_plate", "custom_customer"],
 			order_by="name asc",
 		):
-			if vehicle.name in csv_vehicles:
+			if vehicle.name not in gps_vehicles or vehicle.name in csv_vehicles:
 				continue
 
 			self._add_error(
@@ -544,3 +570,34 @@ def download_errors(name):
 
 	build_xlsx_response(rows, f"{name}_errors")
 
+
+
+@frappe.whitelist(methods=["GET"])
+def download_gps_activity_sheet(customer: str):
+	from frappe.utils.xlsxutils import build_xlsx_response
+
+	frappe.has_permission("Vehicle Activity Details", "export", throw=True)
+	customer_doc = frappe.get_doc("Customer", customer)
+	customer_doc.check_permission("read")
+	vehicles = frappe.get_list("Vehicle", filters={"custom_customer": customer}, pluck="name", limit_page_length=0)
+	gps_items = frappe.get_list("Item", filters={"custom_item_type": "GPS Device"}, pluck="name", limit_page_length=0)
+	rows = [["Customer", "Customer Name", "Vehicle", "Item", "Last Activity Date"]]
+	if vehicles and gps_items:
+		items = frappe.get_all(
+			"Vehicle Item",
+			filters={"parent": ["in", vehicles], "status": "Installed"},
+			fields=["parent", "item"], order_by="parent, item",
+		)
+		activities = frappe.get_list(
+			"Vehicle Activity Details",
+			filters={"customer": customer, "vehicle": ["in", vehicles]},
+			fields=["vehicle", "item", "last_activity_date"],
+			order_by="last_activity_date desc", limit_page_length=0,
+		)
+		latest = {}
+		for activity in activities:
+			latest.setdefault((activity.vehicle, activity.item), activity.last_activity_date)
+		gps_items = set(gps_items)
+		for vehicle, item in dict.fromkeys((row.parent, row.item) for row in items if row.item in gps_items):
+			rows.append([customer, customer_doc.customer_name, vehicle, item, latest.get((vehicle, item))])
+	build_xlsx_response(rows, "GPS Activity")

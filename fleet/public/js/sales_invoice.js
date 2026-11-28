@@ -4,6 +4,8 @@ frappe.ui.form.on('Sales Invoice', {
     // 1. FORM EVENTS
     // ==============================================================
     refresh: function (frm) {
+        show_approved_payment_status(frm);
+        render_advance_outstanding_summary(frm);
 
         // Sidebar Auto-Collapse
         setTimeout(function () {
@@ -1726,23 +1728,75 @@ function get_billing_date_range(frm) {
 
 function fetch_and_set_customer_emails(frm) {
     if (frm.doc.customer) {
-        frappe.db.get_value('Customer', frm.doc.customer, ['email', 'custom_email_1', 'custom_email_2', 'custom_email_3', 'custom_enable_notification'])
+        frappe.db.get_value('Customer', frm.doc.customer, ['email', 'custom_email_1', 'custom_email_2', 'custom_email_3'])
             .then(r => {
                 let values = (r && r.message) ? r.message : {};
                 let email_1 = values.email || values.custom_email_1 || ""; 
                 let email_2 = values.custom_email_2 || "";
                 let email_3 = values.custom_email_3 || "";
-                let enable_notify = values.custom_enable_notification || 0; 
 
                 frm.set_value("custom_custom_email_1", email_1);
                 frm.set_value("custom_custom_email_2", email_2);
                 frm.set_value("custom_custom_email_3", email_3);
-                frm.set_value("custom_enable_notification", enable_notify); 
             });
     } else {
         frm.set_value("custom_custom_email_1", "");
         frm.set_value("custom_custom_email_2", "");
         frm.set_value("custom_custom_email_3", "");
-        frm.set_value("custom_enable_notification", 0); 
     }
+}
+
+
+function show_approved_payment_status(frm) {
+    const doc = frm.doc;
+    if (doc.docstatus !== 1 || doc.custom_billing_review_status !== "Approved" || doc.is_return) {
+        return;
+    }
+    if (!["Unpaid", "Overdue", "Partly Paid", "Paid"].includes(doc.status)) {
+        return;
+    }
+    const total = flt(doc.rounded_total || doc.grand_total);
+    const outstanding = flt(doc.outstanding_amount);
+    if (outstanding <= 0) {
+        frm.page.set_indicator(__("Paid"), "green");
+    } else if (outstanding < total) {
+        frm.page.set_indicator(__("Partly Paid"), "yellow");
+    } else {
+        frm.page.set_indicator(__("Approved"), "green");
+    }
+}
+
+
+function render_advance_outstanding_summary(frm) {
+    if (frm.is_new() || frm.is_dirty() || frm.doc.custom_is_advance_payment) {
+        return;
+    }
+    const invoice = frm.doc.name;
+    frappe.call({
+        method: "fleet.api.advance_outstanding.get_summary",
+        type: "GET",
+        args: { invoice },
+        callback(response) {
+            if (frm.doc.name !== invoice || frm.is_dirty() || !response.message) return;
+            const summary = response.message;
+            frm.doc.custom_advance_outstanding_amount = summary.advance_outstanding;
+            frm.doc.custom_total_payable_with_advance = summary.total_payable;
+            frm.refresh_field("custom_advance_outstanding_amount");
+            frm.refresh_field("custom_total_payable_with_advance");
+            frm.toggle_display("custom_advance_outstanding_section", summary.advance_outstanding > 0);
+            const escape = frappe.utils.escape_html;
+            const rows = summary.references.map(row => `
+                <tr>
+                    <td><a href="/app/sales-invoice/${encodeURIComponent(row.invoice)}">${escape(row.invoice)}</a></td>
+                    <td>${format_currency(row.outstanding, row.currency)}</td>
+                    <td>${format_currency(row.amount, frm.doc.currency)}</td>
+                </tr>`).join("");
+            frm.fields_dict.custom_advance_outstanding_html.$wrapper.html(`
+                <table class="table table-bordered">
+                    <thead><tr><th>${__("Advance Invoice")}</th><th>${__("Outstanding")}</th>
+                    <th>${__("Amount in Invoice Currency")}</th></tr></thead>
+                    <tbody>${rows}</tbody>
+                </table>`);
+        },
+    });
 }

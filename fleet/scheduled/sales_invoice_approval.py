@@ -37,4 +37,3 @@ def _process_invoice(invoice):
     )
     invoice_doc = frappe.get_doc("Sales Invoice", invoice.name)
     apply_workflow(invoice_doc, "Customer Approve")
-    apply_workflow(invoice_doc, "Customer Approve")

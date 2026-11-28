@@ -17,6 +17,7 @@
   "chargeable_reason",
   "chargeable_reason_description",
   "billed",
+  "subscription_billed",
   "custom_device_id"
  ],
  "fields": [
@@ -89,6 +90,14 @@
    "fieldtype": "Check",
    "in_list_view": 1,
    "label": "Billed"
+  },
+  {
+   "default": "0",
+   "depends_on": "eval:doc.item_type === 'GPS Device'",
+   "fieldname": "subscription_billed",
+   "fieldtype": "Check",
+   "label": "Subscription Billed",
+   "read_only": 1
   },
   {
    "fieldname": "custom_device_id",

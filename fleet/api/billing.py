@@ -1,5 +1,14 @@
+from fleet.api.advance_coverage import (
+    advance_waiver_reason,
+    covered_days,
+    get_annual_advance_coverage,
+    uncovered_periods,
+    waive_installation,
+)
+
 import re
 import frappe
+from frappe import _
 from frappe.utils import add_days, add_months, cint, flt, get_last_day, getdate, nowdate
 import calendar
 import json
@@ -107,7 +116,14 @@ def is_vehicle_item_eligible_for_invoice(vehicle, item_code: str, billing_date=N
 
         if v_last_billed and getdate(v_last_billed) >= getdate(billing_date):
             if is_vehicle_item_billed(vehicle, item_code):
-                return False
+                item_type = frappe.db.get_value("Item", item_code, "custom_item_type")
+                if item_type != "GPS Device":
+                    return False
+                vehicle_doc = frappe.get_doc("Vehicle", vehicle) if isinstance(vehicle, str) else vehicle
+                rows = vehicle_doc.get("custom_vehicle_item", [])
+                return not any(
+                    row.item == item_code and cint(row.get("subscription_billed")) for row in rows
+                )
 
     return True
 def get_chargeable_vehicle_items(vehicle) -> set:
@@ -515,6 +531,16 @@ def _resolve_billing_dates(
                     if not earliest_install_date or r_date < earliest_install_date:
                         earliest_install_date = r_date
 
+    if not from_date and not to_date and not last_billed_upto:
+        advance_starts = [
+            getdate(coverage.start_date)
+            for vehicle in linked_vehicles
+            for coverage in get_annual_advance_coverage(vehicle_docs[vehicle.name])
+        ]
+        if advance_starts:
+            advance_start = min(advance_starts)
+            earliest_install_date = min(earliest_install_date, advance_start) if earliest_install_date else advance_start
+
     if from_date and to_date:
         invoice_start_date = from_date
         invoice_end_date = to_date
@@ -668,11 +694,11 @@ def _collect_month_candidate_items(
                 continue
 
             inst_date = getdate(row_install_date)
-            if is_advance and inst_date <= invoice_start_date:
+            if is_advance and inst_date <= month_end:
                 items_in_month.setdefault(row.item, None)
             elif not is_advance and (
                 (inst_date >= month_start and inst_date <= month_end)
-                or (inst_date <= month_end and not cint(row.billed))
+                or (inst_date <= month_end and is_vehicle_item_eligible_for_invoice(vehicle_doc, row.item, month_end))
             ):
                 if row.item not in items_in_month:
                     items_in_month[row.item] = None
@@ -967,6 +993,7 @@ def _build_subscription_invoice_item(
     month_end: Any,
     invoice_start_date: Any,
     invoice_end_date: Any,
+    advance_coverage: Optional[list] = None,
 ) -> Optional[Dict[str, Any]]:
     """
     Builds the invoice item dictionary for a subscription charge or waiver.
@@ -974,6 +1001,16 @@ def _build_subscription_invoice_item(
     itm_type = frappe.db.get_value("Item", item, "custom_item_type")
     if itm_type != "GPS Device":
         return None
+
+    period_start = max(month_start, install_date, invoice_start_date)
+    period_end = min(month_end, invoice_end_date)
+    annual_days = covered_days(advance_coverage or [], period_start, period_end)
+    if period_start <= period_end and not annual_days:
+        invoiced_intervals = _get_subscription_intervals(vehicle_doc)
+        if _subscription_period_is_covered(
+            invoiced_intervals.get(item.strip(), []), period_start, period_end
+        ):
+            return None
 
     orig_rate, rate_code = get_subscription_rate(v_customer, v_class, billing_currency, target_date)
     active_cutoff = cint(v_customer.custom_active_satus_cutoff_day or 15)
@@ -984,7 +1021,12 @@ def _build_subscription_invoice_item(
     charge_subscription = True
     waiver_reason = ""
 
-    if waive_subscription:
+    if annual_days and annual_days == (period_end - period_start).days + 1:
+        charge_subscription = False
+        final_rate = 0.0
+        billing_decision = "Waived"
+        waiver_reason = advance_waiver_reason(advance_coverage, period_start, period_end)
+    elif waive_subscription:
         charge_subscription = False
         waiver_reason = "Advance invoice subscription waived"
         final_rate = 0.0
@@ -1053,7 +1095,13 @@ def _build_subscription_invoice_item(
             final_rate = 0.0
             billing_decision = "Waived"
 
-    if not (charge_subscription or waive_subscription):
+    if annual_days:
+        waiver_reason = advance_waiver_reason(advance_coverage, period_start, period_end)
+        if final_rate > 0:
+            daily_rate = orig_rate / ((month_end - month_start).days + 1)
+            final_rate = round(max(0.0, final_rate - daily_rate * annual_days), 2)
+            billing_decision = "Chargeable" if final_rate else "Waived"
+    if not (charge_subscription or waive_subscription or annual_days):
         return None
 
     return {
@@ -1072,7 +1120,7 @@ def _build_subscription_invoice_item(
         "custom_rate_code": rate_code,
         "custom_billing_decision": billing_decision,
         "custom_included": 1,
-        "custom_waived": 1 if waive_subscription else 0,
+        "custom_waived": 1 if waive_subscription or annual_days else 0,
         "custom_waiver_reason": waiver_reason,
         "custom_vehicle_type": "CB" if v_class == "CB" else ("LOCAL" if v_class in ["Local", "LOCAL"] else ""),
         "custom_comment": "",
@@ -1113,6 +1161,18 @@ def _collect_all_billing_items(
         v_customer_id = billing_customer_id
         v_branch = vehicle.custom_branch
         billing_currency = get_customer_billing_currency(v_customer)
+        advance_coverage = [] if is_advance else get_annual_advance_coverage(vehicle_doc)
+        advance_installation_items = set()
+        if advance_coverage:
+            advance_installation_items = set(frappe.get_all(
+                "Sales Invoice Item",
+                filters={
+                    "parent": ["in", [coverage.name for coverage in advance_coverage]],
+                    "custom_vehicle": vehicle.name,
+                    "custom_is_installation": 1,
+                },
+                pluck="item_code",
+            ))
 
         for b_month in billing_months:
             b_y = b_month["year"]
@@ -1123,14 +1183,14 @@ def _collect_all_billing_items(
             month_end = add_days(add_months(month_start, 1), -1)
 
             v_last_billed = frappe.db.get_value("Vehicle", vehicle.name, "custom_last_billed_upto_date")
-            if v_last_billed and getdate(v_last_billed) >= month_end:
+            month_is_covered = covered_days(advance_coverage, month_start, month_end) > 0
+            if v_last_billed and getdate(v_last_billed) >= month_end and not month_is_covered:
                 has_unbilled_chargeable = False
                 for r in vehicle_doc.get("custom_vehicle_item", []):
                     r_status = getattr(r, "status", None) if not isinstance(r, dict) else r.get("status")
                     r_item = getattr(r, "item", None) if not isinstance(r, dict) else r.get("item")
                     r_chg = getattr(r, "is_chargeable", None) if not isinstance(r, dict) else r.get("is_chargeable")
-                    r_bld = getattr(r, "billed", None) if not isinstance(r, dict) else r.get("billed")
-                    if r_status == "Installed" and r_item and cint(r_chg) == 1 and not cint(r_bld):
+                    if r_status == "Installed" and r_item and cint(r_chg) == 1 and is_vehicle_item_eligible_for_invoice(vehicle_doc, r_item, month_end):
                         has_unbilled_chargeable = True
                         break
                 if not has_unbilled_chargeable:
@@ -1143,8 +1203,19 @@ def _collect_all_billing_items(
                 vehicle.name, vehicle_doc, original_customer_id, month_start, month_end, invoice_start_date, is_advance
             )
 
+            covered_vehicle_items = set()
+            if month_is_covered:
+                for row in vehicle_doc.get("custom_vehicle_item", []):
+                    installation_date = row.get("date_of_installation") or row.date
+                    if (
+                        row.item and installation_date and getdate(installation_date) <= month_end
+                        and cint(row.is_chargeable)
+                    ):
+                        covered_vehicle_items.add(row.item)
+                        items_in_month.setdefault(row.item, None)
+
             for item, last_act_date in items_in_month.items():
-                if not is_vehicle_item_eligible_for_invoice(vehicle_doc, item, month_end):
+                if item not in covered_vehicle_items and not is_vehicle_item_eligible_for_invoice(vehicle_doc, item, month_end):
                     continue
 
                 install_date = _get_item_installation_date(vehicle.name, vehicle_doc, item, month_start)
@@ -1165,10 +1236,35 @@ def _collect_all_billing_items(
                         and b.get("invoice_item", {}).get("custom_is_installation") == 1
                         for b in billing_items
                     )
-                    if not is_vehicle_item_billed(vehicle_doc, item) and not already_charged_installation:
+                    installation_is_covered = (
+                        item in covered_vehicle_items and item in advance_installation_items
+                    ) or (
+                        covered_days(advance_coverage, install_date, install_date) > 0
+                        and frappe.db.get_value("Item", item, "custom_item_type") == "GPS Device"
+                    )
+                    if not already_charged_installation and (
+                        installation_is_covered
+                        or (
+                            not is_vehicle_item_billed(vehicle_doc, item)
+                            and not is_item_billed_in_other_submitted_invoice(vehicle.name, item)
+                        )
+                    ):
                         rate = _resolve_installation_rate(
                             v_customer_id, v_customer, vehicle, item, install_date, inv_currency, usd_to_local
                         )
+                        installation_item = _build_installation_invoice_item(
+                            item=item, rate=rate, vehicle=vehicle, vehicle_doc=vehicle_doc,
+                            target_date=target_date, b_m=b_m, b_month_label=b_month["label"],
+                            v_class=v_class, item_is_removed_flag=item_is_removed_flag,
+                        )
+                        if installation_is_covered:
+                            reference_date = install_date
+                            if not covered_days(advance_coverage, reference_date, reference_date):
+                                reference_date = max(month_start, invoice_start_date)
+                            waive_installation(
+                                installation_item,
+                                advance_waiver_reason(advance_coverage, reference_date, reference_date),
+                            )
                         billing_items.append({
                             "v_customer_id": v_customer_id,
                             "v_branch": v_branch,
@@ -1177,17 +1273,7 @@ def _collect_all_billing_items(
                             "inv_currency": inv_currency,
                             "inv_vehicle_group": inv_vehicle_group,
                             "vehicle_classification": v_class,
-                            "invoice_item": _build_installation_invoice_item(
-                                item=item,
-                                rate=rate,
-                                vehicle=vehicle,
-                                vehicle_doc=vehicle_doc,
-                                target_date=target_date,
-                                b_m=b_m,
-                                b_month_label=b_month["label"],
-                                v_class=v_class,
-                                item_is_removed_flag=item_is_removed_flag,
-                            ),
+                            "invoice_item": installation_item,
                         })
 
                     # --- CONDITION B: SUBSCRIPTION CHARGE ---
@@ -1214,6 +1300,7 @@ def _collect_all_billing_items(
                         month_end=month_end,
                         invoice_start_date=invoice_start_date,
                         invoice_end_date=invoice_end_date,
+                        advance_coverage=advance_coverage,
                     )
                     if sub_item:
                         billing_items.append({
@@ -1512,10 +1599,17 @@ def _create_sales_invoice_from_group(
             if item_data.get("custom_is_installation") == 1 or flt(item_data.get("custom_final_rate", 0.0)) > 0.0:
                 has_chargeable = True
                 break
-    if not has_chargeable:
+    has_advance_waivers = any(
+        item.get("custom_waived")
+        and (item.get("custom_waiver_reason") or "").startswith("Annual advance coverage - ")
+        for item in group["items"]
+    )
+    if not has_chargeable and not has_advance_waivers:
         return None
 
     inv = frappe.new_doc("Sales Invoice")
+    if company_name:
+        inv.company = company_name
     inv.customer = group["customer"]
     inv.due_date = current_date
     inv.posting_date = current_date
@@ -1556,20 +1650,34 @@ def _create_sales_invoice_from_group(
 
     c_name = company_name or inv.company
     target_currency = inv.currency
+    party_accounts = frappe.get_all(
+        "Party Account",
+        filters={"parent": group["customer"], "parenttype": "Customer", "company": c_name},
+        pluck="account",
+    )
+    account_filters = {
+        "company": c_name,
+        "account_type": "Receivable",
+        "account_currency": target_currency,
+        "is_group": 0,
+        "disabled": 0,
+    }
     debit_to = None
-    party_account = frappe.db.sql("""
-        SELECT account FROM `tabParty Account`
-        WHERE parent = %s AND parenttype = 'Customer' AND company = %s
-        AND EXISTS (SELECT name FROM `tabAccount` WHERE name = `tabParty Account`.account AND account_currency = %s)
-    """, (group["customer"], c_name, target_currency))
-    if party_account:
-        debit_to = party_account[0][0]
-    else:
-        debit_to = frappe.db.get_value("Account", {"company": c_name, "account_type": "Receivable", "account_currency": target_currency}, "name")
+    if party_accounts:
+        debit_to = frappe.db.get_value(
+            "Account", {**account_filters, "name": ["in", party_accounts]}, "name"
+        )
     if not debit_to:
-        debit_to = frappe.db.get_value("Company", c_name, "default_receivable_account")
-    if debit_to:
-        inv.debit_to = debit_to
+        debit_to = frappe.db.get_value("Account", account_filters, "name")
+    if not debit_to:
+        frappe.throw(
+            _("No active {0} Receivable account is configured for Company {1}. "
+              "Create a matching Receivable account and configure it for Customer {2}.").format(
+                target_currency, c_name, group["customer"]
+            ),
+            title=_("Missing Receivable Account"),
+        )
+    inv.debit_to = debit_to
 
     for idx, item in enumerate(inv.items, 1):
         item.idx = idx
@@ -1642,6 +1750,9 @@ def get_sales_invoice_vehicles(doc):
                                 vehicles.add(v_name)
             except Exception:
                 pass
+    for row in doc.get("custom_advance_vehicle_details", []):
+        if row.vehicle and frappe.db.exists("Vehicle", row.vehicle):
+            vehicles.add(row.vehicle)
     return list(vehicles)
 
 
@@ -1655,6 +1766,7 @@ def get_vehicle_last_billed_date_excluding(vehicle_name, exclude_invoice_name=No
         JOIN `tabSales Invoice` si ON si.name = sii.parent
         WHERE si.docstatus = 1
           AND si.name != %s
+          AND IFNULL(si.is_return, 0) = 0
           AND (sii.custom_vehicle = %s OR sii.custom_registration_number = %s)
     """, (exclude_invoice_name or "", vehicle_name, vehicle_name), as_dict=True)
 
@@ -1662,13 +1774,15 @@ def get_vehicle_last_billed_date_excluding(vehicle_name, exclude_invoice_name=No
 
     cust = frappe.db.get_value("Vehicle", vehicle_name, "custom_customer")
     if cust:
+        filters = {
+            "customer": cust,
+            "docstatus": 1,
+            "is_return": 0,
+            "name": ["!=", exclude_invoice_name or ""],
+        }
         candidates = frappe.db.get_all(
             "Sales Invoice",
-            filters={
-                "customer": cust,
-                "docstatus": 1,
-                "name": ["!=", exclude_invoice_name or ""]
-            },
+            filters=filters,
             fields=["name", "custom_billing_end_date", "custom_billing_to", "posting_date", "custom_fleet_data_json", "custom_cb_fleet_data_json", "custom_installation_data_json"]
         )
         for inv in candidates:
@@ -1704,12 +1818,28 @@ def get_customer_last_billed_date_excluding(customer_name, exclude_invoice_name=
     return None
 
 
-def is_item_billed_in_other_submitted_invoice(vehicle_name: str, item_code: str, exclude_invoice_name: str = None) -> bool:
+def is_item_billed_in_other_submitted_invoice(
+    vehicle_name: str,
+    item_code: str,
+    exclude_invoice_name: str = None,
+    paid_only: bool = False,
+) -> bool:
     """
-    Check if a vehicle item is included in any other submitted (docstatus = 1) Sales Invoice.
+    Check for installation charges in another submitted Sales Invoice.
     """
     if not vehicle_name or not item_code:
         return False
+
+    vehicle = frappe.get_doc("Vehicle", vehicle_name)
+    if paid_only and frappe.db.get_value("Item", item_code, "custom_item_type") == "GPS Device":
+        coverage = [
+            row for row in get_annual_advance_coverage(vehicle, paid_only=paid_only)
+            if row.name != exclude_invoice_name
+        ]
+        for row in vehicle.get("custom_vehicle_item", []):
+            installation_date = row.get("date_of_installation") or row.date
+            if row.item == item_code and installation_date and covered_days(coverage, installation_date, installation_date):
+                return True
 
     res = frappe.db.sql(
         """
@@ -1718,31 +1848,44 @@ def is_item_billed_in_other_submitted_invoice(vehicle_name: str, item_code: str,
         JOIN `tabSales Invoice` si ON si.name = sii.parent
         WHERE si.docstatus = 1
           AND si.name != %s
+          AND IFNULL(si.is_return, 0) = 0
+          AND sii.custom_is_installation = 1
+          AND (%s = 0 OR (si.status = 'Paid' AND si.outstanding_amount <= 0 AND IFNULL(sii.custom_waived, 0) = 0))
           AND (sii.custom_vehicle = %s OR sii.custom_registration_number = %s)
           AND TRIM(sii.item_code) = %s
         LIMIT 1
         """,
-        (exclude_invoice_name or "", vehicle_name, vehicle_name, item_code.strip()),
+        (exclude_invoice_name or "", int(paid_only), vehicle_name, vehicle_name, item_code.strip()),
     )
     if res:
         return True
 
     cust = frappe.db.get_value("Vehicle", vehicle_name, "custom_customer")
     if cust:
+        filters = {
+            "customer": cust,
+            "docstatus": 1,
+            "is_return": 0,
+            "name": ["!=", exclude_invoice_name or ""],
+        }
+        if paid_only:
+            filters.update({"status": "Paid", "outstanding_amount": ["<=", 0]})
         candidates = frappe.db.get_all(
             "Sales Invoice",
-            filters={
-                "customer": cust,
-                "docstatus": 1,
-                "name": ["!=", exclude_invoice_name or ""]
-            },
+            filters=filters,
             fields=["custom_fleet_data_json", "custom_cb_fleet_data_json", "custom_installation_data_json"]
         )
         for inv in candidates:
-            for jf in ["custom_fleet_data_json", "custom_cb_fleet_data_json", "custom_installation_data_json"]:
-                raw = inv.get(jf)
-                if raw and vehicle_name in str(raw) and item_code in str(raw):
-                    return True
+            raw = inv.get("custom_installation_data_json")
+            if raw:
+                rows = frappe.parse_json(raw)
+                for row in rows:
+                    vehicle = row.get("vehicle_no") or row.get("custom_vehicle") or row.get("vehicle")
+                    code = row.get("item_code") or row.get("item")
+                    if paid_only and not row.get("is_installation_charged", 1):
+                        continue
+                    if vehicle == vehicle_name and str(code or "").strip() == item_code.strip():
+                        return True
 
     return False
 
@@ -1751,7 +1894,7 @@ def update_vehicle_billed_status_on_submit(doc, vehicles=None, default_billing_d
     """
     On Sales Invoice submission:
     1. Updates each vehicle's `custom_last_billed_upto_date` based on invoice billing dates.
-    2. Marks `billed = 1` on `tabVehicle Item` for every item included in the invoice for that vehicle.
+    2. Marks `billed = 1` on `tabVehicle Item` for installation items included in the invoice for that vehicle.
     """
     if isinstance(doc, str):
         doc = frappe.get_doc("Sales Invoice", doc)
@@ -1785,7 +1928,7 @@ def update_vehicle_billed_status_on_submit(doc, vehicles=None, default_billing_d
             continue
 
         item_code = (item.get("item_code") or "").strip()
-        if item_code:
+        if item_code and cint(item.get("custom_is_installation")):
             vehicle_items_map.setdefault(v, set()).add(item_code)
 
         item_month = item.get("custom_billing_month")
@@ -1798,7 +1941,7 @@ def update_vehicle_billed_status_on_submit(doc, vehicles=None, default_billing_d
             if v not in vehicle_dates_map or item_end > vehicle_dates_map[v]:
                 vehicle_dates_map[v] = item_end
 
-    for jf in ["custom_fleet_data_json", "custom_cb_fleet_data_json", "custom_installation_data_json"]:
+    for jf in ["custom_installation_data_json"]:
         raw = doc.get(jf)
         if raw:
             try:
@@ -1833,10 +1976,13 @@ def update_vehicle_billed_status_on_submit(doc, vehicles=None, default_billing_d
             continue
         v_date = vehicle_dates_map.get(v_name) or default_billing_date
         if v_date:
+            previous_date = frappe.db.get_value("Vehicle", v_name, "custom_last_billed_upto_date")
+            if previous_date:
+                v_date = max(getdate(previous_date), getdate(v_date))
             frappe.db.set_value("Vehicle", v_name, "custom_last_billed_upto_date", v_date, update_modified=False)
             frappe.clear_document_cache("Vehicle", v_name)
 
-    # 2. Update Vehicle Item billed = 1 for all items on each vehicle
+    # 2. Mark installation items billed only when their invoice is fully paid.
     for v_name, item_codes in vehicle_items_map.items():
         if not frappe.db.exists("Vehicle", v_name) or not item_codes:
             continue
@@ -1844,12 +1990,96 @@ def update_vehicle_billed_status_on_submit(doc, vehicles=None, default_billing_d
             frappe.db.sql(
                 """
                 UPDATE `tabVehicle Item`
-                SET billed = 1
+                SET billed = %s
                 WHERE parent = %s AND TRIM(item) = %s
                 """,
-                (v_name, code),
+                (int(is_item_billed_in_other_submitted_invoice(v_name, code, paid_only=True)), v_name, code),
             )
         frappe.clear_document_cache("Vehicle", v_name)
+
+    for v_name in all_vehicles:
+        _update_subscription_billed_status(v_name)
+
+
+def _subscription_period_is_covered(intervals: list, start_date, end_date) -> bool:
+    next_date = start_date
+    for start, end in sorted(intervals):
+        if start > next_date:
+            break
+        next_date = max(next_date, add_days(end, 1))
+    return next_date > end_date
+
+
+def _get_subscription_intervals(vehicle, paid_only: bool = False) -> dict:
+    annual_coverage = get_annual_advance_coverage(vehicle)
+    coverage_rows = frappe.db.sql(
+        """SELECT detail.item_code, detail.custom_custom_biling_month, detail.custom_waived,
+                  detail.custom_waiver_reason,
+                  invoice.custom_billing_start_date, invoice.custom_billing_from,
+                  invoice.custom_billing_end_date, invoice.custom_billing_to,
+                  invoice.posting_date
+           FROM `tabSales Invoice Item` detail
+           INNER JOIN `tabSales Invoice` invoice ON invoice.name = detail.parent
+           WHERE invoice.docstatus = 1 AND IFNULL(invoice.is_return, 0) = 0
+             AND (%(paid_only)s = 0 OR (invoice.status = 'Paid' AND invoice.outstanding_amount <= 0))
+             AND detail.custom_is_subscription = 1
+             AND (IFNULL(detail.custom_waived, 0) = 0 OR detail.custom_billing_decision = 'Chargeable')
+             AND (detail.custom_vehicle = %(vehicle)s
+                  OR detail.custom_registration_number = %(vehicle)s
+                  OR detail.custom_registration_number = %(plate)s)""",
+        {"vehicle": vehicle.name, "plate": vehicle.license_plate or vehicle.name, "paid_only": int(paid_only)},
+        as_dict=True,
+    )
+    intervals = {}
+    for row in coverage_rows:
+        start = getdate(row.custom_billing_start_date or row.custom_billing_from or row.posting_date)
+        end = getdate(row.custom_billing_end_date or row.custom_billing_to or row.posting_date)
+        if row.custom_custom_biling_month:
+            month_number = cint(row.custom_custom_biling_month)
+            year = start.year + int(month_number < start.month)
+            month = getdate(f"{year}-{month_number:02d}-01")
+            start = max(start, month)
+            end = min(end, get_last_day(month))
+        if start <= end:
+            periods = [(start, end)]
+            if row.custom_waived and (row.custom_waiver_reason or "").startswith("Annual advance coverage - "):
+                periods = uncovered_periods(annual_coverage, start, end)
+            intervals.setdefault(row.item_code.strip(), []).extend(periods)
+
+    if paid_only:
+        annual_coverage = get_annual_advance_coverage(vehicle, paid_only=True)
+    if annual_coverage:
+        for row in vehicle.get("custom_vehicle_item", []):
+            if row.item and frappe.db.get_value("Item", row.item, "custom_item_type") == "GPS Device":
+                intervals.setdefault(row.item.strip(), []).extend(
+                    (getdate(coverage.start_date), getdate(coverage.end_date))
+                    for coverage in annual_coverage
+                )
+    return intervals
+
+
+def _update_subscription_billed_status(vehicle_name: str):
+    if not frappe.db.exists("Vehicle", vehicle_name):
+        return
+    vehicle = frappe.get_doc("Vehicle", vehicle_name)
+    target_date = vehicle.get("custom_last_billed_upto_date")
+    intervals = _get_subscription_intervals(vehicle, paid_only=True)
+    for row in vehicle.get("custom_vehicle_item", []):
+        is_gps = frappe.db.get_value("Item", row.item, "custom_item_type") == "GPS Device"
+        installation_date = row.get("date_of_installation") or row.date
+        covered = False
+        if (
+            is_gps and target_date and installation_date
+            and getdate(installation_date) <= getdate(target_date)
+        ):
+            covered = _subscription_period_is_covered(
+                intervals.get((row.item or "").strip(), []),
+                getdate(installation_date), getdate(target_date),
+            )
+        frappe.db.set_value(
+            "Vehicle Item", row.name, "subscription_billed", int(covered), update_modified=False
+        )
+    frappe.clear_document_cache("Vehicle", vehicle_name)
 
 
 def revert_vehicle_billed_status_on_cancel(doc, vehicles=None):
@@ -1923,7 +2153,7 @@ def revert_vehicle_billed_status_on_cancel(doc, vehicles=None):
         if not frappe.db.exists("Vehicle", v_name) or not item_codes:
             continue
         for code in item_codes:
-            if not is_item_billed_in_other_submitted_invoice(v_name, code, exclude_invoice_name=doc.name):
+            if not is_item_billed_in_other_submitted_invoice(v_name, code, exclude_invoice_name=doc.name, paid_only=True):
                 frappe.db.sql(
                     """
                     UPDATE `tabVehicle Item`
@@ -1933,6 +2163,8 @@ def revert_vehicle_billed_status_on_cancel(doc, vehicles=None):
                     (v_name, code),
                 )
         frappe.clear_document_cache("Vehicle", v_name)
+
+    refresh_paid_billing_flags(doc)
 
 
 @frappe.whitelist()
@@ -2347,3 +2579,36 @@ def process_automatic_billing(billing_date=None):
                         frappe.db.rollback()
                         frappe.log_error(f"Fixed Auto Billing failed for {cust.name}: {str(e)}", "Automatic Fleet Billing Error")
 
+
+
+def refresh_paid_billing_flags(doc, method=None):
+    invoice_names = set()
+    if doc.doctype == "Sales Invoice":
+        invoice_names.add(doc.name)
+    elif doc.doctype == "Payment Ledger Entry":
+        if doc.against_voucher_type == "Sales Invoice":
+            invoice_names.add(doc.against_voucher_no)
+    elif doc.doctype == "Payment Entry":
+        invoice_names.update(
+            row.reference_name for row in doc.get("references", [])
+            if row.reference_doctype == "Sales Invoice" and row.reference_name
+        )
+    elif doc.doctype == "Journal Entry":
+        invoice_names.update(
+            row.reference_name for row in doc.get("accounts", [])
+            if row.reference_type == "Sales Invoice" and row.reference_name
+        )
+
+    vehicles = set()
+    for invoice_name in sorted(invoice_names):
+        invoice = frappe.get_doc("Sales Invoice", invoice_name)
+        vehicles.update(get_sales_invoice_vehicles(invoice))
+    from fleet.api.advance_outstanding import refresh_related_summaries
+
+    refresh_related_summaries(invoice_names)
+    for vehicle_name in sorted(vehicles):
+        vehicle = frappe.get_doc("Vehicle", vehicle_name)
+        for row in vehicle.get("custom_vehicle_item", []):
+            billed = is_item_billed_in_other_submitted_invoice(vehicle_name, row.item, paid_only=True)
+            frappe.db.set_value("Vehicle Item", row.name, "billed", int(billed), update_modified=False)
+        _update_subscription_billed_status(vehicle_name)
